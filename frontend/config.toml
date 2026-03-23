@@ -1,0 +1,19 @@
+[theme]
+base                     = "light"
+primaryColor             = "#185FA5"
+backgroundColor          = "#FFFFFF"
+secondaryBackgroundColor = "#F7F9FC"
+textColor                = "#0A2540"
+font                     = "sans serif"
+
+[server]
+headless     = true
+port         = 8501
+# enableCORS: 리버스 프록시(Nginx) 없이 직접 배포 시 true 로 변경 필요
+enableCORS   = false
+enableXsrfProtection = true
+# 최대 업로드 크기 (MB)
+maxUploadSize = 10
+
+[browser]
+gatherUsageStats = false
