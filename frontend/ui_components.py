@@ -200,7 +200,54 @@ def render_price_analysis(r: dict):
     per_sqm      = _get(r, "price_per_sqm")
     price_error  = _get(r, "price_error", "")
 
-    st.markdown('<div class="section-label">📊 인근 실거래가 분석</div>', unsafe_allow_html=True)
+    source = _get(r, "source", "")
+    if source and "공시가격" in source:
+        st.markdown('<div class="section-label">📊 공시가격 기반 추정</div>', unsafe_allow_html=True)
+        st.info(f"ℹ️ 실거래 데이터 없음 — {source}\n\n실제 시세와 차이가 있을 수 있습니다.")
+    elif source and "원가법" in source:
+        st.markdown('<div class="section-label">📊 건축원가법 기반 추정</div>', unsafe_allow_html=True)
+        land_val   = _get(r, "land_value", 0)
+        build_val  = _get(r, "build_value", 0)
+        재조달원가  = _get(r, "재조달원가", 0)
+        감가액      = _get(r, "감가액", 0)
+        age        = _get(r, "build_age", 0)
+        잔가율      = _get(r, "잔가율", 0)
+        strct      = _get(r, "strct_nm", "")
+        depr       = _get(r, "depreciation", "")
+        depr_label = "정률법" if depr == "declining" else "정액법"
+
+        st.info(
+            f"ℹ️ 실거래 데이터 없음 — {source}\n\n"
+            f"재조달원가 {재조달원가:,}만원  −  감가액 {감가액:,}만원  =  건물가격 {build_val:,}만원\n"
+            f"토지가격 {land_val:,}만원  +  건물가격 {build_val:,}만원\n"
+            f"구조: {strct or '기본'}  /  경과 {age}년  /  잔가율 {잔가율:.1%}  ({depr_label})"
+        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("재조달원가", f"{재조달원가:,} 만원")
+        c2.metric("감가액", f"{감가액:,} 만원", f"잔가율 {잔가율:.1%}")
+        c3.metric("건물가격 (감가 후)", f"{build_val:,} 만원")
+    elif source and "공시지가 기반" in source:
+        st.markdown('<div class="section-label">📊 공시지가 기반 추정</div>', unsafe_allow_html=True)
+        land_val  = _get(r, "land_value", 0)
+        build_val = _get(r, "build_value", 0)
+        st.info(
+            f"ℹ️ 실거래·면적 데이터 없음 — {source}\n\n"
+            f"토지가격 {land_val:,}만원  +  건물가격 {build_val:,}만원\n"
+            f"⚠️ 실제 거래가와 차이가 있을 수 있습니다."
+        )
+    elif source and "수익환원법" in source:
+        st.markdown('<div class="section-label">📊 수익환원법 기반 추정</div>', unsafe_allow_html=True)
+        noi         = _get(r, "noi", 0)
+        annual_rent = _get(r, "annual_rent", 0)
+        vacancy     = _get(r, "vacancy_rate", 0)
+        cap         = _get(r, "cap_rate_used", 0)
+        st.info(
+            f"ℹ️ 실거래 데이터 없음 — {source}\n\n"
+            f"연 임대수입 {annual_rent:,}만원 / 공실률 {vacancy}% "
+            f"/ NOI {noi:,}만원 / Cap Rate {cap:.1f}%"
+        )
+    else:
+        st.markdown('<div class="section-label">📊 인근 실거래가 분석</div>', unsafe_allow_html=True)
 
     # 데이터 없음 처리
     if not price_avg and not price_count:

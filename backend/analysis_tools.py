@@ -126,7 +126,122 @@ def _get_recent_deal_ymds(months: int = 3) -> list[str]:
 
 
 # ─────────────────────────────────────────
-#  4. 국토부 실거래가 API
+#  4. 공동주택 공시가격 API (실거래가 폴백)
+# ─────────────────────────────────────────
+
+OFFICIAL_PRICE_URL = (
+    "https://apis.data.go.kr/1613000"
+    "/PblntfPublicWrtPrcInfo/getPblntfPublicWrtPrcInfo"
+)
+
+# 현실화율 (2024년 기준, 국토부 고시)
+REALIZATION_RATE = {
+    "아파트":     0.69,
+    "오피스텔":   0.69,
+    "연립다세대": 0.654,
+    "단독다가구": 0.536,
+}
+
+
+def _fetch_by_official_price(
+    lawd_code: str,
+    apt_name: str,
+    category_detail: str = "",
+    area_sqm: float = 0.0,
+) -> dict:
+    """
+    공동주택 공시가격 API 호출 → 현실화율 역산 → 추정 시세 반환.
+
+    실거래가 없을 때만 호출되는 폴백 함수.
+    반환 구조는 fetch_real_transaction_prices() 와 동일.
+    """
+    if not MOLIT_API_KEY:
+        return _empty_price_data("MOLIT_API_KEY 없음 (공시가격 조회 불가)")
+
+    safe_key  = MOLIT_API_KEY.replace("+", "%2B").replace("=", "%3D")
+    this_year = datetime.now().year
+
+    # 올해 없으면 전년도로 폴백 (공시가격은 매년 1월 기준 4~5월 공시)
+    for year in [this_year, this_year - 1]:
+        query = (
+            f"serviceKey={safe_key}"
+            f"&LAWD_CD={lawd_code}"
+            f"&STDR_YEAR={year}"
+            f"&numOfRows=100"
+            f"&pageNo=1"
+        )
+        if apt_name:
+            query += f"&BLDG_NM={apt_name}"
+
+        try:
+            res = requests.get(f"{OFFICIAL_PRICE_URL}?{query}", timeout=10)
+            res.raise_for_status()
+            root  = ET.fromstring(res.text)
+
+            result_code = root.findtext(".//resultCode", "")
+            if result_code.lstrip("0") not in ("", "0"):
+                print(f"[official] API 오류: {result_code} - {root.findtext('.//resultMsg','')}")
+                continue
+
+            items = root.findall(".//item")
+            print(f"[official] {year}년 공시가격: {len(items)}건")
+
+            if not items:
+                continue
+
+            # 면적 필터 — area_sqm 입력 시 ±10㎡ 범위
+            if area_sqm > 0:
+                items = [
+                    it for it in items
+                    if abs(float(it.findtext("excluUseAr", "0") or 0) - area_sqm) <= 10
+                ] or items  # 필터 후 0건이면 전체 사용
+
+            prices = []
+            for it in items:
+                prc_text = it.findtext("pblntfPrc", "") or ""
+                try:
+                    prc = int(prc_text.replace(",", "").strip())
+                    if prc > 0:
+                        prices.append(prc)
+                except ValueError:
+                    pass
+
+            if not prices:
+                continue
+
+            avg_official = sum(prices) // len(prices)
+            rate         = REALIZATION_RATE.get(category_detail, 0.69)
+            avg_est      = round(avg_official / rate)
+            per_sqm_est  = round(avg_est / area_sqm) if area_sqm > 0 else 0
+
+            print(f"[official] ✅ 공시가격 평균 {avg_official:,}만원 "
+                  f"/ 현실화율 {rate:.1%} "
+                  f"/ 추정 시세 {avg_est:,}만원")
+
+            return {
+                "avg":              avg_est,
+                "min":              round(avg_est * 0.90),
+                "max":              round(avg_est * 1.10),
+                "count":            len(prices),
+                "per_sqm_avg":      per_sqm_est,
+                "samples":          [],
+                "apt_name_matched": apt_name,
+                "used_months":      0,
+                "used_region":      "",
+                "source":           f"공시가격 역산 ({year}년 기준, 현실화율 {rate:.1%})",
+                "error":            "",
+            }
+
+        except requests.Timeout:
+            print(f"[official] {year}년 타임아웃")
+        except Exception as e:
+            print(f"[official] {year}년 오류: {e}")
+
+    return _empty_price_data("공시가격 조회 실패 (실거래·공시가격 모두 없음)")
+
+
+# ─────────────────────────────────────────
+#  5. 국토부 실거래가 API
 # ─────────────────────────────────────────
 
 MOLIT_BASE_URL = "https://apis.data.go.kr/1613000"
@@ -156,8 +271,8 @@ AREA_FIELD_MAP = {
     "주거용": ["excluUseAr"],
     "상업용": ["excluUseAr", "plottageAr"],
     "업무용": ["excluUseAr"],
-    "산업용": ["buildArea",  "plottageAr"],
-    "토지":   ["jimokAr",    "plottageAr"],
+    "산업용": ["buildingAr", "plottageAr"],   # buildingAr: 건물면적
+    "토지":   ["plottageAr", "jimokAr"],
 }
 
 
@@ -213,6 +328,16 @@ def _parse_items(items, category: str) -> list[dict]:
         if isinstance(price_val, str):
             price_val = int(price_val.replace(",", "").strip())
 
+        # 단지명: 주거용=aptNm, 산업용=건물용도+동명
+        apt_nm = (item.findtext("aptNm", "")
+                  or item.findtext("mhouseNm", "")
+                  or item.findtext("buildNm", ""))
+        if not apt_nm:
+            # 산업용·상업용: 건물용도 + 동명 조합
+            bldg_use = item.findtext("buildingUse", "")
+            umd_nm   = item.findtext("umdNm", "")
+            apt_nm   = f"{umd_nm} {bldg_use}".strip() if bldg_use else umd_nm
+
         result.append({
             "price":       price_val,
             "area_sqm":    area_val,
@@ -221,9 +346,7 @@ def _parse_items(items, category: str) -> list[dict]:
             "floor":       item.findtext("floor", ""),
             "year_built":  item.findtext("buildYear", ""),
             "dong":        item.findtext("umdNm", ""),
-            "apt_name":    (item.findtext("aptNm", "")
-                            or item.findtext("mhouseNm", "")
-                            or item.findtext("buildNm", "") or ""),
+            "apt_name":    apt_nm,
             "deal_year":   item.findtext("dealYear", ""),
             "deal_month":  item.findtext("dealMonth", ""),
         })
@@ -333,23 +456,64 @@ def fetch_real_transaction_prices(
 
     apt_clean_stripped = _strip_suffix(apt_clean)
 
-    # ── 1단계: 단지명 정확 매칭 (3 → 6 → 12개월) ──────────────────────────
+    # ── 1단계: 단지명 매칭 (3 → 6 → 12개월) ───────────────────────────────
+    # 정확 매칭 → 공백 제거 매칭 → 부분 매칭 순으로 시도
+    apt_no_space = apt_clean_stripped.replace(" ", "")
     if apt_clean:
         for months in [3, 6, 12]:
             deal_ymds  = _get_recent_deal_ymds(months=months)
             print(f"[molit] 단지 조회: '{apt_clean_stripped}' / {months}개월")
             raw_parsed = _fetch_by_ymds(url, safe_key, lawd_code, deal_ymds, category)
+            if not raw_parsed:
+                print(f"[molit] '{apt_clean_stripped}' {months}개월 없음 → 기간 확장")
+                continue
+
+            # 디버그: 후보 단지명 출력
+            actual_names = list(set(d["apt_name"] for d in raw_parsed))
+            candidates   = [n for n in actual_names
+                            if apt_no_space[:4] in n.replace(" ", "")]
+            if candidates:
+                print(f"[molit] 후보 단지명: {candidates[:5]}")
+
+            # 1-1. 정확 매칭 (접미사 제거)
+            exact = [d for d in raw_parsed
+                     if _strip_suffix(d["apt_name"]) == apt_clean_stripped]
+            if exact:
+                all_parsed  = exact
+                used_months = months
+                print(f"[molit] ✅ 단지 정확 매칭: '{apt_clean_stripped}' {len(exact)}건 / {months}개월")
+                break
+
+            # 1-2. 공백 제거 후 매칭
+            no_space = [d for d in raw_parsed
+                        if _strip_suffix(d["apt_name"]).replace(" ", "") == apt_no_space]
+            if no_space:
+                top_name    = Counter(d["apt_name"] for d in no_space).most_common(1)[0][0]
+                all_parsed  = no_space
+                used_months = months
+                print(f"[molit] ✅ 단지 공백제거 매칭: '{apt_clean_stripped}' → '{top_name}' {len(no_space)}건 / {months}개월")
+                break
+
+            # 1-3. 부분 매칭
+            partial = [d for d in raw_parsed
+                       if (apt_no_space in _strip_suffix(d["apt_name"]).replace(" ", "")
+                           or _strip_suffix(d["apt_name"]).replace(" ", "") in apt_no_space)
+                       and len(_strip_suffix(d["apt_name"]).replace(" ", "")) >= 3]
+            if partial:
+                top_name    = Counter(d["apt_name"] for d in partial).most_common(1)[0][0]
+                matched     = [d for d in partial if d["apt_name"] == top_name]
+                all_parsed  = matched
+                used_months = months
+                print(f"[molit] ✅ 단지 부분 매칭: '{apt_clean_stripped}' → '{top_name}' {len(matched)}건 / {months}개월")
+                break
+
+            # 디버그: 실제 단지명 목록 출력 (매칭 실패 원인 파악)
             if raw_parsed:
-                # 양쪽 모두 접미사 제거 후 비교
-                exact = [
-                    d for d in raw_parsed
-                    if _strip_suffix(d["apt_name"]) == apt_clean_stripped
-                ]
-                if exact:
-                    all_parsed  = exact
-                    used_months = months
-                    print(f"[molit] ✅ 단지 정확 매칭: '{apt_clean_stripped}' {len(exact)}건 / {months}개월")
-                    break
+                actual_names = list(set(d["apt_name"] for d in raw_parsed[:20]))
+                candidates = [n for n in actual_names
+                              if any(c in n.replace(" ","") for c in apt_no_space[:4])]
+                if candidates:
+                    print(f"[molit] 후보 단지명: {candidates[:5]}")
             print(f"[molit] '{apt_clean_stripped}' {months}개월 없음 → 기간 확장")
 
     # ── 2단계: 단지 없으면 동 필터링 (3 → 6개월) ───────────────────────────
@@ -380,14 +544,17 @@ def fetch_real_transaction_prices(
                 break
             print(f"[molit] {months}개월 데이터 없음 → 기간 확장")
 
-    # ── 산업용·토지: 공시가격 역산 ───────────────────────────────────────────
-    if not all_parsed and category in ("산업용", "토지"):
-        return _empty_price_data(
-            "실거래 없음 — 토지/산업용은 공시가격 기반으로 추정됩니다"
-        )
-
+    # ── 실거래 없음 → 공시가격 폴백 (주거용만, 산업용·토지 제외) ─────────────
     if not all_parsed:
-        return _empty_price_data(f"최근 6개월 실거래 데이터 없음")
+        if category == "주거용":
+            print(f"[molit] 실거래 없음 → 공시가격 폴백 시도")
+            return _fetch_by_official_price(
+                lawd_code      = lawd_code,
+                apt_name       = apt_clean,
+                category_detail= category_detail,
+                area_sqm       = 0.0,
+            )
+        return _empty_price_data("최근 6개월 실거래 데이터 없음")
 
     # ── 결과 집계 ─────────────────────────────────────────────────────────
     apt_name_matched = all_parsed[0].get("apt_name", "") if apt_clean else ""
@@ -542,6 +709,369 @@ def calc_valuation_verdict(
         "deviation_pct":     deviation,
         "valuation_verdict": verdict,
         "comparables":       samples,
+    }
+
+
+# ─────────────────────────────────────────
+#  수익환원법 — 상업용·업무용 전용
+#  R-ONE API 없을 때 지역별 기준값 사용
+# ─────────────────────────────────────────
+
+RBONE_API_KEY = os.getenv("RBONE_API_KEY", "")
+RBONE_BASE_URL = "https://www.reb.or.kr/r-one/openapi/SttsApiTblData.do"
+
+# 건물유형 코드
+RBONE_BLDG_TYPE = {
+    "상업용": "A01",   # 중대형 상가
+    "업무용": "B01",   # 오피스
+}
+
+# 지역별 ㎡당 월 임대료 기준값 (만원/㎡, R-ONE 2024년 기준)
+# R-ONE API 호출 실패 시 폴백으로 사용
+RBONE_RENT_FALLBACK = {
+    "상업용": {
+        "서울": {"서초구": 12.0, "강남구": 14.0, "마포구": 8.0,
+                 "영등포구": 9.0, "송파구": 10.0, "default": 7.0},
+        "경기": {"default": 4.5},
+        "부산": {"해운대구": 6.0, "default": 4.0},
+        "default": 4.0,
+    },
+    "업무용": {
+        "서울": {"서초구": 3.5, "강남구": 4.0, "중구": 3.8,
+                 "영등포구": 3.2, "마포구": 2.8, "default": 2.5},
+        "경기": {"성남시": 2.0, "default": 1.5},
+        "부산": {"default": 1.5},
+        "default": 1.5,
+    },
+}
+
+# 지역별 공실률 기준값 (%)
+RBONE_VACANCY_FALLBACK = {
+    "상업용": {
+        "서울": {"서초구": 7.0, "강남구": 6.0, "default": 10.0},
+        "default": 12.0,
+    },
+    "업무용": {
+        "서울": {"서초구": 8.0, "강남구": 7.0, "여의도": 9.0, "default": 12.0},
+        "경기": {"default": 15.0},
+        "default": 14.0,
+    },
+}
+
+# Cap Rate 기준값 (%)
+CAP_RATE_TABLE = {
+    "상업용": {"서울": 4.5, "경기": 5.5, "default": 5.5},
+    "업무용": {"서울": 4.0, "경기": 5.0, "default": 5.0},
+}
+
+
+def _get_rbone_rent(category: str, region_1depth: str, region_2depth: str) -> tuple[float, float]:
+    """
+    R-ONE API → 지역별 ㎡당 월 임대료 + 공실률 반환.
+    API 실패 시 RBONE_RENT_FALLBACK 사용.
+    반환: (월임대료 만원/㎡, 공실률 %)
+    """
+    # R-ONE API 시도
+    if RBONE_API_KEY:
+        try:
+            bldg_type = RBONE_BLDG_TYPE.get(category, "A01")
+            now       = datetime.now()
+            # 분기 계산 (R-ONE은 분기별 제공)
+            quarter   = (now.month - 1) // 3 + 1
+            # 최신 분기가 아직 미공표일 수 있어 한 분기 전 사용
+            if quarter == 1:
+                stdr_de = f"{now.year - 1}Q4"
+            else:
+                stdr_de = f"{now.year}Q{quarter - 1}"
+
+            params = (
+                f"serviceKey={RBONE_API_KEY}"
+                f"&statbl_id=A_2024_00006"   # 상업용부동산 임대동향
+                f"&stdr_de={stdr_de}"
+                f"&numOfRows=100"
+                f"&pageNo=1"
+            )
+            res = requests.get(f"{RBONE_BASE_URL}?{params}", timeout=8)
+            res.raise_for_status()
+            root  = ET.fromstring(res.text)
+            items = root.findall(".//row")
+
+            for item in items:
+                area = item.findtext("AREA_NM", "")
+                type_nm = item.findtext("BLDG_TYPE_NM", "")
+                if region_2depth in area and bldg_type in type_nm:
+                    rent    = float(item.findtext("RENT_AMT", "0") or 0)
+                    vacancy = float(item.findtext("VCNC_RATE", "0") or 0)
+                    if rent > 0:
+                        print(f"[rbone] {region_2depth} {category} 임대료: {rent}만원/㎡, 공실: {vacancy}%")
+                        return rent, vacancy
+
+        except Exception as e:
+            print(f"[rbone] API 오류: {e} → 기준값 사용")
+
+    # 폴백: 지역별 기준값
+    rent_table    = RBONE_RENT_FALLBACK.get(category, {})
+    vacancy_table = RBONE_VACANCY_FALLBACK.get(category, {})
+
+    r1 = region_1depth.replace("특별시", "").replace("광역시", "").replace("특별자치시", "").replace("도", "").strip()
+
+    rent_region    = rent_table.get(r1, rent_table.get("default", {}))
+    vacancy_region = vacancy_table.get(r1, vacancy_table.get("default", {}))
+
+    if isinstance(rent_region, dict):
+        rent    = rent_region.get(region_2depth, rent_region.get("default", 4.0))
+        vacancy = vacancy_region.get(region_2depth, vacancy_region.get("default", 12.0)) if isinstance(vacancy_region, dict) else vacancy_region
+    else:
+        rent    = rent_region
+        vacancy = vacancy_region if isinstance(vacancy_region, (int, float)) else 12.0
+
+    print(f"[rbone] 기준값 사용: {region_2depth} {category} 임대료 {rent}만원/㎡, 공실 {vacancy}%")
+    return float(rent), float(vacancy)
+
+
+def _fetch_by_income_approach(
+    category: str,
+    region_1depth: str,
+    region_2depth: str,
+    area_sqm: float,
+    cap_rate_override: float = 0.0,
+) -> dict:
+    """
+    수익환원법: NOI / Cap Rate = 추정 시세
+    상업용·업무용 실거래 없을 때 폴백.
+
+    NOI = 연 임대수입 × (1 - 공실률) × (1 - 운영비율)
+    추정가 = NOI / Cap Rate
+    """
+    if area_sqm <= 0:
+        return _empty_price_data("수익환원법: 면적 정보 없음")
+
+    rent_per_sqm, vacancy_rate = _get_rbone_rent(category, region_1depth, region_2depth)
+
+    # 연 임대수입
+    annual_rent = rent_per_sqm * area_sqm * 12
+
+    # 공실 손실
+    vacancy_loss = annual_rent * (vacancy_rate / 100)
+
+    # 운영비용 (관리비·수선비·보험료 등, 통상 15%)
+    operating_cost = annual_rent * 0.15
+
+    # 순영업수익 (NOI)
+    noi = annual_rent - vacancy_loss - operating_cost
+
+    # Cap Rate
+    r1   = region_1depth.replace("특별시","").replace("광역시","").replace("도","").strip()
+    cap_table = CAP_RATE_TABLE.get(category, {})
+    cap_rate  = cap_rate_override or cap_table.get(r1, cap_table.get("default", 5.0))
+    cap_rate  = cap_rate / 100
+
+    # 추정가
+    estimated = round(noi / cap_rate) if cap_rate > 0 else 0
+    per_sqm   = round(estimated / area_sqm) if area_sqm > 0 else 0
+
+    print(f"[수익환원법] 월임대료 {rent_per_sqm}만원/㎡ × {area_sqm}㎡ "
+          f"→ 연임대 {annual_rent:,.0f}만원 / NOI {noi:,.0f}만원 "
+          f"/ Cap {cap_rate:.1%} → 추정가 {estimated:,}만원")
+
+    return {
+        "avg":              estimated,
+        "min":              round(estimated * 0.85),
+        "max":              round(estimated * 1.15),
+        "count":            0,
+        "per_sqm_avg":      per_sqm,
+        "samples":          [],
+        "apt_name_matched": "",
+        "used_months":      0,
+        "used_region":      region_2depth,
+        "noi":              round(noi),
+        "annual_rent":      round(annual_rent),
+        "vacancy_rate":     vacancy_rate,
+        "cap_rate_used":    cap_rate * 100,
+        "source":           (f"수익환원법 (월임대료 {rent_per_sqm}만원/㎡, "
+                             f"공실률 {vacancy_rate}%, Cap Rate {cap_rate:.1%})"),
+        "error":            "",
+    }
+
+
+# ─────────────────────────────────────────
+#  건축원가법 — 산업용 (공장·창고) 전용
+# ─────────────────────────────────────────
+
+# 구조별 표준건축비 (만원/㎡, 국토부 고시 기준)
+STANDARD_CONSTRUCTION_COST = {
+    "공장": {
+        "철근콘크리트": 95,
+        "철골철근콘크리트": 100,
+        "철골조":       80,
+        "조적조":       60,
+        "default":     80,
+    },
+    "창고": {
+        "철근콘크리트": 65,
+        "철골철근콘크리트": 70,
+        "철골조":       50,
+        "조적조":       40,
+        "default":     50,
+    },
+    "물류창고": {
+        "철근콘크리트": 75,
+        "철골조":       60,
+        "default":     60,
+    },
+}
+
+# 구조별 내용연수 (년)
+USEFUL_LIFE = {
+    "공장": {
+        "철근콘크리트": 40,
+        "철골철근콘크리트": 40,
+        "철골조":       30,
+        "조적조":       20,
+        "default":     35,
+    },
+    "창고": {
+        "철근콘크리트": 30,
+        "철골철근콘크리트": 30,
+        "철골조":       25,
+        "조적조":       20,
+        "default":     25,
+    },
+    "물류창고": {
+        "철근콘크리트": 35,
+        "철골조":       25,
+        "default":     30,
+    },
+}
+
+# 구조별 잔존가치율 (감가 완료 후 최소 잔존 비율)
+RESIDUAL_VALUE_RATE = {
+    "철근콘크리트":     0.10,
+    "철골철근콘크리트": 0.10,
+    "철골조":           0.05,
+    "조적조":           0.05,
+    "default":          0.10,
+}
+
+
+def _get_strct_key(strct_nm: str) -> str:
+    """건물구조명 → 표준 키 변환"""
+    for key in ["철골철근콘크리트", "철근콘크리트", "철골조", "조적조"]:
+        if key in strct_nm:
+            return key
+    return "default"
+
+
+def _calc_residual_rate(age: int, useful_life: int, residual: float,
+                        method: str = "declining") -> float:
+    """
+    감가상각 잔가율 계산.
+
+    method:
+        "declining" — 정률법 (초기 감가 크고 후기 완만, 실물자산에 적합)
+        "straight"  — 정액법 (매년 균등 감가)
+
+    정률법 감가율 r = 1 - (잔존가치율) ^ (1/내용연수)
+    잔가율 = (1 - r) ^ 경과연수
+    """
+    if age <= 0:
+        return 1.0
+
+    if method == "declining":
+        # 정률법
+        r = 1 - (residual ** (1 / useful_life))
+        rate = (1 - r) ** age
+    else:
+        # 정액법
+        rate = 1 - (1 - residual) * (age / useful_life)
+
+    return round(max(residual, rate), 4)
+
+
+def calc_cost_approach(
+    land_area_sqm: float,
+    official_land_price: int,
+    build_area_sqm: float,
+    build_year: int,
+    category_detail: str,
+    strct_nm: str = "",          # 건물구조 (건축물대장에서 자동 조회)
+    depreciation: str = "declining",  # 감가방법: declining(정률) | straight(정액)
+) -> dict:
+    """
+    건축원가법: 토지가격 + 건물가격(감가상각 적용)
+
+    토지가격  = 공시지가(만원/㎡) × 토지면적(㎡)
+    건물가격  = 표준건축비(만원/㎡) × 건물면적(㎡) × 잔가율
+
+    잔가율 (정률법):
+      감가율 r = 1 - (잔존가치율)^(1/내용연수)
+      잔가율   = (1-r)^경과연수
+      → 초기 감가가 크고 후기에 완만 (실물자산 현실에 부합)
+
+    잔가율 (정액법):
+      잔가율 = 1 - (1-잔존가치율) × (경과연수/내용연수)
+      → 매년 균등 감가
+    """
+    now_year   = datetime.now().year
+    detail_key = next((k for k in STANDARD_CONSTRUCTION_COST if k in category_detail), "창고")
+    strct_key  = _get_strct_key(strct_nm)
+
+    cost_table = STANDARD_CONSTRUCTION_COST[detail_key]
+    life_table = USEFUL_LIFE[detail_key]
+
+    std_cost    = cost_table.get(strct_key, cost_table["default"])
+    useful_life = life_table.get(strct_key, life_table["default"])
+    residual    = RESIDUAL_VALUE_RATE.get(strct_key, RESIDUAL_VALUE_RATE["default"])
+
+    age    = max(0, now_year - int(build_year)) if build_year else 10
+    잔가율  = _calc_residual_rate(age, useful_life, residual, method=depreciation)
+
+    # 토지가격
+    land_value  = round(official_land_price * land_area_sqm) if official_land_price and land_area_sqm else 0
+
+    # 건물가격 (재조달원가 × 잔가율)
+    재조달원가  = round(std_cost * build_area_sqm) if build_area_sqm else 0
+    build_value = round(재조달원가 * 잔가율)
+    감가액       = 재조달원가 - build_value
+
+    total = land_value + build_value
+
+    if total <= 0:
+        return _empty_price_data("건축원가법: 토지가격·건물가격 모두 0 (면적 및 공시지가 필요)")
+
+    per_sqm     = round(total / build_area_sqm) if build_area_sqm > 0 else 0
+    source_note = "공시지가 + 표준건축비" if land_value > 0 else "표준건축비만 (토지가격 미산정)"
+    strct_label = strct_key if strct_key != "default" else "기본"
+
+    print(
+        f"[원가법] 구조:{strct_label} / 재조달원가 {재조달원가:,}만원 "
+        f"→ 감가 {감가액:,}만원 (잔가율 {잔가율:.1%}, {depreciation}, 경과 {age}년) "
+        f"/ 토지 {land_value:,}만원 + 건물 {build_value:,}만원 = {total:,}만원 [{source_note}]"
+    )
+
+    return {
+        "avg":              total,
+        "min":              round(total * 0.85),
+        "max":              round(total * 1.15),
+        "count":            0,
+        "per_sqm_avg":      per_sqm,
+        "samples":          [],
+        "apt_name_matched": "",
+        "used_months":      0,
+        "used_region":      "",
+        "land_value":       land_value,
+        "build_value":      build_value,
+        "재조달원가":        재조달원가,
+        "감가액":            감가액,
+        "잔가율":            잔가율,
+        "build_age":        age,
+        "strct_nm":         strct_label,
+        "depreciation":     depreciation,
+        "source":           (
+            f"건축원가법 ({source_note}, {strct_label}구조, "
+            f"잔가율 {잔가율:.1%}, {depreciation}법, 경과 {age}년)"
+        ),
+        "error":            "",
     }
 
 

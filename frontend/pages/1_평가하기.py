@@ -59,47 +59,33 @@ def _kakao_headers() -> dict:
 
 def search_buildings(query: str) -> list[dict]:
     """
-    주소 또는 건물명 입력 → 건물 목록 반환.
-
-    1순위: 카카오 주소검색 API
-           road_address.building_name → 정확한 건물명 1:1 대응
-           예) "서울시 서초구 반포대로 333" → building_name: "래미안원베일리"
-
-    2순위: 주소검색 결과 없거나 building_name 없을 때
-           카카오 키워드검색 API 폴백
-           예) "마포래미안푸르지오" 처럼 건물명 직접 입력 시
+    도로명 주소 또는 지번 주소 입력 → 주소 목록 반환.
+    카카오 주소검색 API 사용 (건물명 검색 제외).
     """
     if not KAKAO_API_KEY or not query.strip():
         return []
 
     results = []
-
-    # ── 1순위: 주소검색 → building_name 직접 추출 ─────────────────────────
     try:
         res = requests.get(
             KAKAO_ADDR_URL,
             headers=_kakao_headers(),
-            params={"query": query, "size": 5},
+            params={"query": query, "size": 30},
             timeout=5,
         )
         res.raise_for_status()
         docs = res.json().get("documents", [])
 
         for doc in docs:
-            road = doc.get("road_address") or {}
+            road  = doc.get("road_address") or {}
             jibun = doc.get("address") or {}
-
-            # building_name: 도로명 주소 응답에 포함된 건물명
             building_name = road.get("building_name", "").strip()
             road_addr     = road.get("address_name", "")
             jibun_addr    = jibun.get("address_name", "")
-            address_name  = road_addr or jibun_addr
-
-            # 건물명 없으면 주소 자체를 place_name으로
-            place_name = building_name or address_name
-
+            # 표시명: 건물명 있으면 주소 + 건물명, 없으면 주소만
+            display_name  = f"{road_addr or jibun_addr}" + (f" ({building_name})" if building_name else "")
             results.append({
-                "place_name":        place_name,
+                "place_name":        display_name,
                 "building_name":     building_name,
                 "address_name":      jibun_addr,
                 "road_address_name": road_addr,
@@ -110,46 +96,8 @@ def search_buildings(query: str) -> list[dict]:
                 "x": doc.get("x", ""),
                 "y": doc.get("y", ""),
             })
-
     except Exception as e:
         print(f"[search_buildings] 주소검색 오류: {e}")
-
-    # 주소검색에서 결과가 있으면 반환
-    if results:
-        # building_name 있는 항목 먼저, 없는 항목 나중
-        results.sort(key=lambda x: (0 if x["building_name"] else 1))
-        return results
-
-    # ── 2순위: 키워드검색 폴백 (건물명 직접 입력 시) ──────────────────────
-    try:
-        res = requests.get(
-            KAKAO_KWD_URL,
-            headers=_kakao_headers(),
-            params={"query": query, "size": 10},
-            timeout=5,
-        )
-        res.raise_for_status()
-        docs = res.json().get("documents", [])
-
-        for doc in docs:
-            cat_name         = doc.get("category_name", "")
-            prop_cat, detail = _map_category(cat_name)
-            addr             = doc.get("road_address_name") or doc.get("address_name", "")
-            results.append({
-                "place_name":        doc.get("place_name", ""),
-                "building_name":     doc.get("place_name", ""),
-                "address_name":      doc.get("address_name", ""),
-                "road_address_name": doc.get("road_address_name", ""),
-                "category_name":     cat_name,
-                "property_category": prop_cat,
-                "category_detail":   detail,
-                "source":            "keyword",
-                "x": doc.get("x", ""),
-                "y": doc.get("y", ""),
-            })
-
-    except Exception as e:
-        print(f"[search_buildings] 키워드검색 오류: {e}")
 
     return results
 
@@ -208,10 +156,10 @@ st.markdown("""
 # ── 예시 버튼 ────────────────────────────────────────────────────────────
 EXAMPLES = [
     {"label": "🏠 아파트",    "query": "서울시 서초구 반포대로 333"},
-    {"label": "🏠 아파트 2",  "query": "서울시 마포구 백범로 192"},
+    {"label": "🏠 다세대주택", "query": "서울 강남구 논현로79길 37"},
     {"label": "🏢 오피스",    "query": "서울시 영등포구 여의대로 108"},
-    {"label": "🏭 지식산업",  "query": "경기도 성남시 분당구 판교역로 235"},
-    {"label": "🏬 상가",      "query": "부산시 해운대구 해운대해변로 264"},
+    {"label": "🏭 공장",      "query": "경기도 오산시 가장산업동로 37"},
+    {"label": "🌿 토지",      "query": "강원특별자치도 홍천군 화촌면 장평리 산226"},
 ]
 
 st.markdown('<div class="section-label">빠른 예시</div>', unsafe_allow_html=True)
@@ -225,19 +173,20 @@ for col, ex in zip(cols, EXAMPLES):
 st.divider()
 
 # ── 검색창 ───────────────────────────────────────────────────────────────
-st.markdown('<div class="section-label">📍 도로명 주소 또는 건물명 입력</div>',
+st.markdown('<div class="section-label">📍 도로명 주소 또는 지번 주소 입력</div>',
             unsafe_allow_html=True)
 
 search_query = st.text_input(
     label="주소 검색",
     value=st.session_state.get("search_query", ""),
-    placeholder="예) 서울시 서초구 반포대로 333  /  마포래미안푸르지오",
+    placeholder="대상 주소지의 도로명/지번 주소 입력",
     label_visibility="collapsed",
 )
 
 if search_query != st.session_state.get("search_query", ""):
     st.session_state["search_query"]      = search_query
     st.session_state["selected_building"] = None
+    st.session_state["building_name"]     = None   # 새 검색 시 이전 건물명 초기화
 
 # ── 검색 결과 ─────────────────────────────────────────────────────────────
 selected = st.session_state.get("selected_building")
@@ -278,7 +227,7 @@ if search_query.strip() and not selected:
                     st.session_state["selected_building"] = b
                     st.rerun()
     else:
-        st.warning("검색 결과가 없습니다. 도로명 주소 또는 건물명을 다시 확인해주세요.")
+        st.warning("검색 결과가 없습니다. 도로명 주소 또는 지번 주소를 다시 확인해주세요.")
 
 # ── 선택된 건물 ───────────────────────────────────────────────────────────
 if selected:
@@ -304,24 +253,20 @@ if selected:
     st.markdown("")
 
     if st.button("감정평가 시작 →", type="primary", use_container_width=True):
-        place  = selected.get("building_name") or selected.get("place_name", "")
-        detail = selected.get("category_detail", "")
-
-        parts = [place or addr]
-        if detail and detail not in parts[0]:
-            parts.append(detail)
+        # 주소를 query로 사용 (도로명 우선, 없으면 지번)
+        addr_for_query = selected.get("road_address_name") or selected.get("address_name", "")
 
         for k in ("result", "result_id"):
             st.session_state.pop(k, None)
 
-        st.session_state["query"]         = " ".join(parts)
-        st.session_state["building_name"] = place
+        st.session_state["query"]         = addr_for_query
+        st.session_state["building_name"] = ""   # 건물명 힌트 사용 안 함
         st.session_state["raw_inputs"] = {
-            "address":   addr,
-            "building":  place,
+            "address":   addr_for_query,
+            "building":  "",
             "price":     "",
             "prop_type": prop_cat,
-            "area":      "",   # 면적 입력 없음 → 면적대별 범위로 제시
+            "area":      "",
         }
         st.switch_page("pages/2_결과리포트.py")
 
@@ -330,11 +275,13 @@ if not selected and not search_query.strip():
     st.markdown("""
     <div class="info-box">
       <b>사용 방법</b><br>
-      • <b>도로명 주소</b>를 입력하면 해당 주소의 건물명을 자동으로 찾습니다.<br>
+      • <b>도로명 주소</b>를 입력하면 건물명과 지번을 자동으로 찾습니다.<br>
       &nbsp;&nbsp;예) 서울시 서초구 반포대로 333 → <b>래미안원베일리</b><br>
-      • <b>건물명·단지명</b>을 직접 입력해도 됩니다.<br>
-      &nbsp;&nbsp;예) 마포래미안푸르지오<br>
+      • <b>지번 주소</b>를 직접 입력해도 됩니다.<br>
+      &nbsp;&nbsp;예) 서울시 서초구 반포동 1 -> <b>래미안원베일리</b><br>
       • 검색 결과에서 <b>[선택]</b> 버튼을 눌러 확정하세요.<br>
-      • 면적 입력 없이도 감정평가가 진행되며, <b>면적대별 가격 범위</b>로 결과를 제시합니다.
+      • 면적 입력 없이도 감정평가가 진행되며, <b>면적대별 가격 범위</b>로 결과를 제시합니다.<br>
+      • ⚠️ <b>시·구 단위만 입력 시 정확도가 떨어집니다.</b> 건물명 또는 상세 주소를 입력하세요.<br>
+      &nbsp;&nbsp;❌ 경기도 오산시&nbsp;&nbsp;✅ 아모레퍼시픽 오산공장&nbsp;&nbsp;✅ 경기도 오산시 가수동 399
     </div>
     """, unsafe_allow_html=True)

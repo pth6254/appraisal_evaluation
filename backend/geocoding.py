@@ -61,6 +61,12 @@ class GeocodingResult(BaseModel):
     land_area:           float = Field(default=0.0)
     official_land_price: int   = Field(default=0)
 
+    # 건축물대장 조회용 지번 정보
+    sigungu_cd: str = Field(default="", description="시군구코드 5자리")
+    bjdong_cd:  str = Field(default="", description="법정동코드 10자리")
+    bun:        str = Field(default="", description="지번 본번")
+    ji:         str = Field(default="", description="지번 부번")
+
 
 # ─────────────────────────────────────────
 #  2. 카카오 category_name → 부동산 유형 매핑
@@ -111,7 +117,68 @@ def _kakao_headers() -> dict:
 
 
 # ─────────────────────────────────────────
-#  3. 카카오 주소검색 — building_name 포함 파싱
+#  3. 카카오 좌표 → 지번 역지오코딩
+# ─────────────────────────────────────────
+
+def _coord2jibun(lat: float, lng: float) -> dict:
+    """
+    카카오 coord2address API — 좌표 → 지번 주소 변환.
+
+    coord2address 가 address.b_code 를 정확히 못 줄 때
+    regioncode API 로 법정동 코드를 보완한다.
+    """
+    try:
+        # 1. coord2address — 지번 본번·부번 획득
+        res = requests.get(
+            "https://dapi.kakao.com/v2/local/geo/coord2address.json",
+            headers=_kakao_headers(),
+            params={"x": lng, "y": lat, "input_coord": "WGS84"},
+            timeout=5,
+        )
+        res.raise_for_status()
+        docs = res.json().get("documents", [])
+        if not docs:
+            return {}
+
+        addr   = docs[0].get("address") or {}
+        b_code = addr.get("b_code", "")
+        bun    = addr.get("main_address_no", "")
+        ji     = addr.get("sub_address_no",  "")
+
+        # 2. b_code 뒤 5자리가 00000 이면 regioncode API 로 법정동 코드 보완
+        bjdong_5 = b_code[5:] if len(b_code) == 10 else ""
+        if not bjdong_5 or bjdong_5 == "00000":
+            try:
+                rc_res = requests.get(
+                    "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json",
+                    headers=_kakao_headers(),
+                    params={"x": lng, "y": lat, "input_coord": "WGS84"},
+                    timeout=5,
+                )
+                rc_res.raise_for_status()
+                for region in rc_res.json().get("documents", []):
+                    if region.get("region_type") == "B":   # 법정동
+                        b_code = region.get("code", b_code)
+                        break
+            except Exception as e2:
+                print(f"[geocode] regioncode 보완 오류: {e2}")
+
+        print(f"[geocode] 역지오코딩 → b_code={b_code} bun={bun} ji={ji} "
+              f"({addr.get('address_name','')})")
+        return {
+            "b_code":     b_code,
+            "sigungu_cd": b_code[:5] if b_code else "",
+            "bjdong_cd":  b_code,
+            "bun":        bun,
+            "ji":         ji,
+        }
+    except Exception as e:
+        print(f"[geocode] 역지오코딩 오류: {e}")
+        return {}
+
+
+# ─────────────────────────────────────────
+#  4. 카카오 주소검색 — building_name 포함 파싱
 # ─────────────────────────────────────────
 
 def _address_search(query: str) -> Optional[dict]:
@@ -144,16 +211,43 @@ def _address_search(query: str) -> Optional[dict]:
         road = d.get("road_address") or {}
         addr = d.get("address") or {}
 
+        # 법정동코드 (b_code: 10자리) → 시군구코드 앞 5자리
+        b_code     = addr.get("b_code", "")
+        sigungu_cd = b_code[:5] if b_code else ""
+        bun_val    = addr.get("main_address_no", "")
+        ji_val     = addr.get("sub_address_no",  "")
+
+        # bun 없거나 b_code 뒤 5자리가 00000이면
+        # 해당 좌표로 바로 역지오코딩 → 정확한 지번 보완
+        bjdong_5 = b_code[5:] if len(b_code) == 10 else ""
+        if not bun_val or not bjdong_5 or bjdong_5 == "00000":
+            x_val = d.get("x", "")
+            y_val = d.get("y", "")
+            if x_val and y_val:
+                jibun = _coord2jibun(float(y_val), float(x_val))
+                if jibun.get("bun"):
+                    b_code     = jibun["bjdong_cd"]
+                    sigungu_cd = jibun["sigungu_cd"]
+                    bun_val    = jibun["bun"]
+                    ji_val     = jibun["ji"]
+                    print(f"[address_search] 지번 보완: "
+                          f"bun={bun_val} bjdong={b_code} "
+                          f"({addr.get('address_name', '')})")
+
         return {
             "x":                 d.get("x", ""),
             "y":                 d.get("y", ""),
             "address_name":      d.get("address_name", ""),
             "road_address_name": road.get("address_name", ""),
-            "building_name":     road.get("building_name", "").strip(),  # ← 핵심
+            "building_name":     road.get("building_name", "").strip(),
             "region_1depth":     road.get("region_1depth_name") or addr.get("region_1depth_name", ""),
             "region_2depth":     road.get("region_2depth_name") or addr.get("region_2depth_name", ""),
-            # 도로명 주소는 region_3depth_name 비어있음 → 지번(address)에서 동 정보 우선 추출
             "region_3depth":     addr.get("region_3depth_name") or road.get("region_3depth_name", ""),
+            # 건축물대장 조회용 지번 정보
+            "sigungu_cd": sigungu_cd,
+            "bjdong_cd":  b_code,
+            "bun":        bun_val,
+            "ji":         ji_val,
         }
 
     except Exception as e:
@@ -170,11 +264,19 @@ def _keyword_search(query: str, size: int = 5) -> list[dict]:
     카카오 키워드검색 API 호출.
     place_name + category_name 반환.
     """
+    import re as _re
+    # 특수문자 제거 (주), (유), (주식회사) → 공백으로 대체
+    clean_query = _re.sub(r'\([주유]\)|\(주식회사\)', ' ', query).strip()
+    # 나머지 특수문자도 공백으로
+    clean_query = _re.sub(r'[^\w\s가-힣A-Za-z0-9]', ' ', clean_query).strip()
+    clean_query = _re.sub(r'\s+', ' ', clean_query).strip()
+    if clean_query != query:
+        print(f"[keyword_search] 쿼리 정제: '{query}' → '{clean_query}'")
     try:
         res = requests.get(
             KAKAO_KWD_URL,
             headers=_kakao_headers(),
-            params={"query": query, "size": size},
+            params={"query": clean_query, "size": size},
             timeout=5,
         )
         res.raise_for_status()
@@ -207,15 +309,73 @@ def _get_category_from_keyword(building_name: str) -> tuple[str, str, str]:
 #  5. 통합 지오코딩 진입점
 # ─────────────────────────────────────────
 
-def geocode(location: str, category: str = "") -> Optional[GeocodingResult]:
+def geocode(location: str, category: str = "",
+            building_hint: str = "") -> Optional[GeocodingResult]:
     """
     주소 입력 → 좌표 + 건물명 + 부동산 유형 획득.
 
-    1순위: 주소검색 → building_name 추출 → 건물명으로 category 판단
-    2순위: 주소검색 실패 or building_name 없음 → 키워드검색
-    3순위: 전부 실패 → LLM category 폴백
+    building_hint: 사용자가 선택한 건물명 (예: 아모레퍼시픽 오산공장)
+                   주소가 시·구 단위로 모호할 때 키워드검색으로 정확한 지번 획득
+
+    1순위: building_hint 키워드검색 → 정확한 좌표·지번 획득
+    2순위: 주소검색 → building_name 추출
+    3순위: 역지오코딩으로 지번 보완
+    4순위: LLM category 폴백
     """
-    print(f"[geocode] 입력: '{location}'")
+    # 주소에 건물명이 혼합된 경우 분리
+    # 예: "경기도 용인시 기흥구 보라동 57번길 10 삼성전자(주)기흥캠퍼스"
+    #   → location = "경기도 용인시 기흥구 보라동 57번길 10"
+    #   → building_hint = "삼성전자(주)기흥캠퍼스" (없을 때만)
+    import re as _re
+    # 도로명 주소 패턴 뒤에 건물명이 붙은 경우 감지
+    road_pattern = _re.match(
+        r'^(.+(?:로|길|대로)\s*\d+(?:-\d+)?)\s+([가-힣A-Za-z\(\)·\.\s]{2,})$',
+        location.strip()
+    )
+    if road_pattern:
+        addr_part  = road_pattern.group(1).strip()
+        bldg_part  = road_pattern.group(2).strip()
+        if not building_hint:
+            building_hint = bldg_part
+        location = addr_part
+        print(f"[geocode] 주소/건물명 분리: '{addr_part}' / '{bldg_part}'")
+
+    print(f"[geocode] 입력: '{location}'" + (f" / 건물힌트: '{building_hint}'" if building_hint else ""))
+
+    # ── 0순위: building_hint 키워드검색 → 정확한 좌표·지번 ──────────────
+    # 사용자가 건물명을 선택했을 때 해당 건물의 정확한 지번 확보
+    # 단, 힌트의 시군구코드가 입력 주소와 다르면 무시 (엉뚱한 건물 방지)
+    hint_jibun = {}
+    if building_hint:
+        hint_docs = _keyword_search(building_hint, size=1)
+        if hint_docs:
+            hint_addr_name = hint_docs[0].get("address_name", "")
+            hint_addr_info = _address_search(hint_addr_name)
+            if hint_addr_info and hint_addr_info.get("bun"):
+                hint_sigungu = hint_addr_info.get("sigungu_cd", "")
+                # 입력 주소도 주소검색해서 시군구 코드 비교
+                loc_addr_info = _address_search(location)
+                loc_sigungu   = loc_addr_info.get("sigungu_cd", "") if loc_addr_info else ""
+                # 시군구가 일치하거나 입력 주소에서 코드를 못 가져온 경우만 힌트 사용
+                if not loc_sigungu or hint_sigungu == loc_sigungu:
+                    hint_jibun = {
+                        "sigungu_cd": hint_sigungu,
+                        "bjdong_cd":  hint_addr_info.get("bjdong_cd", ""),
+                        "bun":        hint_addr_info.get("bun",       ""),
+                        "ji":         hint_addr_info.get("ji",        ""),
+                    }
+                    print(f"[geocode] 건물힌트 지번: {hint_addr_name} "
+                          f"→ bun={hint_jibun['bun']} bjdong={hint_jibun['bjdong_cd']}")
+                else:
+                    print(f"[geocode] 건물힌트 지역 불일치 무시 "
+                          f"(힌트:{hint_sigungu} ≠ 입력:{loc_sigungu})")
+            else:
+                hint_lat = float(hint_docs[0].get("y", 0))
+                hint_lng = float(hint_docs[0].get("x", 0))
+                if hint_lat and hint_lng:
+                    hint_jibun = _coord2jibun(hint_lat, hint_lng)
+                    print(f"[geocode] 건물힌트 역지오코딩: bun={hint_jibun.get('bun')} "
+                          f"bjdong={hint_jibun.get('bjdong_cd')}")
 
     # ── 1순위: 주소검색 → building_name ──────────────────────────────────
     addr_info = _address_search(location)
@@ -236,6 +396,19 @@ def geocode(location: str, category: str = "") -> Optional[GeocodingResult]:
         if not prop_cat:
             kakao_cat, prop_cat, detail = _get_category_from_keyword(location)
 
+        # 지번 보완 우선순위: hint_jibun > addr_info (addr_info는 이미 역지오코딩 포함)
+        if hint_jibun:
+            final_sigungu = hint_jibun.get("sigungu_cd", "")
+            final_bjdong  = hint_jibun.get("bjdong_cd",  "")
+            final_bun     = hint_jibun.get("bun",        "")
+            final_ji      = hint_jibun.get("ji",         "")
+            print(f"[geocode] 힌트 지번 적용: bun={final_bun} bjdong={final_bjdong}")
+        else:
+            final_sigungu = addr_info.get("sigungu_cd", "")
+            final_bjdong  = addr_info.get("bjdong_cd",  "")
+            final_bun     = addr_info.get("bun",        "")
+            final_ji      = addr_info.get("ji",         "")
+
         result = GeocodingResult(
             lat=lat,
             lng=lng,
@@ -250,9 +423,14 @@ def geocode(location: str, category: str = "") -> Optional[GeocodingResult]:
             property_category=prop_cat or category,
             category_detail=detail,
             category_source="kakao" if prop_cat else ("llm" if category else "fallback"),
+            sigungu_cd=final_sigungu,
+            bjdong_cd =final_bjdong,
+            bun       =final_bun,
+            ji        =final_ji,
         )
 
-        if result.property_category == "토지":
+        # 토지·산업용·업무용·상업용 → Vworld 공시지가 조회
+        if result.property_category in ("토지", "산업용", "업무용", "상업용"):
             _attach_land_info(result)
 
         print(f"[geocode] ✅ 완료: '{result.place_name}' / "
@@ -262,7 +440,14 @@ def geocode(location: str, category: str = "") -> Optional[GeocodingResult]:
 
     # ── 2순위: 키워드검색 폴백 ───────────────────────────────────────────
     print(f"[geocode] 주소검색 실패 → 키워드검색 폴백")
-    docs = _keyword_search(location, size=5)
+    # 주소검색 실패 시 building_hint로 키워드검색 시도 (더 정확)
+    docs = []
+    if building_hint:
+        docs = _keyword_search(building_hint, size=3)
+        if docs:
+            print(f"[geocode] 건물힌트 키워드검색 성공: '{building_hint}'")
+    if not docs:
+        docs = _keyword_search(location, size=5)
 
     for doc in docs:
         cat_name         = doc.get("category_name", "")
@@ -285,7 +470,8 @@ def geocode(location: str, category: str = "") -> Optional[GeocodingResult]:
             category_source="kakao" if prop_cat else ("llm" if category else "fallback"),
         )
 
-        if result.property_category == "토지":
+        # 토지·산업용·업무용·상업용 → Vworld 공시지가 조회
+        if result.property_category in ("토지", "산업용", "업무용", "상업용"):
             _attach_land_info(result)
 
         print(f"[geocode] ✅ 키워드 완료: '{result.place_name}' / "
@@ -363,12 +549,26 @@ def geocoding_node(state):
     if not intent:
         return _s(state, "error", "geocoding_node: intent 없음")
 
-    location = getattr(intent, "location_normalized", "") or getattr(intent, "location_raw", "")
+    # 위치 우선순위:
+    # 1. raw_inputs["address"] — 사용자가 입력한 원본 주소 (가장 정확)
+    # 2. location_normalized   — LLM이 파싱한 위치 (축약 가능성 있음)
+    # 3. location_raw          — 원본 쿼리
+    raw_inputs = _g(state, "raw_inputs") or {}
+    raw_address = raw_inputs.get("address", "") if isinstance(raw_inputs, dict) else ""
+
+    location = (raw_address
+                or getattr(intent, "location_normalized", "")
+                or getattr(intent, "location_raw", ""))
     if not location:
         return _s(state, "error", "geocoding_node: 위치 정보 없음")
 
-    llm_category = getattr(intent, "category", "")
-    result = geocode(location, category=llm_category)
+    if raw_address and raw_address != getattr(intent, "location_normalized", ""):
+        print(f"[geocoding_node] 원본 주소 사용: '{raw_address}' "
+              f"(LLM 파싱: '{getattr(intent, 'location_normalized', '')}')")
+
+    llm_category  = getattr(intent, "category", "")
+    building_hint = _g(state, "building_name", "") or ""
+    result = geocode(location, category=llm_category, building_hint=building_hint)
 
     if not result:
         return _s(state, "error", f"좌표 변환 실패: '{location}'")
@@ -401,7 +601,7 @@ def geocoding_node(state):
 _geocode_cache: dict[str, GeocodingResult] = {}
 
 
-def geocode_cached(location: str, category: str = "") -> Optional[GeocodingResult]:
+def geocode_cached(location: str, category: str = "", building_hint: str = "") -> Optional[GeocodingResult]:
     key = f"{location}::{category}"
     if key in _geocode_cache:
         print(f"[cache] 히트: '{location}'")

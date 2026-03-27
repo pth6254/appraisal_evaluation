@@ -18,7 +18,7 @@ load_dotenv(find_dotenv())
 
 # ── 페이지 설정 (반드시 첫 번째 st 호출) ────────────────────────────────────
 st.set_page_config(
-    page_title="AppraisoAI — | 부동산 감정평가 서비스",
+    page_title="Appraisal AI — | 부동산 감정평가 서비스",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -37,7 +37,7 @@ _tavily_ok = bool(os.getenv("TAVILY_API_KEY"))
 
 # ── 사이드바 ─────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🏢 AppraisoAI ")
+    st.markdown("## 🏢 Appraisal AI ")
     st.caption("AI 부동산 가치 감정평가 서비스")
     st.divider()
 
@@ -71,7 +71,7 @@ with st.sidebar:
     st.caption("v2.1 · 감정평가 전용")
 
 # ── 메인 홈 화면 ─────────────────────────────────────────────────────────────
-st.title("DeepAgent")
+st.title("Appraisal AI")
 st.subheader("AI 부동산 가치 감정평가 서비스")
 st.markdown(
     "자연어로 부동산 정보를 입력하면 "
