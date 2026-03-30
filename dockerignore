@@ -1,0 +1,63 @@
+# ══════════════════════════════════════════════════════════════
+#  .dockerignore — Docker 빌드 컨텍스트 제외 목록
+# ══════════════════════════════════════════════════════════════
+
+# 환경변수 / 시크릿 (절대 포함 금지)
+.env
+*.env
+!.env.example
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 가상환경
+.venv/
+venv/
+env/
+.virtualenv/
+
+# SQLite DB (컨테이너 볼륨으로 관리)
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 테스트 / 커버리지
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 문서
+docs/
+*.md
+!README.md
+
+# Docker 관련 파일 자체
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 노트북
+*.ipynb
+.ipynb_checkpoints/

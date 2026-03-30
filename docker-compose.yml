@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+
+  # ────────────────────────────────────────────
+  #  pgvector — PostgreSQL + pgvector 익스텐션
+  # ────────────────────────────────────────────
+  pgvector:
+    image: ankane/pgvector:latest
+    container_name: appraisalai_pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: real_estate_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d real_estate_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ────────────────────────────────────────────
+  #  Streamlit 앱
+  #  (로컬 개발 중이면 이 서비스는 주석 처리하고
+  #   터미널에서 직접 streamlit run app.py 실행해도 됨)
+  # ────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: appraisalai_app
+    restart: unless-stopped
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # pgvector 컨테이너 이름으로 호스트 지정 (Docker 네트워크 내부)
+      PG_CONNECTION_STRING: postgresql://postgres:password@pgvector:5432/real_estate_db
+    ports:
+      - "8501:8501"
+    volumes:
+      # 소스 변경 시 컨테이너 재빌드 없이 반영
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      # SQLite DB 파일 영속화
+      - appraisalai_sqlite:/app/data
+
+volumes:
+  pgvector_data:
+  appraisalai_sqlite:
