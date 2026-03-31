@@ -364,6 +364,75 @@ def render_investment_detail(r: dict):
 
 
 # ─────────────────────────────────────────
+#  RAG 유사 매물 카드
+# ─────────────────────────────────────────
+
+SCORE_COLOR = {
+    range(80, 101): "🟢",
+    range(60, 80):  "🟡",
+    range(0, 60):   "🔴",
+}
+
+def _score_icon(score: float) -> str:
+    s = int(score)
+    if s >= 80: return "🟢"
+    if s >= 60: return "🟡"
+    return "🔴"
+
+def render_rag_cards(rag_matches: list):
+    if not rag_matches:
+        st.info("유사 매물 데이터가 없습니다.")
+        return
+
+    st.markdown('<div class="section-label">🏠 유사 매물 Top-5</div>',
+                unsafe_allow_html=True)
+
+    for i, match in enumerate(rag_matches[:5]):
+        meta    = match.get("metadata", {})
+        score   = match.get("rag_score", 0)
+        reason  = match.get("reason", "")
+        region  = meta.get("region", "")
+        price   = meta.get("price", 0)
+        area    = meta.get("area", 0)
+        floor   = meta.get("floor", "")
+        category = meta.get("category", "")
+        place_name = meta.get("place_name", "")
+        sub_region = meta.get("sub_region", "") \
+        
+        display_location = f"{region} {sub_region}".strip() if sub_region else region
+
+        with st.container():
+            st.markdown(f"""
+            <div style="
+                background: var(--color-background-secondary);
+                border: 1px solid var(--color-border-tertiary);
+                border-radius: 12px;
+                padding: 16px 20px;
+                margin-bottom: 10px;
+            ">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:600; font-size:0.95rem;">
+                        {_score_icon(score)} {i+1}위 — {region} {category}
+                        {f"· {place_name}" if place_name else ""}
+                    </span>
+                    <span style="font-size:1.1rem; font-weight:700; color:var(--color-text-info);">
+                        {price:,}만원
+                    </span>
+                </div>
+                <div style="margin-top:8px; font-size:0.85rem; color:var(--color-text-secondary);">
+                    {f"면적: {area}㎡  |  " if area else ""}{f"층수: {floor}층" if floor else ""}
+                </div>
+                <div style="margin-top:8px; font-size:0.83rem; color:var(--color-text-secondary);">
+                    💬 {reason}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                st.metric("충족도 점수", f"{score:.0f}점")
+
+# ─────────────────────────────────────────
 #  전체 리포트
 # ─────────────────────────────────────────
 

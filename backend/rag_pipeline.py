@@ -133,10 +133,16 @@ def transaction_to_document(
     content는 RAG 검색 대상 텍스트, metadata는 필터링용.
     """
     price     = transaction.get("price", 0)
-    area      = transaction.get("area", "")
+    area_raw  = transaction.get("area_sqm") or transaction.get("area", 0)
+    try:
+        area = float(str(area_raw).replace("(", "").replace(")", "").replace(",", "").strip() or 0)
+    except ValueError:
+        area = 0.0
     floor = str(transaction.get("floor", "")).strip()
     year_built = str(transaction.get("year_built", "")).strip()
     address   = transaction.get("address", region)
+    place_name = transaction.get("apt_name", "")
+    sub_region    = transaction.get("dong", "")
 
     # RAG 검색에 활용할 자연어 설명 생성
     # → 이 텍스트가 임베딩되어 벡터 DB에 저장됨
@@ -146,6 +152,9 @@ def transaction_to_document(
         f"가격: {price:,}만원",
         f"면적: {area}㎡",
     ]
+
+    if place_name:
+        content_parts.insert(1, f"장소명: {place_name}")
 
     if floor:
         content_parts.append(f"층수: {floor}층")
@@ -182,9 +191,11 @@ def transaction_to_document(
             "category":   category,
             "region":     region,
             "price":      price,
-            "area":       float(str(area).replace(",", "") or 0),
+            "area":       area,
             "floor":      str(floor),
             "year_built": int(year_built) if year_built else 0,
+            "place_name": place_name,
+            "sub_region":    sub_region,       
             "special_tags": tags,
             "source":     "molit",
             "deal_date":  transaction.get("deal_date", ""),
@@ -252,7 +263,7 @@ def search_similar(
         vs = get_vectorstore(collection)
 
         # 메타데이터 필터 구성 (PGVector filter 문법)
-        filters = {"category": {"$eq": category}}
+        filters = {"category": category}
         if price_max:
             filters["price"] = {"$lte": price_max}
         if area_min:
@@ -435,7 +446,13 @@ def run_rag_pipeline(
     samples = price_data.get("samples", [])
     if samples:
         geo = state.get("geocoding_result") or {}
-        region = geo.get("region_2depth", "") if isinstance(geo, dict) else ""
+        if isinstance(geo, dict):
+            r1 = geo.get("region_1depth", "")   # 시/도
+            r2 = geo.get("region_2depth", "")   # 시/군/구
+            r3 = geo.get("region_3depth", "")   # 읍/면/동
+            region = " ".join(filter(None, [r1, r2, r3]))
+        else:
+            region = ""
         docs = build_documents_from_transactions(samples, category, region)
         upsert_documents(docs)
     else:

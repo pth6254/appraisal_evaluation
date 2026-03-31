@@ -106,7 +106,36 @@ if b2.button("📋 이력 보기", use_container_width=True):
 st.divider()
 
 # 전체 리포트 (raw_inputs 전달 → 매물 정보 카드에 표시)
-render_full_report(r, query, raw_inputs=raw_inputs)
+from ui_components import render_rag_cards
+
+# 탭 구조
+tab1, tab2, tab3 = st.tabs(["📊 감정평가 결과", "🏠 유사 매물 Top5", "📈 투자 수익률"])
+
+with tab1:
+    render_full_report(r, query, raw_inputs=raw_inputs)
+
+with tab2:
+    rag_matches = r.get("rag_top_matches", [])
+    render_rag_cards(rag_matches)
+
+with tab3:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Cap Rate",      f"{r.get('cap_rate', 0):.1f}%")
+    col2.metric("연 임대수입",    f"{r.get('annual_income', 0):,}만원")
+    col3.metric("5년 예상 수익률", f"{r.get('roi_5yr', 0):.1f}%")
+
+    import pandas as pd
+    comparables = r.get("comparables", [])
+    if comparables:
+        st.markdown("##### 비교사례 실거래")
+        df = pd.DataFrame([{
+            "단지명":   c.get("apt_name", ""),
+            "거래가(만원)": f"{c.get('price', 0):,}",
+            "면적(㎡)":  c.get("area_sqm", 0),
+            "층수":     c.get("floor", ""),
+            "거래년월":  f"{c.get('deal_year','')}년 {c.get('deal_month','')}월",
+        } for c in comparables])
+        st.dataframe(df, hide_index=True, use_container_width=True)
 
 if rid:
     st.divider()
