@@ -48,7 +48,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS real_estate_docs (
     id          SERIAL PRIMARY KEY,
     content     TEXT        NOT NULL,
-    embedding   vector(768),          -- nomic-embed-text 차원
+    embedding   vector(1024),          -- mxbai-embed-text 차원
     category    VARCHAR(20),
     region      VARCHAR(100),
     price       INTEGER,              -- 만원 단위
@@ -134,8 +134,8 @@ def transaction_to_document(
     """
     price     = transaction.get("price", 0)
     area      = transaction.get("area", "")
-    floor     = transaction.get("floor", "")
-    year_built = transaction.get("year_built", "")
+    floor = str(transaction.get("floor", "")).strip()
+    year_built = str(transaction.get("year_built", "")).strip()
     address   = transaction.get("address", region)
 
     # RAG 검색에 활용할 자연어 설명 생성
@@ -299,7 +299,7 @@ def build_rag_query(
 
     conditions_text = ", ".join(special_conditions)
 
-    llm = ChatOllama(model="llama3", temperature=0.0)
+    llm = ChatOllama(model="exaone3.5:7.8b", base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"), temperature=0.0)
     prompt = QUERY_EXPAND_PROMPT.format(
         conditions=conditions_text,
         location=location,
@@ -337,12 +337,12 @@ RERANK_PROMPT = """당신은 부동산 입지 분석 전문가입니다.
 특수조건 미충족 시 큰 감점을 적용하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요:
-{
+{{
   "ranked": [
-    {"index": 0, "score": 85, "reason": "역세권 조건 충족, 가격 적정"},
-    {"index": 1, "score": 60, "reason": "가격은 맞으나 층고 조건 미확인"}
+    {{"index": 0, "score": 85, "reason": "역세권 조건 충족, 가격 적정"}},
+    {{"index": 1, "score": 60, "reason": "가격은 맞으나 층고 조건 미확인"}}
   ]
-}"""
+}}"""
 
 
 def rerank_with_llm(
@@ -365,7 +365,7 @@ def rerank_with_llm(
             f"[{i}] {doc.page_content} (유사도: {sim_score:.2f})"
         )
 
-    llm = ChatOllama(model="llama3", temperature=0.0, format="json")
+    llm = ChatOllama(model="exaone3.5:7.8b", base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"), temperature=0.0, format="json")
     prompt = RERANK_PROMPT.format(
         requirements=f"{intent_summary}\n특수조건: {', '.join(special_conditions)}",
         candidates="\n".join(candidate_texts),

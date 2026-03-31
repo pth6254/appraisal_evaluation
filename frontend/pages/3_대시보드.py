@@ -5,7 +5,6 @@ pages/3_대시보드.py — 평가 이력 조회 대시보드
 import sys
 import os
 
-load_dotenv(find_dotenv())
 from dotenv import load_dotenv, find_dotenv
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'backend'))
@@ -14,6 +13,8 @@ import streamlit as st
 import pandas as pd
 from history_db import load_all, load_one, delete_one, count_all, search_by_query
 from ui_components import render_full_report
+
+load_dotenv(find_dotenv())
 
 st.markdown("""
 <style>

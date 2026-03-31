@@ -1172,6 +1172,7 @@ APPRAISAL_PROMPT = """당신은 국가공인 부동산 감정평가사입니다.
 def generate_appraisal_opinion(category, location, valuation_data, nearby_data, web_summary) -> dict:
     llm = ChatOllama(
         model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
+        base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
         temperature=0.1, format="json", num_predict=1024,
     )
     estimated   = valuation_data.get("estimated_value", 0)

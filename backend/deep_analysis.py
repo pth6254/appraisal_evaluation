@@ -41,7 +41,6 @@ def deep_analysis_node(state: dict) -> dict:
         ttl=86400,   # 24시간
         category=intent.category,
         region_2depth=region,
-        deal_ymd="202501",
     )
 
     state["price_data"] = price_data
@@ -73,7 +72,6 @@ def deep_analysis_lite(state: dict) -> dict:
         ttl=86400,
         category=intent.category,
         region_2depth=region,
-        deal_ymd="202501",
     )
 
     state["price_data"]     = price_data

@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 소스 복사
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
-COPY .env.example .env.example
+COPY .env .env
 
 # SQLite DB 저장 디렉터리
 RUN mkdir -p /app/data

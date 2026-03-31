@@ -46,8 +46,7 @@ def _geo_coords(geo) -> tuple[float, float]:
 
 
 def _save_result(state: dict, result: ValuationResult) -> dict:
-    state["analysis_result"] = result.model_dump()
-    return state
+    return {**state, "analysis_result": result.model_dump()}
 
 
 def _get_area_sqm(intent) -> float:

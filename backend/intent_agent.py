@@ -93,8 +93,10 @@ class IntentState(TypedDict, total=False):
 
 def get_llm() -> ChatOllama:
     model = os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b")
+    base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     return ChatOllama(
         model=model,
+        base_url=base_url,
         temperature=0.0,
         format="json",
         num_predict=1024,

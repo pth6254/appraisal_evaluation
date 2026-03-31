@@ -53,7 +53,10 @@ class AgentState(TypedDict, total=False):
     routed_to:        str
     geocoding_result: Optional[dict]
     price_data:       dict
-    analysis_result:  dict
+    rag_top_matches:  list    
+    rag_query:        str         
+    rag_match_count:  int
+    analysis_result:  dict       
     final_report:     str
 
 
@@ -128,12 +131,14 @@ def build_full_graph() -> StateGraph:
     from intent_agent import intent_analysis_node, validate_node, should_retry
     from geocoding import geocoding_node
     from appraisal_report import report_node
+    from deep_analysis import deep_analysis_node
 
     graph = StateGraph(AgentState)
 
     graph.add_node("의도분석",          intent_analysis_node)
     graph.add_node("검증",              validate_node)
     graph.add_node("지오코딩",          geocoding_node)
+    graph.add_node("심층분석",           deep_analysis_node)
     graph.add_node("라우터",            router_node)
     graph.add_node("residential_agent", residential_agent)
     graph.add_node("commercial_agent",  commercial_agent)
@@ -150,7 +155,8 @@ def build_full_graph() -> StateGraph:
         should_retry,
         {"retry": "의도분석", "end": "지오코딩"},
     )
-    graph.add_edge("지오코딩", "라우터")
+    graph.add_edge("지오코딩", "심층분석") 
+    graph.add_edge("심층분석", "라우터") 
 
     graph.add_conditional_edges(
         "라우터",

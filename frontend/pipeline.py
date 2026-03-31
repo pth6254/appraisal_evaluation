@@ -22,6 +22,9 @@ def _invoke(user_input: str, building_name: str = "") -> dict:
     """router.run_appraisal() 호출 후 UI 친화적 dict 반환."""
     state = _run_appraisal(user_input, building_name)
 
+    print(f"[debug] analysis_result: {state.get('analysis_result')}") 
+    print(f"[debug] error: {state.get('error')}")
+
     # analysis_result 내부 필드를 최상위로 flatten (UI 컴포넌트 호환)
     ar = state.get("analysis_result") or {}
     merged = {**state, **ar}
