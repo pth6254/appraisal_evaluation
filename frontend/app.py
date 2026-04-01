@@ -46,12 +46,12 @@ with st.sidebar:
     st.markdown("**엔진**  LangGraph + Ollama")
     st.divider()
 
-    if st.button("➕  새 감정평가 시작", use_container_width=True, type="primary"):
+    if st.button("➕  새 감정평가 시작", width="stretch", type="primary"):
         for k in ("query", "result", "result_id", "building_name"):
             st.session_state.pop(k, None)
         st.switch_page("pages/1_평가하기.py")
 
-    if st.button("📋  평가 이력 보기", use_container_width=True):
+    if st.button("📋  평가 이력 보기", width="stretch"):
         st.switch_page("pages/3_대시보드.py")
 
     st.divider()

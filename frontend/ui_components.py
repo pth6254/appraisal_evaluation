@@ -384,6 +384,20 @@ def render_rag_cards(rag_matches: list):
         st.info("유사 매물 데이터가 없습니다.")
         return
 
+    # 중복 제거 — place_name 기준
+    seen = set()
+    unique_matches = []
+    for match in rag_matches:
+        name = match.get("metadata", {}).get("place_name", "")
+        key  = f"{name}_{match.get('metadata', {}).get('price', 0)}"
+        if key not in seen:
+            seen.add(key)
+            unique_matches.append(match)
+    rag_matches = unique_matches[:5]
+
+    st.markdown('<div class="section-label">🏠 유사 매물 Top-5</div>',
+                unsafe_allow_html=True)
+
     st.markdown('<div class="section-label">🏠 유사 매물 Top-5</div>',
                 unsafe_allow_html=True)
 

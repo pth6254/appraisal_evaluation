@@ -96,11 +96,11 @@ st.markdown(f"""
 
 # 버튼 행
 b1, b2, b3 = st.columns([1, 1, 4])
-if b1.button("🔄 새 평가", use_container_width=True):
+if b1.button("🔄 새 평가", width="stretch"):
     for k in ("query", "result", "result_id", "building_name", "raw_inputs"):
         st.session_state.pop(k, None)
     st.switch_page("pages/1_평가하기.py")
-if b2.button("📋 이력 보기", use_container_width=True):
+if b2.button("📋 이력 보기", width="stretch"):
     st.switch_page("pages/3_대시보드.py")
 
 st.divider()
@@ -109,7 +109,7 @@ st.divider()
 from ui_components import render_rag_cards
 
 # 탭 구조
-tab1, tab2, tab3 = st.tabs(["📊 감정평가 결과", "🏠 유사 매물 Top5", "📈 투자 수익률"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 감정평가 결과", "🏠 유사 매물 Top5", "🗺️ 지도", "📈 투자 수익률"])
 
 with tab1:
     render_full_report(r, query, raw_inputs=raw_inputs)
@@ -119,6 +119,12 @@ with tab2:
     render_rag_cards(rag_matches)
 
 with tab3:
+    from map_view import render_map
+    geo = r.get("geocoding_result") or {}
+    rag_matches = r.get("rag_top_matches", [])
+    render_map(geo, rag_matches)
+
+with tab4:
     col1, col2, col3 = st.columns(3)
     col1.metric("Cap Rate",      f"{r.get('cap_rate', 0):.1f}%")
     col2.metric("연 임대수입",    f"{r.get('annual_income', 0):,}만원")
@@ -135,7 +141,7 @@ with tab3:
             "층수":     c.get("floor", ""),
             "거래년월":  f"{c.get('deal_year','')}년 {c.get('deal_month','')}월",
         } for c in comparables])
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        st.dataframe(df, hide_index=True, width="stretch")
 
 if rid:
     st.divider()

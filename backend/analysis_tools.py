@@ -1183,9 +1183,8 @@ def generate_appraisal_opinion(category, location, valuation_data, nearby_data, 
     reg_ppyeong = valuation_data.get("regional_avg_per_pyeong", 0)
 
     nearby_text = "\n".join(
-        f"  {k}: {v['count']}개 (최근접 {v['nearest_m']}m)"
-        for k, v in nearby_data.items() if v.get("count", 0) > 0
-    ) or "주변 시설 정보 없음"
+    f"  {k}: {v.get('count', 0)}개 (최근접 {v.get('nearest_m', 0)}m)"
+    for k, v in nearby_data.items() if isinstance(v, dict) and v.get("count", 0) > 0) or "주변 시설 정보 없음"
 
     user_content = f"""
 감정평가 대상: {category} / {location}
@@ -1204,6 +1203,8 @@ Cap Rate: {cap_rate}%
             return json.loads(match.group())
     except Exception as e:
         print(f"[appraisal_llm] 오류: {e}")
+        import traceback
+        traceback.print_exc()
 
     return {
         "appraisal_opinion": f"{location} {category} 추정 시장가치 {estimated:,}만원. 인근 실거래 대비 {verdict} 수준.",

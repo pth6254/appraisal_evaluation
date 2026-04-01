@@ -294,6 +294,28 @@ def _get_category_from_keyword(building_name: str) -> tuple[str, str, str]:
     if not building_name:
         return "", "", ""
 
+    # ── 건물명 자체에서 키워드 판단 (카카오 검색 전 우선 처리) ──
+    NAME_KEYWORDS = [
+        ("공장",         "산업용", "공장"),
+        ("창고",         "산업용", "창고"),
+        ("물류센터",     "산업용", "창고"),
+        ("물류",         "산업용", "창고"),
+        ("지식산업센터", "산업용", "공장"),
+        ("산업단지",     "산업용", "공장"),
+        ("아파트",       "주거용", "아파트"),
+        ("빌라",         "주거용", "빌라"),
+        ("오피스텔",     "주거용", "오피스텔"),
+        ("주상복합",     "주거용", "아파트"),
+        ("사무소",       "업무용", "사무실"),
+        ("빌딩",         "업무용", "사무실"),
+        ("타워",         "업무용", "사무실"),
+    ]
+    for keyword, prop_cat, detail in NAME_KEYWORDS:
+        if keyword in building_name:
+            print(f"[category] '{building_name}' → 건물명 키워드 '{keyword}' → {prop_cat}/{detail}")
+            return f"건물명:{keyword}", prop_cat, detail
+
+    # ── 카카오 키워드검색 ──
     docs = _keyword_search(building_name, size=3)
     for doc in docs:
         cat_name         = doc.get("category_name", "")
@@ -301,9 +323,7 @@ def _get_category_from_keyword(building_name: str) -> tuple[str, str, str]:
         if prop_cat:
             print(f"[category] '{building_name}' → {cat_name} → {prop_cat}/{detail}")
             return cat_name, prop_cat, detail
-
     return "", "", ""
-
 
 # ─────────────────────────────────────────
 #  5. 통합 지오코딩 진입점

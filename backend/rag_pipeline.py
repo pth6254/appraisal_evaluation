@@ -253,29 +253,49 @@ def search_similar(
     k: int = 10,
     price_max: Optional[int] = None,
     area_min: Optional[float] = None,
+    region: str = "",              # ← 추가
     collection: str = "real_estate",
 ) -> list[Document]:
     """
     쿼리 텍스트와 유사한 매물 Document 검색.
-    price_max, area_min으로 메타데이터 필터링 가능.
+    같은 지역 매물을 우선 검색 후 부족하면 전체에서 보완.
     """
     try:
         vs = get_vectorstore(collection)
 
-        # 메타데이터 필터 구성 (PGVector filter 문법)
+        # 메타데이터 필터 구성
         filters = {"category": category}
         if price_max:
             filters["price"] = {"$lte": price_max}
         if area_min:
             filters["area"] = {"$gte": area_min}
 
-        results = vs.similarity_search_with_score(
-            query,
-            k=k,
-            filter=filters,
-        )
-        print(f"[vectorstore] '{query[:30]}...' → {len(results)}건 검색")
-        return results
+        # ── 1단계: 같은 지역 우선 검색 ──
+        if region:
+            region_filters = {**filters, "region": region}
+            region_results = vs.similarity_search_with_score(
+                query, k=k, filter=region_filters,
+            )
+            print(f"[vectorstore] 지역({region}) 필터 → {len(region_results)}건")
+        else:
+            region_results = []
+
+        # ── 2단계: 지역 결과가 부족하면 전체에서 보완 ──
+        if len(region_results) < k:
+            all_results = vs.similarity_search_with_score(
+                query, k=k, filter=filters,
+            )
+            # 중복 제거 후 합치기
+            existing = {doc.page_content for doc, _ in region_results}
+            extra = [(doc, score) for doc, score in all_results
+                     if doc.page_content not in existing]
+            combined = region_results + extra
+        else:
+            combined = region_results
+
+        print(f"[vectorstore] '{query[:30]}...' → {len(combined)}건 검색")
+        return combined[:k]
+
     except Exception as e:
         print(f"[vectorstore] 검색 실패: {e}")
         return []
@@ -334,7 +354,48 @@ def build_rag_query(
 #  5. LLM 재순위화 (Reranking)
 # ─────────────────────────────────────────
 
-RERANK_PROMPT = """당신은 부동산 입지 분석 전문가입니다.
+# ─────────────────────────────────────────
+#  유형별 재순위화 프롬프트
+# ─────────────────────────────────────────
+
+RERANK_PROMPT = {
+    "주거용": """
+## 평가 기준 (주거용)
+- 위치 일치 여부 (40점): 같은 구/동이면 높은 점수
+- 가격대 일치 (20점): 요구 가격 범위 내이면 높은 점수
+- 면적 유사도 (20점): 요구 면적과 가까울수록 높은 점수
+- 층수/신축/향 조건 (20점): 고층/신축/남향 조건 충족 시 높은 점수""",
+
+    "상업용": """
+## 평가 기준 (상업용)
+- 위치 일치 여부 (30점): 같은 구/동이면 높은 점수
+- 가격대 일치 (20점): 요구 가격 범위 내이면 높은 점수
+- 1층 여부 (20점): 1층이면 높은 점수 (가시성, 접근성)
+- 유동인구/코너 여부 (30점): 유동인구 많고 코너자리면 높은 점수""",
+
+    "업무용": """
+## 평가 기준 (업무용)
+- 위치 일치 여부 (35점): 같은 구/동이면 높은 점수
+- 가격대 일치 (20점): 요구 가격 범위 내이면 높은 점수
+- 교통 접근성 (25점): 역세권, 주차 여부
+- 층수/건물등급 (20점): 고층, 신축 여부""",
+
+    "산업용": """
+## 평가 기준 (산업용)
+- 위치 일치 여부 (30점): 같은 구/동이면 높은 점수
+- 가격대 일치 (20점): 요구 가격 범위 내이면 높은 점수
+- 층고/트럭진입 (30점): 높은 층고, 대형차량 진입 가능 시 높은 점수
+- 전력/냉동시설 (20점): 산업용 전력, 냉동·냉장 시설 여부""",
+
+    "토지": """
+## 평가 기준 (토지)
+- 위치 일치 여부 (40점): 같은 시/군이면 높은 점수
+- 가격대 일치 (20점): 요구 가격 범위 내이면 높은 점수
+- 용도지역 일치 (20점): 요구 용도지역과 일치 시 높은 점수
+- 개발호재 (20점): 개발 가능성, 도로 접함 여부""",
+}
+
+_RERANK_BASE = """당신은 부동산 입지 분석 전문가입니다.
 사용자의 요구사항과 후보 매물 목록을 비교해 각 매물의 조건 충족 점수를 평가하세요.
 
 ## 사용자 요구사항
@@ -342,11 +403,8 @@ RERANK_PROMPT = """당신은 부동산 입지 분석 전문가입니다.
 
 ## 후보 매물 목록
 {candidates}
-
-## 평가 기준
-각 매물에 대해 요구사항 충족도를 0~100으로 점수화하세요.
+{criteria}
 특수조건 미충족 시 큰 감점을 적용하세요.
-
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
   "ranked": [
@@ -356,11 +414,18 @@ RERANK_PROMPT = """당신은 부동산 입지 분석 전문가입니다.
 }}"""
 
 
+def get_rerank_prompt(category: str) -> str:
+    """카테고리별 재순위화 프롬프트 반환"""
+    criteria = RERANK_PROMPT.get(category, RERANK_PROMPT["주거용"])
+    return _RERANK_BASE.replace("{criteria}", criteria)
+
+
 def rerank_with_llm(
     candidates: list[Document],
     intent_summary: str,
     special_conditions: list[str],
     top_k: int = 5,
+    category: str = "주거용",
 ) -> list[tuple[Document, float, str]]:
     """
     LLM으로 후보 매물을 재순위화.
@@ -377,7 +442,8 @@ def rerank_with_llm(
         )
 
     llm = ChatOllama(model="exaone3.5:7.8b", base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"), temperature=0.0, format="json")
-    prompt = RERANK_PROMPT.format(
+    rerank_prompt = get_rerank_prompt(category)
+    prompt = rerank_prompt.format(
         requirements=f"{intent_summary}\n특수조건: {', '.join(special_conditions)}",
         candidates="\n".join(candidate_texts),
     )
@@ -468,6 +534,7 @@ def run_rag_pipeline(
         k=15,
         price_max=price_max,
         area_min=area_min,
+        region=geo.get("region_2depth", "") if isinstance(geo, dict) else "",
     )
 
     if not candidates:
@@ -482,7 +549,7 @@ def run_rag_pipeline(
     # ── Step D: LLM 재순위화 ──
     from analysis_tools import _intent_summary
     summary = _intent_summary(intent)
-    ranked  = rerank_with_llm(candidates, summary, special, top_k=5)
+    ranked = rerank_with_llm(candidates, summary, special, top_k=5, category=category)
 
     top_matches = [
         {

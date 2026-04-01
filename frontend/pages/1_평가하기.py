@@ -165,7 +165,7 @@ EXAMPLES = [
 st.markdown('<div class="section-label">빠른 예시</div>', unsafe_allow_html=True)
 cols = st.columns(len(EXAMPLES))
 for col, ex in zip(cols, EXAMPLES):
-    if col.button(ex["label"], use_container_width=True):
+    if col.button(ex["label"], width="stretch"):
         st.session_state["search_query"]      = ex["query"]
         st.session_state["selected_building"] = None
         st.rerun()
@@ -223,7 +223,7 @@ if search_query.strip() and not selected:
                 """, unsafe_allow_html=True)
             with col_btn:
                 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-                if st.button("선택", key=f"sel_{i}", use_container_width=True):
+                if st.button("선택", key=f"sel_{i}", width="stretch"):
                     st.session_state["selected_building"] = b
                     st.rerun()
     else:
@@ -245,14 +245,14 @@ if selected:
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("🔄 다시 검색", use_container_width=False):
+    if st.button("🔄 다시 검색", width="content"):
         st.session_state["selected_building"] = None
         st.rerun()
 
     st.divider()
     st.markdown("")
 
-    if st.button("감정평가 시작 →", type="primary", use_container_width=True):
+    if st.button("감정평가 시작 →", type="primary", width="stretch"):
         # 주소를 query로 사용 (도로명 우선, 없으면 지번)
         addr_for_query = selected.get("road_address_name") or selected.get("address_name", "")
 
