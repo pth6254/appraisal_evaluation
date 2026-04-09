@@ -252,7 +252,9 @@ def search_similar(
     category: str,
     k: int = 10,
     price_max: Optional[int] = None,
+    price_min: Optional[int] = None,
     area_min: Optional[float] = None,
+    area_max: Optional[float] = None,
     region: str = "",              # ← 추가
     collection: str = "real_estate",
 ) -> list[Document]:
@@ -269,6 +271,13 @@ def search_similar(
             filters["price"] = {"$lte": price_max}
         if area_min:
             filters["area"] = {"$gte": area_min}
+
+        if area_min and area_max:
+            filters["area"] = {"$gte": area_min, "$lte": area_max}
+        elif area_min:
+            filters["area"] = {"$gte": area_min}
+        elif area_max:
+            filters["area"] = {"$lte": area_max}
 
         # ── 1단계: 같은 지역 우선 검색 ──
         if region:
@@ -319,7 +328,22 @@ def build_rag_query(
     location: str,
     category: str,
     transaction_type: str,
+    price_min: Optional[int] = None,
+    price_max: Optional[int] = None,
 ) -> str:
+    # 예산 텍스트 생성
+    if price_min and price_max:
+        price_text = f"예산 {price_min:,}만원 ~ {price_max:,}만원"
+    elif price_max:
+        price_text = f"예산 {price_max:,}만원 이하"
+    elif price_min:
+        price_text = f"예산 {price_min:,}만원 이상"
+    else:
+        price_text = ""
+
+    if not special_conditions:
+        base = f"{location} {category} {transaction_type} 적합한 매물"
+        return f"{base} {price_text}".strip()
     """
     special_conditions → RAG 검색 최적화 쿼리 생성.
     Ollama가 조건을 자연어로 확장해 검색 정확도를 높임.
@@ -344,10 +368,10 @@ def build_rag_query(
         expanded = expanded.split("\n")[0].strip()
         print(f"[rag_query] 원본: {conditions_text}")
         print(f"[rag_query] 확장: {expanded}")
-        return expanded
+        return f"{expanded} {price_text}".strip()
     except Exception as e:
         print(f"[rag_query] LLM 확장 실패: {e}")
-        return f"{location} {conditions_text}"
+        return f"{location} {conditions_text} {price_text}".strip()
 
 
 # ─────────────────────────────────────────
@@ -404,7 +428,17 @@ _RERANK_BASE = """당신은 부동산 입지 분석 전문가입니다.
 ## 후보 매물 목록
 {candidates}
 {criteria}
-특수조건 미충족 시 큰 감점을 적용하세요.
+
+## 절대 규칙 (반드시 적용)
+- 가격 범위가 명시된 경우, 범위를 벗어난 매물은 총점 최대 20점만 부여하세요. 예외 없이 적용합니다.
+- 면적 범위가 명시된 경우, 범위를 벗어난 매물은 총점 최대 20점만 부여하세요. 예외 없이 적용합니다.
+- 가격·면적 모두 범위를 벗어난 매물은 총점 최대 10점만 부여하세요.
+- 가격 범위 내, 면적 범위 내 매물은 각 항목 만점을 부여하세요.
+- 특수조건 미충족 시 항목당 15점 감점을 적용하세요.
+- 예산 초과 또는 면적 범위 이탈 매물은 선정하더라도 조건에 맞는 매물보다 하위에 있어야 합니다.
+- 예산 초과 또는 면적 범위 이탈 매물이 여러 개 이상인 경우 그 중에서도 조건 범위와 이탈한 정도가 적은 순으로 배열해야 합니다.
+
+
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
   "ranked": [
@@ -426,6 +460,10 @@ def rerank_with_llm(
     special_conditions: list[str],
     top_k: int = 5,
     category: str = "주거용",
+    price_min: Optional[int] = None, 
+    price_max: Optional[int] = None,
+    area_min: Optional[float] = None,
+    area_max: Optional[float] = None,    
 ) -> list[tuple[Document, float, str]]:
     """
     LLM으로 후보 매물을 재순위화.
@@ -443,6 +481,25 @@ def rerank_with_llm(
 
     llm = ChatOllama(model="exaone3.5:7.8b", base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"), temperature=0.0, format="json")
     rerank_prompt = get_rerank_prompt(category)
+
+    if price_min and price_max:
+        budget_text = f"예산 범위: {price_min:,}만원 ~ {price_max:,}만원 (범위 이탈 시 최대 30점)"
+    elif price_max:
+        budget_text = f"예산 상한: {price_max:,}만원 이하 (초과 시 최대 30점)"
+    elif price_min:
+        budget_text = f"예산 하한: {price_min:,}만원 이상 (미달 시 최대 30점)"
+    else:
+        budget_text = ""
+
+    if area_min and area_max:
+        area_text = f"면적 범위: {area_min:.0f}㎡ ~ {area_max:.0f}㎡ (범위 이탈 시 최대 20점)"
+    elif area_max:
+        area_text = f"면적 상한: {area_max:.0f}㎡ 이하 (초과 시 최대 20점)"
+    elif area_min:
+        area_text = f"면적 하한: {area_min:.0f}㎡ 이상 (미달 시 최대 20점)"
+    else:
+        area_text = ""
+
     prompt = rerank_prompt.format(
         requirements=f"{intent_summary}\n특수조건: {', '.join(special_conditions)}",
         candidates="\n".join(candidate_texts),
@@ -505,8 +562,11 @@ def run_rag_pipeline(
     location    = intent.location_normalized or intent.location_raw
     special     = intent.special_conditions or []
     trans_type  = intent.transaction_type
+    price_min   = intent.price_min
     price_max   = intent.price_max
     area_min    = intent.area_min
+    area_max    = intent.area_max
+
 
     # ── Step A: 실거래가 데이터 → Document → pgvector ──
     samples = price_data.get("samples", [])
@@ -525,15 +585,17 @@ def run_rag_pipeline(
         print("[rag] 실거래 샘플 없음 — 기존 벡터DB만 검색")
 
     # ── Step B: 비정형 조건 쿼리 생성 ──
-    rag_query = build_rag_query(special, location, category, trans_type)
+    rag_query = build_rag_query(special, location, category, trans_type, price_min=price_min, price_max=price_max)
 
     # ── Step C: 벡터 유사도 검색 ──
     candidates = search_similar(
         query=rag_query,
         category=category,
         k=15,
+        price_min=price_min,
         price_max=price_max,
         area_min=area_min,
+        area_max=area_max,
         region=geo.get("region_2depth", "") if isinstance(geo, dict) else "",
     )
 
@@ -549,7 +611,7 @@ def run_rag_pipeline(
     # ── Step D: LLM 재순위화 ──
     from analysis_tools import _intent_summary
     summary = _intent_summary(intent)
-    ranked = rerank_with_llm(candidates, summary, special, top_k=5, category=category)
+    ranked = rerank_with_llm(candidates, summary, special, top_k=5, category=category,  price_min=price_min, price_max=price_max, area_min=area_min, area_max=area_max, )
 
     top_matches = [
         {

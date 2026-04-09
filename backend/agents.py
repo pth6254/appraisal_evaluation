@@ -49,7 +49,15 @@ def _save_result(state: dict, result: ValuationResult) -> dict:
     return {**state, "analysis_result": result.model_dump()}
 
 
+# 애매한 면적 표현 — 건축물대장 우선 조회하도록 0 반환
+_VAGUE_AREA_KEYWORDS = ["평대", "이상", "이하", "이내", "정도", "내외", "쯤", "약"]
+
 def _get_area_sqm(intent) -> float:
+    area_raw = getattr(intent, "area_raw", "") or ""
+    # 애매한 표현이면 0 반환 → _auto_fill_area()가 건축물대장 조회
+    if any(kw in area_raw for kw in _VAGUE_AREA_KEYWORDS):
+        print(f"[면적] '{area_raw}' 애매한 표현 → 건축물대장 우선 조회")
+        return 0.0
     area_min = getattr(intent, "area_min", None) or 0.0
     area_max = getattr(intent, "area_max", None) or 0.0
     if area_min and area_max:
@@ -102,8 +110,10 @@ def _empty_result(agent_name: str, error_msg: str) -> ValuationResult:
 
 def _auto_fill_area(state: dict, area_sqm: float, prefer: str = "tot") -> tuple[float, int, str]:
     """
-    면적 미입력 시 건축물대장에서 자동 조회.
-    반환: (면적_㎡, 건축연도, 건물구조)
+    면적 미입력 시 자동 조회 (우선순위):
+    1. 건축물대장 API
+    2. Vworld 토지면적
+    3. RAG 유사 매물 면적 평균
     """
     if area_sqm > 0:
         return area_sqm, 0, ""
@@ -114,6 +124,7 @@ def _auto_fill_area(state: dict, area_sqm: float, prefer: str = "tot") -> tuple[
     bun        = geo_dict.get("bun",        "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bun",        "")
     ji         = geo_dict.get("ji",         "") if isinstance(geo_dict, dict) else getattr(geo_dict, "ji",         "")
 
+    # ── 1순위: 건축물대장 API ──────────────────────────────────────
     if sigungu_cd and bun:
         from building_info import fetch_building_info
         info = fetch_building_info(sigungu_cd, bjdong_cd, bun, ji)
@@ -125,6 +136,25 @@ def _auto_fill_area(state: dict, area_sqm: float, prefer: str = "tot") -> tuple[
             if auto_area > 0:
                 print(f"[건축물대장] 면적:{auto_area}㎡ / 건축연도:{build_year} / 구조:{strct_nm}")
                 return auto_area, build_year, strct_nm
+
+    # ── 2순위: Vworld 토지면적 ────────────────────────────────────
+    land_area = geo_dict.get("land_area", 0.0) if isinstance(geo_dict, dict) else getattr(geo_dict, "land_area", 0.0)
+    if land_area > 0:
+        print(f"[면적 폴백] Vworld 토지면적 사용: {land_area}㎡")
+        return float(land_area), 0, ""
+
+    # ── 3순위: RAG 유사 매물 면적 평균 ───────────────────────────
+    rag_matches = state.get("rag_top_matches", [])
+    if rag_matches:
+        areas = [
+            m.get("metadata", {}).get("area", 0)
+            for m in rag_matches
+            if m.get("metadata", {}).get("area", 0) > 0
+        ]
+        if areas:
+            avg_area = sum(areas) / len(areas)
+            print(f"[면적 폴백] RAG 유사 매물 면적 평균 사용: {avg_area:.1f}㎡ ({len(areas)}건)")
+            return float(avg_area), 0, ""
 
     return 0.0, 0, ""
 

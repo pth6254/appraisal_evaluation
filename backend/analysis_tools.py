@@ -268,9 +268,9 @@ PRICE_FIELD_MAP = {
 }
 
 AREA_FIELD_MAP = {
-    "주거용": ["excluUseAr"],
-    "상업용": ["excluUseAr", "plottageAr"],
-    "업무용": ["excluUseAr"],
+    "주거용": ["excluUseAr", "buildingAr"],
+    "상업용": ["buildingAr", "excluUseAr", "plottageAr"],
+    "업무용": ["buildingAr", "excluUseAr"],
     "산업용": ["buildingAr", "plottageAr"],   # buildingAr: 건물면적
     "토지":   ["plottageAr", "jimokAr"],
 }
@@ -1221,6 +1221,19 @@ Cap Rate: {cap_rate}%
 def _intent_summary(intent) -> str:
     if not intent:
         return ""
+    
+    # 예산 텍스트 — price_raw 없으면 price_min/price_max로 대체
+    price_min = getattr(intent, 'price_min', None)
+    price_max = getattr(intent, 'price_max', None)
+    price_raw = getattr(intent, 'price_raw', '')
+    if not price_raw:
+        if price_min and price_max:
+            price_raw = f"{price_min:,}만원 ~ {price_max:,}만원"
+        elif price_max:
+            price_raw = f"{price_max:,}만원 이하"
+        elif price_min:
+            price_raw = f"{price_min:,}만원 이상"
+            
     parts = [
         f"위치: {getattr(intent, 'location_normalized', '')}",
         f"거래: {getattr(intent, 'transaction_type', '')}",

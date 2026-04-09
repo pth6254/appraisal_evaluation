@@ -47,13 +47,13 @@ load_dotenv(find_dotenv())
 MOLIT_API_KEY = os.getenv("MOLIT_API_KEY", "")
 
 # 건축HUB 기본 URL
-ARCH_HUB_BASE = "https://apis.data.go.kr/1613000/ArchHubBldRgstService"
+ARCH_HUB_BASE = "https://apis.data.go.kr/1613000/BldRgstHubService"
 
 # 서비스별 엔드포인트
 ENDPOINTS = {
-    "기본개요":   f"{ARCH_HUB_BASE}/getArchHubBrBasisOulnInfo",
-    "총괄표제부": f"{ARCH_HUB_BASE}/getArchHubBrRecapTitleInfo",
-    "표제부":     f"{ARCH_HUB_BASE}/getArchHubBrTitleInfo",
+    "기본개요":   f"{ARCH_HUB_BASE}/getBrBasisOulnInfo",
+    "총괄표제부": f"{ARCH_HUB_BASE}/getBrRecapTitleInfo",
+    "표제부":     f"{ARCH_HUB_BASE}/getBrTitleInfo",
 }
 
 
