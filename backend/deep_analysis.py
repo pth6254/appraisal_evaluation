@@ -8,7 +8,7 @@ LangGraph 노드로 사용: 실거래가 API + RAG + 캐시를 한 번에 실행
 from __future__ import annotations
 
 from cache_db import cached_api_call, get_lawd_code, init_cache_db
-from analysis_tools import fetch_real_transaction_prices
+from price_engine import fetch_real_transaction_prices
 from rag_pipeline import run_rag_pipeline
 
 

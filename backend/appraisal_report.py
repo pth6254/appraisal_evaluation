@@ -6,9 +6,20 @@ router.py에서 분리된 독립 모듈
   - 전문 에이전트가 채운 AgentState를 받아
     마크다운 감정평가 리포트 문자열로 변환
   - LangGraph 노드 함수 report_node 제공
+  - AppraisalResult 기반 가격 분석 리포트 생성 함수 제공
 """
 
 from __future__ import annotations
+
+import sys
+import os
+
+# schemas/ 는 프로젝트 루트에 위치 — 경로 추가
+_BACKEND_DIR  = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 def report_node(state: dict) -> dict:
@@ -102,3 +113,101 @@ def report_node(state: dict) -> dict:
     print("=" * 60)
 
     return state
+
+
+# ─────────────────────────────────────────
+#  AppraisalResult 기반 가격 분석 리포트
+# ─────────────────────────────────────────
+
+def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: ignore[name-defined]
+    """
+    AppraisalResult → 마크다운 가격 분석 리포트.
+
+    기존 report_node()와 독립적으로 동작.
+    단위 변환: 원(schemas) → 만원(표시용)
+    """
+    from schemas.appraisal_result import AppraisalResult  # 지연 import — 순환 방지
+
+    def _manwon(won: int | None) -> str:
+        if not won:
+            return "—"
+        return f"{won // 10_000:,}만원"
+
+    def _pct(rate: float | None) -> str:
+        if rate is None:
+            return "—"
+        return f"{rate * 100:+.1f}%"
+
+    def _conf_label(c: float) -> str:
+        if c >= 0.80: return f"높음 ({c:.0%})"
+        if c >= 0.50: return f"보통 ({c:.0%})"
+        return f"낮음 ({c:.0%})"
+
+    # ── 헤더 ─────────────────────────────────────────────────────────────
+    lines = [
+        "# 가격 분석 리포트",
+        "",
+    ]
+
+    # ── 추정가 섹션 ──────────────────────────────────────────────────────
+    lines += [
+        "## 추정 시장가치",
+        "| 구분 | 금액 |",
+        "|------|------|",
+        f"| **추정가** | **{_manwon(result.estimated_price)}** |",
+        f"| 하단 | {_manwon(result.low_price)} |",
+        f"| 상단 | {_manwon(result.high_price)} |",
+    ]
+    if result.asking_price:
+        lines.append(f"| 호가 | {_manwon(result.asking_price)} |")
+    lines.append("")
+
+    # ── 고저평가 판단 ─────────────────────────────────────────────────────
+    lines += [
+        "## 고저평가 판단",
+        "| 구분 | 내용 |",
+        "|------|------|",
+        f"| **판정** | **{result.judgement or '—'}** |",
+        f"| 괴리율 | {_pct(result.gap_rate)} |",
+        f"| 신뢰도 | {_conf_label(result.confidence)} |",
+        "",
+    ]
+
+    # ── 비교 사례 ─────────────────────────────────────────────────────────
+    if result.comparables:
+        lines += [
+            "## 비교 사례",
+            "| 단지명 | 면적 | 거래가 | 거래일 | 매칭 수준 |",
+            "|--------|------|--------|--------|-----------|",
+        ]
+        for c in result.comparables:
+            name     = c.complex_name or "—"
+            area     = f"{c.area_m2:.1f}㎡" if c.area_m2 else "—"
+            price    = _manwon(c.deal_price)
+            date     = c.deal_date or "—"
+            level_map = {
+                "same_complex": "동일 단지",
+                "same_dong":    "동일 동",
+                "same_gu":      "동일 구",
+                "nearby":       "인근",
+                "fallback":     "폴백",
+            }
+            level = level_map.get(c.match_level or "", c.match_level or "—")
+            lines.append(f"| {name} | {area} | {price} | {date} | {level} |")
+        lines.append("")
+
+    # ── 경고 및 데이터 출처 ──────────────────────────────────────────────
+    if result.warnings:
+        lines += ["## 주의사항"]
+        for w in result.warnings:
+            lines.append(f"- ⚠️ {w}")
+        lines.append("")
+
+    if result.data_source:
+        lines += [
+            "## 데이터 출처",
+            ", ".join(result.data_source),
+            "",
+        ]
+
+    return "\n".join(lines)

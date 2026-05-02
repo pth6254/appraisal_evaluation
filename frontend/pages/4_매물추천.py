@@ -239,7 +239,7 @@ if submitted:
             # ── 백엔드 임포트 ──────────────────────────────────────────────
             from intent_agent import PropertyIntent
             from geocoding import geocode
-            from analysis_tools import fetch_real_transaction_prices
+            from price_engine import fetch_real_transaction_prices
             from cache_db import init_cache_db, cached_api_call
             from rag_pipeline import run_rag_pipeline
 

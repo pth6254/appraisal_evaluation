@@ -609,7 +609,7 @@ def run_rag_pipeline(
         }
 
     # ── Step D: LLM 재순위화 ──
-    from analysis_tools import _intent_summary
+    from models import _intent_summary
     summary = _intent_summary(intent)
     ranked = rerank_with_llm(candidates, summary, special, top_k=5, category=category,  price_min=price_min, price_max=price_max, area_min=area_min, area_max=area_max, )
 
