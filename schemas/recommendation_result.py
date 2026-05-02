@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from schemas.appraisal_result import AppraisalResult
 from schemas.property_listing import PropertyListing
@@ -34,5 +34,5 @@ class RecommendationResult(BaseModel):
     recommendation_label: str = ""  # 예: "적극 추천" / "검토 필요" / "비추천"
 
     # 추천 근거 및 리스크
-    reasons: list[str] = []         # 추천 이유
-    risks: list[str]   = []         # 주의사항
+    reasons: list[str] = Field(default_factory=list)   # 추천 이유
+    risks: list[str]   = Field(default_factory=list)   # 주의사항

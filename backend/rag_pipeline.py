@@ -20,7 +20,6 @@ import re
 from typing import Optional
 
 import psycopg2
-import os
 from langchain_core.documents import Document
 from langchain_community.vectorstores import PGVector
 from langchain_ollama import ChatOllama, OllamaEmbeddings
