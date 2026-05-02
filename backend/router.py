@@ -2,16 +2,18 @@
 router.py — 파이프라인 진입점
 
 그래프 빌드 로직은 graphs/appraisal_graph.py 로 이동.
-이 파일은 싱글톤 캐시와 공개 API(run_appraisal)만 유지.
+이 파일은 싱글톤 캐시와 공개 API(run_appraisal, run_recommendation)만 유지.
 """
 
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 from dotenv import find_dotenv, load_dotenv
 
 from graphs.appraisal_graph import build_appraisal_graph
+from graphs.recommendation_graph import build_recommendation_graph
 from state import AgentState
 
 load_dotenv(find_dotenv())
@@ -40,16 +42,27 @@ _check_api_keys()
 # ─────────────────────────────────────────
 
 _graph = None
+_rec_graph = None
 
 
 def _get_graph():
-    """최초 요청 시 compile(), 이후 재사용"""
+    """감정평가 그래프 — 최초 요청 시 compile(), 이후 재사용"""
     global _graph
     if _graph is None:
-        print("[router] 그래프 컴파일 중...")
+        print("[router] 감정평가 그래프 컴파일 중...")
         _graph = build_appraisal_graph()
-        print("[router] 그래프 컴파일 완료")
+        print("[router] 감정평가 그래프 컴파일 완료")
     return _graph
+
+
+def _get_rec_graph():
+    """추천 그래프 — 최초 요청 시 compile(), 이후 재사용"""
+    global _rec_graph
+    if _rec_graph is None:
+        print("[router] 추천 그래프 컴파일 중...")
+        _rec_graph = build_recommendation_graph()
+        print("[router] 추천 그래프 컴파일 완료")
+    return _rec_graph
 
 
 # ─────────────────────────────────────────
@@ -73,6 +86,35 @@ def run_appraisal(user_input: str, building_name: str = "") -> dict:
         "building_name": building_name.strip(),
         "error":         "",
         "retry_count":   0,
+    })
+
+
+def run_recommendation(
+    query,
+    limit: int = 5,
+    run_appraisal: bool = False,
+) -> dict:
+    """
+    매물 추천 실행 — Streamlit, FastAPI 등 외부에서 호출하는 공개 API.
+
+    Args:
+        query:         PropertyQuery 객체. 필터·예산·면적 조건 포함.
+        limit:         반환할 최대 추천 건수 (기본 5).
+        run_appraisal: True면 매물별 감정평가 시도
+                       (실패해도 추천은 계속, 기본 False).
+
+    Returns:
+        RecommendationState dict:
+          - results : list[RecommendationResult]  — 점수 내림차순
+          - report  : str                         — 마크다운 리포트
+          - error   : str                         — 오류 시 메시지
+    """
+    graph = _get_rec_graph()
+    return graph.invoke({
+        "query":         query,
+        "limit":         limit,
+        "run_appraisal": run_appraisal,
+        "error":         "",
     })
 
 
