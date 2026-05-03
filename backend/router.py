@@ -14,6 +14,7 @@ from dotenv import find_dotenv, load_dotenv
 
 from graphs.appraisal_graph import build_appraisal_graph
 from graphs.recommendation_graph import build_recommendation_graph
+from graphs.simulation_graph import build_simulation_graph
 from state import AgentState
 
 load_dotenv(find_dotenv())
@@ -41,8 +42,9 @@ _check_api_keys()
 #  그래프 싱글톤
 # ─────────────────────────────────────────
 
-_graph = None
+_graph     = None
 _rec_graph = None
+_sim_graph = None
 
 
 def _get_graph():
@@ -63,6 +65,16 @@ def _get_rec_graph():
         _rec_graph = build_recommendation_graph()
         print("[router] 추천 그래프 컴파일 완료")
     return _rec_graph
+
+
+def _get_sim_graph():
+    """시뮬레이션 그래프 — 최초 요청 시 compile(), 이후 재사용"""
+    global _sim_graph
+    if _sim_graph is None:
+        print("[router] 시뮬레이션 그래프 컴파일 중...")
+        _sim_graph = build_simulation_graph()
+        print("[router] 시뮬레이션 그래프 컴파일 완료")
+    return _sim_graph
 
 
 # ─────────────────────────────────────────
@@ -116,6 +128,45 @@ def run_recommendation(
         "run_appraisal": run_appraisal,
         "error":         "",
     })
+
+
+def run_simulation(
+    data=None,
+    listing=None,
+    overrides: Optional[dict] = None,
+) -> dict:
+    """
+    투자 시뮬레이션 실행 — 외부에서 호출하는 공개 API.
+
+    세 가지 입력 방식:
+      1. data=dict           : raw_input으로 전달 → 그래프 내에서 SimulationInput 변환
+      2. data=SimulationInput: simulation_input으로 전달 → 그대로 사용
+      3. listing + overrides : listing 변환 모드 (overrides는 선택)
+
+    Returns:
+        SimulationState dict:
+          - built_input : SimulationInput  — 정규화된 입력
+          - result      : SimulationResult — 계산 결과
+          - report      : str              — 마크다운 리포트
+          - error       : str              — 오류 시 메시지
+    """
+    from schemas.simulation import SimulationInput
+
+    graph = _get_sim_graph()
+    state: dict = {"report": "", "error": ""}
+
+    if listing is not None:
+        state["listing"] = listing
+        if overrides:
+            state["listing_overrides"] = overrides
+    elif isinstance(data, SimulationInput):
+        state["simulation_input"] = data
+    elif isinstance(data, dict):
+        state["raw_input"] = data
+    else:
+        state["raw_input"] = None  # build_input_node에서 오류 처리
+
+    return graph.invoke(state)
 
 
 if __name__ == "__main__":

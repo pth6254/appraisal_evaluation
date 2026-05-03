@@ -6,6 +6,14 @@ from schemas.appraisal_result import AppraisalResult, ComparableTransaction
 from schemas.property_listing import PropertyListing
 from schemas.property_query import PropertyQuery
 from schemas.recommendation_result import RecommendationResult
+from schemas.simulation import (
+    AcquisitionCost,
+    CashFlowSummary,
+    LoanSummary,
+    ScenarioResult,
+    SimulationInput,
+    SimulationResult,
+)
 
 __all__ = [
     "PropertyQuery",
@@ -13,4 +21,10 @@ __all__ = [
     "AppraisalResult",
     "PropertyListing",
     "RecommendationResult",
+    "SimulationInput",
+    "SimulationResult",
+    "AcquisitionCost",
+    "LoanSummary",
+    "CashFlowSummary",
+    "ScenarioResult",
 ]

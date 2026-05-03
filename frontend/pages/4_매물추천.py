@@ -428,6 +428,24 @@ if state:
                             f"판정 {a.judgement} · 신뢰도 {a.confidence:.0%}"
                         )
 
+                    st.markdown("")
+                    if st.button(
+                        "📈 이 매물로 시뮬레이션",
+                        key=f"sim_btn_{rank}",
+                        use_container_width=True,
+                    ):
+                        st.session_state["sim_from_listing"] = {
+                            "asking_price":    l.asking_price,
+                            "property_type":   l.property_type,
+                            "jeonse_price":    l.jeonse_price,
+                            "maintenance_fee": l.maintenance_fee,
+                            "complex_name":    l.complex_name or "",
+                            "address":         l.address,
+                            "region":          l.region or "",
+                        }
+                        st.session_state["sim_listing_applied"] = False
+                        st.switch_page("pages/5_투자시뮬레이션.py")
+
         with tab_report:
             if report:
                 st.markdown(report)

@@ -42,10 +42,11 @@ appraisal_evaluation/
 │       ├── 1_평가하기.py           자연어 입력 + 건물 검색
 │       ├── 2_결과리포트.py         파이프라인 실행 + 결과 표시
 │       ├── 3_대시보드.py           이력 조회 (페이지네이션·검색)
-│       └── 4_매물추천.py           AI 매물 추천 UI
+│       ├── 4_매물추천.py           AI 매물 추천 UI (→ 시뮬레이션 연동)
+│       └── 5_투자시뮬레이션.py     투자 시뮬레이션 UI (Phase 4-4)
 │
 ├── backend/                        비즈니스 로직 + LangGraph 파이프라인
-│   ├── router.py                   공개 API — run_appraisal() / run_recommendation()
+│   ├── router.py                   공개 API — run_appraisal() / run_recommendation() / run_simulation()
 │   ├── state.py                    LangGraph 공유 상태 (AgentState)
 │   ├── intent_agent.py             자연어 → PropertyIntent 구조화
 │   ├── geocoding.py                지명 → 위도/경도 (카카오 API + Vworld)
@@ -63,11 +64,12 @@ appraisal_evaluation/
 │   ├── graphs/                     LangGraph 그래프 모음
 │   │   ├── appraisal_graph.py      감정평가 파이프라인 그래프
 │   │   ├── recommendation_graph.py 매물 추천 파이프라인 그래프
-│   │   └── simulation_graph.py     대출/수익률 시뮬레이션 (구현 예정)
+│   │   └── simulation_graph.py     투자 시뮬레이션 파이프라인 그래프 (Phase 4-3)
 │   │
 │   ├── services/                   비즈니스 서비스 레이어
 │   │   ├── price_analysis_service.py  PropertyQuery → AppraisalResult
-│   │   └── recommendation_service.py  PropertyQuery → list[RecommendationResult]
+│   │   ├── recommendation_service.py  PropertyQuery → list[RecommendationResult]
+│   │   └── simulation_service.py      SimulationInput → SimulationResult + 마크다운 리포트
 │   │
 │   └── tools/                      도구 모음
 │       ├── listing_tool.py         샘플 CSV 매물 조회
@@ -77,12 +79,13 @@ appraisal_evaluation/
 │   ├── property_query.py           검색 요청 스키마
 │   ├── property_listing.py         매물 1건 스키마
 │   ├── appraisal_result.py         감정평가 결과 스키마
-│   └── recommendation_result.py    매물 추천 결과 스키마
+│   ├── recommendation_result.py    매물 추천 결과 스키마
+│   └── simulation.py               투자 시뮬레이션 입출력 스키마
 │
 ├── data/
 │   └── sample_listings.csv         개발·테스트용 가상 매물 43건
 │
-├── tests/                          pytest 테스트 (314개)
+├── tests/                          pytest 테스트 (586개)
 │   ├── conftest.py
 │   ├── test_models.py
 │   ├── test_schemas.py
@@ -92,7 +95,11 @@ appraisal_evaluation/
 │   ├── test_scoring_tool.py
 │   ├── test_recommendation_service.py
 │   ├── test_recommendation_graph.py
-│   └── test_rec_ui_smoke.py
+│   ├── test_rec_ui_smoke.py
+│   ├── test_simulation_tool.py
+│   ├── test_simulation_service.py
+│   ├── test_simulation_graph.py
+│   └── test_sim_ui_smoke.py
 │
 ├── .env.example                    API 키 템플릿
 ├── .env                            실제 API 키 (Git 제외)
@@ -124,6 +131,19 @@ PropertyQuery 입력 (지역·예산·면적·유형)
   → recommendation_service.py 후보 매물 필터링 (listing_tool)
   → scoring_tool.py           4축 점수 산출 (가격·입지·투자·위험)
   → recommendation_service.py 마크다운 리포트 생성
+```
+
+### 시뮬레이션 파이프라인 (Phase 4-3)
+
+```
+입력 (세 방식 중 하나):
+  A. dict (raw_input)
+  B. SimulationInput 객체
+  C. PropertyListing + overrides dict
+
+  → simulation_graph.py   입력준비 — 세 방식을 SimulationInput으로 정규화
+  → simulation_tool.py    시뮬레이션실행 — 취득세·대출·현금흐름·시나리오 계산
+  → simulation_service.py 리포트생성 — 마크다운 리포트 생성
 ```
 
 ---
@@ -208,7 +228,122 @@ report  = format_recommendation_report(results, query)
 from tools.scoring_tool import calculate_listing_score
 score = calculate_listing_score(listing, query, appraisal=None)
 # score["total_score"], score["recommendation_label"], score["reasons"], score["risks"]
+
+# 투자 시뮬레이션 — 계산 엔진 직접 호출 (Phase 4-1)
+from tools.simulation_tool import run_simulation
+from schemas.simulation import SimulationInput
+
+inp = SimulationInput(
+    purchase_price=1_000_000_000,   # 매수가 10억
+    loan_amount=500_000_000,        # 대출 5억
+    annual_interest_rate=4.0,       # 연 4%
+    loan_years=30,
+    holding_years=3,
+    expected_annual_growth_rate=3.0,
+    monthly_rent=2_000_000,         # 월세 200만원
+)
+result = run_simulation(inp)
+print(result.scenario_base.equity_roi)   # 자기자본 수익률 (%)
+print(result.loan.monthly_payment)       # 월 상환액 (원)
+
+# 투자 시뮬레이션 — 서비스 레이어 (Phase 4-2)
+from services.simulation_service import (
+    run_property_simulation,
+    listing_to_simulation_input,
+    generate_simulation_report,
+)
+
+# dict 또는 SimulationInput 모두 수용
+result = run_property_simulation({"purchase_price": 500_000_000, "loan_amount": 250_000_000})
+
+# PropertyListing / dict 매물을 SimulationInput으로 변환
+sim_inp = listing_to_simulation_input(listing, loan_ratio=0.6, holding_years=5)
+
+# 마크다운 리포트 생성
+report = generate_simulation_report(result, sim_inp)
+print(report)   # 입력조건·취득비용·대출정보·시나리오비교 포함 마크다운
+
+# 투자 시뮬레이션 — LangGraph 파이프라인 (Phase 4-3)
+from router import run_simulation
+
+# 방식 A: dict 입력
+state = run_simulation(data={"purchase_price": 500_000_000, "loan_amount": 250_000_000})
+
+# 방식 B: SimulationInput 객체 직접 전달
+from schemas.simulation import SimulationInput
+inp   = SimulationInput(purchase_price=500_000_000, loan_amount=250_000_000)
+state = run_simulation(data=inp)
+
+# 방식 C: 매물 + overrides
+state = run_simulation(listing=listing, overrides={"loan_ratio": 0.6, "holding_years": 5})
+
+# 공통 반환값
+print(state["result"].scenario_base.annual_equity_roi)  # 연환산 수익률 (%)
+print(state["report"])                                   # 마크다운 리포트
 ```
+
+---
+
+## 투자 시뮬레이션 모델 (Phase 4-1 / 4-2)
+
+`schemas/simulation.py` + `backend/tools/simulation_tool.py` + `backend/services/simulation_service.py`
+
+외부 API 호출 없는 순수 계산 엔진. `run_simulation(inp)`으로 전체 결과 반환, `generate_simulation_report(result, inp)`으로 마크다운 리포트 생성.
+
+### SimulationInput 주요 필드
+
+| 필드 | 기본값 | 설명 |
+|------|--------|------|
+| `purchase_price` | — | 매수가 (원) |
+| `loan_amount` | 0 | 대출금 (원) |
+| `annual_interest_rate` | 4.0 | 연이율 (%) |
+| `loan_years` | 30 | 대출 기간 (년) |
+| `repayment_type` | `equal_payment` | 원리금균등 / 원금균등 / 만기일시 |
+| `holding_years` | 3 | 보유 기간 (년) |
+| `expected_annual_growth_rate` | 0.0 | 연간 예상 상승률 (%) |
+| `jeonse_deposit` | None | 전세 보증금 (원) |
+| `monthly_rent` | None | 월세 (원) — jeonse와 동시 입력 불가 |
+| `monthly_management_fee` | None | 월 관리비 (원) |
+| `property_type` | `아파트` | 매물 유형 (취득세율 결정) |
+
+### SimulationResult 구조
+
+```
+SimulationResult
+├── acquisition_cost   취득세 + 중개보수 + 기타 비용 합계
+├── required_cash      필요 현금 = 매수가 − 대출 + 취득비용
+├── equity             실투자금 = 필요 현금 − 전세 보증금
+├── loan               월 상환액 / 총 이자 / 총 상환액
+├── cash_flow          월 임대수입 − 월 상환 − 관리비 = 순 현금흐름
+├── scenario_base      입력 성장률 기준 수익성
+├── scenario_bull      성장률 +5%p
+└── scenario_bear      성장률 −5%p
+
+각 ScenarioResult:
+  expected_sale_price, capital_gain, total_rental_income,
+  net_profit, equity_roi (%), annual_equity_roi (%), rental_yield (%)
+```
+
+### 취득세 간이 세율 (주거용, 취득세 + 지방교육세)
+
+| 매수가 구간 | 세율 |
+|------------|------|
+| 6억 이하 | 1.1% |
+| 6억 초과 ~ 9억 이하 | 2.2% |
+| 9억 초과 | 3.3% |
+| 상업용·업무용·산업용·토지 | 4.4% |
+
+> ⚠️ 간이 계산 — 실제 세율은 보유 주택 수·취득 시점에 따라 달라집니다.
+
+### simulation_service 주요 함수 (Phase 4-2)
+
+| 함수 | 입력 | 출력 | 설명 |
+|------|------|------|------|
+| `run_property_simulation(data)` | `dict \| SimulationInput` | `SimulationResult` | 계산 엔진 호출 래퍼 |
+| `listing_to_simulation_input(listing, ...)` | `PropertyListing \| dict` | `SimulationInput` | 매물 → 시뮬레이션 입력 변환 |
+| `generate_simulation_report(result, inp)` | `SimulationResult` | `str` (마크다운) | 8개 섹션 투자 분석 리포트 |
+
+`listing_to_simulation_input` 매물 유형 매핑: `주거용→아파트`, `상업용→상가`, `업무용→오피스`, `산업용→공장`, `토지→토지`
 
 ---
 
@@ -299,9 +434,11 @@ pytest tests/test_scoring_tool.py             # 점수 산출 도구 (68개)
 pytest tests/test_recommendation_service.py   # 추천 서비스 (47개)
 pytest tests/test_recommendation_graph.py     # 추천 그래프 (38개)
 pytest tests/test_rec_ui_smoke.py             # UI smoke (27개)
+pytest tests/test_simulation_tool.py          # 시뮬레이션 엔진 (78개)
+pytest tests/test_simulation_service.py       # 시뮬레이션 서비스 (78개)
 ```
 
-현재 **314개 테스트 전부 통과**.
+현재 **470개 테스트 전부 통과**.
 
 ---
 
