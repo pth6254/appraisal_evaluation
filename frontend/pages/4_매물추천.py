@@ -189,6 +189,29 @@ if "rec4_result" not in st.session_state:
     st.session_state["rec4_result"] = None
 if "rec4_query_snapshot" not in st.session_state:
     st.session_state["rec4_query_snapshot"] = {}
+if "compare_basket" not in st.session_state:
+    st.session_state["compare_basket"] = []
+
+# ── 비교 바구니 사이드바 ──────────────────────────────────────────────────
+with st.sidebar:
+    basket = st.session_state.get("compare_basket", [])
+    if basket:
+        st.markdown("### 📊 비교 바구니")
+        for item in basket:
+            bname = item.get("complex_name") or item.get("address", "")[:15]
+            st.markdown(f"- {bname} ({_fmt_won(item.get('asking_price'))})")
+        st.markdown("")
+        if len(basket) >= 2:
+            if st.button(
+                f"📊 {len(basket)}건 비교 분석하기",
+                type="primary",
+                use_container_width=True,
+                key="cmp_go_btn",
+            ):
+                st.switch_page("pages/6_매물비교.py")
+        if st.button("🗑️ 바구니 비우기", use_container_width=True, key="cmp_clear_btn"):
+            st.session_state["compare_basket"] = []
+            st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -429,22 +452,64 @@ if state:
                         )
 
                     st.markdown("")
-                    if st.button(
-                        "📈 이 매물로 시뮬레이션",
-                        key=f"sim_btn_{rank}",
-                        use_container_width=True,
-                    ):
-                        st.session_state["sim_from_listing"] = {
-                            "asking_price":    l.asking_price,
-                            "property_type":   l.property_type,
-                            "jeonse_price":    l.jeonse_price,
-                            "maintenance_fee": l.maintenance_fee,
-                            "complex_name":    l.complex_name or "",
-                            "address":         l.address,
-                            "region":          l.region or "",
-                        }
-                        st.session_state["sim_listing_applied"] = False
-                        st.switch_page("pages/5_투자시뮬레이션.py")
+                    btn_col1, btn_col2 = st.columns(2)
+                    with btn_col1:
+                        if st.button(
+                            "📈 이 매물로 시뮬레이션",
+                            key=f"sim_btn_{rank}",
+                            use_container_width=True,
+                        ):
+                            st.session_state["sim_from_listing"] = {
+                                "asking_price":    l.asking_price,
+                                "property_type":   l.property_type,
+                                "jeonse_price":    l.jeonse_price,
+                                "maintenance_fee": l.maintenance_fee,
+                                "complex_name":    l.complex_name or "",
+                                "address":         l.address,
+                                "region":          l.region or "",
+                            }
+                            st.session_state["sim_listing_applied"] = False
+                            st.switch_page("pages/5_투자시뮬레이션.py")
+                    with btn_col2:
+                        basket_ids = [
+                            x.get("listing_id")
+                            for x in st.session_state.get("compare_basket", [])
+                        ]
+                        in_basket = l.listing_id in basket_ids
+                        btn_label = "➖ 비교 제외" if in_basket else "➕ 비교 담기"
+                        if st.button(btn_label, key=f"cmp_btn_{rank}", use_container_width=True):
+                            cur_basket = list(st.session_state.get("compare_basket", []))
+                            if in_basket:
+                                st.session_state["compare_basket"] = [
+                                    x for x in cur_basket
+                                    if x.get("listing_id") != l.listing_id
+                                ]
+                            elif len(cur_basket) >= 5:
+                                st.warning("최대 5개까지 비교할 수 있습니다.")
+                            else:
+                                st.session_state["compare_basket"] = cur_basket + [{
+                                    "listing_id":         l.listing_id,
+                                    "asking_price":       l.asking_price,
+                                    "property_type":      l.property_type,
+                                    "jeonse_price":       l.jeonse_price,
+                                    "maintenance_fee":    l.maintenance_fee,
+                                    "complex_name":       l.complex_name or "",
+                                    "address":            l.address,
+                                    "region":             l.region or "",
+                                    "area_m2":            l.area_m2,
+                                    "floor":              l.floor,
+                                    "built_year":         l.built_year,
+                                    "station_distance_m": l.station_distance_m,
+                                    "score":              r.total_score,
+                                    "price_score":        r.price_score,
+                                    "location_score":     r.location_score,
+                                    "investment_score":   r.investment_score,
+                                    "risk_score":         r.risk_score,
+                                    "label":              r.recommendation_label,
+                                    "reasons":            list(r.reasons),
+                                    "risks":              list(r.risks),
+                                }]
+                            st.rerun()
 
         with tab_report:
             if report:

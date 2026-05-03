@@ -42,11 +42,12 @@ appraisal_evaluation/
 │       ├── 1_평가하기.py           자연어 입력 + 건물 검색
 │       ├── 2_결과리포트.py         파이프라인 실행 + 결과 표시
 │       ├── 3_대시보드.py           이력 조회 (페이지네이션·검색)
-│       ├── 4_매물추천.py           AI 매물 추천 UI (→ 시뮬레이션 연동)
-│       └── 5_투자시뮬레이션.py     투자 시뮬레이션 UI (Phase 4-4)
+│       ├── 4_매물추천.py           AI 매물 추천 UI (→ 시뮬레이션 연동, 비교 바구니)
+│       ├── 5_투자시뮬레이션.py     투자 시뮬레이션 UI (Phase 4-4)
+│       └── 6_매물비교.py           매물 비교·최종 판단 UI (Phase 5)
 │
 ├── backend/                        비즈니스 로직 + LangGraph 파이프라인
-│   ├── router.py                   공개 API — run_appraisal() / run_recommendation() / run_simulation()
+│   ├── router.py                   공개 API — run_appraisal() / run_recommendation() / run_simulation() / run_comparison()
 │   ├── state.py                    LangGraph 공유 상태 (AgentState)
 │   ├── intent_agent.py             자연어 → PropertyIntent 구조화
 │   ├── geocoding.py                지명 → 위도/경도 (카카오 API + Vworld)
@@ -64,12 +65,14 @@ appraisal_evaluation/
 │   ├── graphs/                     LangGraph 그래프 모음
 │   │   ├── appraisal_graph.py      감정평가 파이프라인 그래프
 │   │   ├── recommendation_graph.py 매물 추천 파이프라인 그래프
-│   │   └── simulation_graph.py     투자 시뮬레이션 파이프라인 그래프 (Phase 4-3)
+│   │   ├── simulation_graph.py     투자 시뮬레이션 파이프라인 그래프 (Phase 4-3)
+│   │   └── comparison_graph.py     매물 비교 파이프라인 그래프 (Phase 5)
 │   │
 │   ├── services/                   비즈니스 서비스 레이어
 │   │   ├── price_analysis_service.py  PropertyQuery → AppraisalResult
 │   │   ├── recommendation_service.py  PropertyQuery → list[RecommendationResult]
-│   │   └── simulation_service.py      SimulationInput → SimulationResult + 마크다운 리포트
+│   │   ├── simulation_service.py      SimulationInput → SimulationResult + 마크다운 리포트
+│   │   └── comparison_service.py      list[PropertyListing] → ComparisonResult + 결정 리포트
 │   │
 │   └── tools/                      도구 모음
 │       ├── listing_tool.py         샘플 CSV 매물 조회
@@ -80,12 +83,13 @@ appraisal_evaluation/
 │   ├── property_listing.py         매물 1건 스키마
 │   ├── appraisal_result.py         감정평가 결과 스키마
 │   ├── recommendation_result.py    매물 추천 결과 스키마
-│   └── simulation.py               투자 시뮬레이션 입출력 스키마
+│   ├── simulation.py               투자 시뮬레이션 입출력 스키마
+│   └── comparison.py               매물 비교 입출력 스키마 (Phase 5)
 │
 ├── data/
 │   └── sample_listings.csv         개발·테스트용 가상 매물 43건
 │
-├── tests/                          pytest 테스트 (586개)
+├── tests/                          pytest 테스트 (680개)
 │   ├── conftest.py
 │   ├── test_models.py
 │   ├── test_schemas.py
@@ -99,7 +103,9 @@ appraisal_evaluation/
 │   ├── test_simulation_tool.py
 │   ├── test_simulation_service.py
 │   ├── test_simulation_graph.py
-│   └── test_sim_ui_smoke.py
+│   ├── test_sim_ui_smoke.py
+│   ├── test_comparison_service.py   (Phase 5)
+│   └── test_comparison_ui_smoke.py  (Phase 5)
 │
 ├── .env.example                    API 키 템플릿
 ├── .env                            실제 API 키 (Git 제외)
@@ -131,6 +137,18 @@ PropertyQuery 입력 (지역·예산·면적·유형)
   → recommendation_service.py 후보 매물 필터링 (listing_tool)
   → scoring_tool.py           4축 점수 산출 (가격·입지·투자·위험)
   → recommendation_service.py 마크다운 리포트 생성
+```
+
+### 비교 파이프라인 (Phase 5)
+
+```
+입력 (두 방식 중 하나):
+  A. dict (raw_input)          → ComparisonInput 변환
+  B. ComparisonInput 객체      → 그대로 사용
+
+  → comparison_graph.py   입력정규화 — listings + optional recs/sims
+  → comparison_service.py 비교실행  — 점수 산출, 우승자 선정, 지표 계산
+  → comparison_service.py 리포트생성 — 마크다운 결정 리포트
 ```
 
 ### 시뮬레이션 파이프라인 (Phase 4-3)
@@ -173,6 +191,9 @@ PropertyQuery 입력 (지역·예산·면적·유형)
 | `PropertyListing` | `listing_id`, `address`, `region`, `property_type`, `area_m2`, `asking_price`, `jeonse_price`, `station_distance_m`, `built_year` |
 | `AppraisalResult` | `estimated_price`, `gap_rate`, `judgement`, `confidence`, `comparables`, `warnings` |
 | `RecommendationResult` | `listing`, `appraisal`, `total_score`, `price_score`, `location_score`, `investment_score`, `risk_score`, `recommendation_label`, `reasons`, `risks` |
+| `ComparisonInput` | `listings`, `recommendation_results`, `simulation_results`, `budget_max` |
+| `ComparisonResult` | `rows` (list[PropertyComparisonRow]), `winner_idx`, `decision_report` |
+| `PropertyComparisonRow` | `rank`, `listing`, `recommendation`, `simulation`, `total_score`, `price_per_m2`, `jeonse_ratio`, `is_winner`, `highlights`, `warnings` |
 
 ---
 
@@ -280,6 +301,35 @@ state = run_simulation(listing=listing, overrides={"loan_ratio": 0.6, "holding_y
 # 공통 반환값
 print(state["result"].scenario_base.annual_equity_roi)  # 연환산 수익률 (%)
 print(state["report"])                                   # 마크다운 리포트
+```
+
+### 매물 비교
+
+```python
+from router import run_comparison
+from schemas.property_listing import PropertyListing
+
+listings = [
+    PropertyListing(listing_id="L1", address="서울 마포구 1", property_type="주거용", asking_price=500_000_000),
+    PropertyListing(listing_id="L2", address="서울 서대문구 1", property_type="주거용", asking_price=600_000_000),
+]
+
+# 방식 A: PropertyListing 목록 직접 전달
+state = run_comparison(listings=listings)
+
+# 방식 B: ComparisonInput 객체
+from schemas.comparison import ComparisonInput
+inp   = ComparisonInput(listings=listings, recommendation_results=recs)
+state = run_comparison(data=inp)
+
+# 방식 C: raw dict
+state = run_comparison(data={"listings": [{"listing_id": "L1", ...}, {"listing_id": "L2", ...}]})
+
+# 공통 반환값
+result = state["result"]            # ComparisonResult
+winner = result.rows[0]             # PropertyComparisonRow (최고 점수)
+print(winner.listing.complex_name)  # 최종 추천 매물명
+print(state["report"])              # 마크다운 결정 리포트
 ```
 
 ---

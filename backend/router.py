@@ -2,7 +2,8 @@
 router.py — 파이프라인 진입점
 
 그래프 빌드 로직은 graphs/appraisal_graph.py 로 이동.
-이 파일은 싱글톤 캐시와 공개 API(run_appraisal, run_recommendation)만 유지.
+이 파일은 싱글톤 캐시와 공개 API(run_appraisal, run_recommendation,
+run_simulation, run_comparison)만 유지.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from typing import Optional
 from dotenv import find_dotenv, load_dotenv
 
 from graphs.appraisal_graph import build_appraisal_graph
+from graphs.comparison_graph import build_comparison_graph
 from graphs.recommendation_graph import build_recommendation_graph
 from graphs.simulation_graph import build_simulation_graph
 from state import AgentState
@@ -45,6 +47,7 @@ _check_api_keys()
 _graph     = None
 _rec_graph = None
 _sim_graph = None
+_cmp_graph = None
 
 
 def _get_graph():
@@ -75,6 +78,16 @@ def _get_sim_graph():
         _sim_graph = build_simulation_graph()
         print("[router] 시뮬레이션 그래프 컴파일 완료")
     return _sim_graph
+
+
+def _get_cmp_graph():
+    """비교 그래프 — 최초 요청 시 compile(), 이후 재사용"""
+    global _cmp_graph
+    if _cmp_graph is None:
+        print("[router] 비교 그래프 컴파일 중...")
+        _cmp_graph = build_comparison_graph()
+        print("[router] 비교 그래프 컴파일 완료")
+    return _cmp_graph
 
 
 # ─────────────────────────────────────────
@@ -165,6 +178,47 @@ def run_simulation(
         state["raw_input"] = data
     else:
         state["raw_input"] = None  # build_input_node에서 오류 처리
+
+    return graph.invoke(state)
+
+
+def run_comparison(
+    listings=None,
+    recommendation_results=None,
+    simulation_results=None,
+    data=None,
+) -> dict:
+    """
+    매물 비교 분석 실행 — 외부에서 호출하는 공개 API.
+
+    두 가지 입력 방식:
+      1. data=ComparisonInput : 직접 전달
+      2. data=dict            : raw_input으로 전달 → 그래프 내에서 변환
+      3. listings (+ 선택: recommendation_results, simulation_results)
+
+    Returns:
+        ComparisonState dict:
+          - result : ComparisonResult — 비교 분석 결과
+          - report : str             — 마크다운 결정 리포트
+          - error  : str             — 오류 시 메시지
+    """
+    from schemas.comparison import ComparisonInput
+
+    graph = _get_cmp_graph()
+    state: dict = {"report": "", "error": ""}
+
+    if isinstance(data, ComparisonInput):
+        state["comparison_input"] = data
+    elif isinstance(data, dict):
+        state["raw_input"] = data
+    elif listings is not None:
+        state["comparison_input"] = ComparisonInput(
+            listings               = listings,
+            recommendation_results = recommendation_results,
+            simulation_results     = simulation_results,
+        )
+    else:
+        state["raw_input"] = {}  # normalize_input_node에서 오류 처리
 
     return graph.invoke(state)
 
