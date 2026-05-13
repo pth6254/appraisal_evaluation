@@ -9,7 +9,17 @@ router.py에 인라인으로 있던 그래프 빌드 로직을 분리.
 
 from __future__ import annotations
 
+import os
+import sys
+
 from langgraph.graph import END, StateGraph
+
+_GRAPHS_DIR   = os.path.dirname(os.path.abspath(__file__))
+_BACKEND_DIR  = os.path.dirname(_GRAPHS_DIR)
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from state import AgentState
 

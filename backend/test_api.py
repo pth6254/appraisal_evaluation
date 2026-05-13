@@ -13,7 +13,7 @@ LAWD = "11440"   # 마포구
 YMD  = "202501"
 
 endpoints = {
-    "아파트 매매":    "/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev",
+    "아파트 매매":    "/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
     "연립다세대 매매": "/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade",
     "단독다가구 매매": "/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade",
     "오피스텔 매매":  "/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade",

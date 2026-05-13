@@ -1,5 +1,5 @@
 """
-comparison_graph.py — 매물 비교 LangGraph 파이프라인 (Phase 5)
+comparison_graph.py — 매물 비교 LangGraph 파이프라인
 
 입력 (ComparisonState) — 두 가지 방식 중 하나:
   방식 A: raw_input (dict)              → ComparisonInput 변환

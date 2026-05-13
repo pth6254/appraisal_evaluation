@@ -14,9 +14,13 @@ from typing import Generator
 # ── 실제 LangGraph 파이프라인 연결 ──────────────────────────────────────────
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'backend'))
+_backend_dir  = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'backend'))
+_project_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+for _p in [_backend_dir, _project_root]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-from router import run_appraisal as _run_appraisal
+from backend.router import run_appraisal as _run_appraisal
 
 def _invoke(user_input: str, building_name: str = "") -> dict:
     """router.run_appraisal() 호출 후 UI 친화적 dict 반환."""

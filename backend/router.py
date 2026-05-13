@@ -9,14 +9,22 @@ run_simulation, run_comparison)만 유지.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Optional
+
+# 외부 `graphs` 패키지(site-packages)와 충돌하지 않도록 backend/ 와 프로젝트 루트를 sys.path 선두에 삽입
+_BACKEND_DIR  = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from dotenv import find_dotenv, load_dotenv
 
-from graphs.appraisal_graph import build_appraisal_graph
-from graphs.comparison_graph import build_comparison_graph
-from graphs.recommendation_graph import build_recommendation_graph
-from graphs.simulation_graph import build_simulation_graph
+from backend.graphs.appraisal_graph import build_appraisal_graph
+from backend.graphs.comparison_graph import build_comparison_graph
+from backend.graphs.recommendation_graph import build_recommendation_graph
+from backend.graphs.simulation_graph import build_simulation_graph
 from state import AgentState
 
 load_dotenv(find_dotenv())

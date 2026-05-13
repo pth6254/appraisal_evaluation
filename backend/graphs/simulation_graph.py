@@ -1,5 +1,5 @@
 """
-simulation_graph.py — 투자 시뮬레이션 LangGraph 파이프라인 (Phase 4-3)
+simulation_graph.py — 투자 시뮬레이션 LangGraph 파이프라인
 
 입력 (SimulationState) — 세 가지 방식 중 하나:
   방식 A: raw_input (dict)                → SimulationInput 변환
