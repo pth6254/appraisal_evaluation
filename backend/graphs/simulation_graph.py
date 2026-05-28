@@ -55,6 +55,7 @@ class SimulationState(TypedDict, total=False):
     built_input:        Optional[SimulationInput]  # 정규화된 입력
     result:             Optional[SimulationResult] # 계산 결과
     report:             str                        # 마크다운 리포트
+    report_output:      Optional[object]           # SimulationReport (구조화 리포트)
     error:              str                        # 오류 메시지
 
 
@@ -129,7 +130,8 @@ def run_simulation_node(state: SimulationState) -> SimulationState:
 
 
 def report_node(state: SimulationState) -> SimulationState:
-    """SimulationResult → 마크다운 리포트"""
+    """SimulationResult → 마크다운 리포트 + report_output"""
+    from schemas.report import SimulationReport
     from services.simulation_service import generate_simulation_report
 
     result = state.get("result")
@@ -139,7 +141,8 @@ def report_node(state: SimulationState) -> SimulationState:
     try:
         inp    = state.get("built_input")
         report = generate_simulation_report(result, inp)
-        return {**state, "report": report}
+        report_output = SimulationReport(result=result, input=inp, markdown=report)
+        return {**state, "report": report, "report_output": report_output}
     except Exception as exc:
         logger.exception("[시뮬레이션그래프] generate_simulation_report 실패")
         return {**state, "error": f"리포트 생성 오류: {exc}", "report": ""}

@@ -30,8 +30,12 @@ class PropertyComparisonRow(BaseModel):
     recommendation: Optional[RecommendationResult] = None
     simulation: Optional[SimulationResult] = None
 
-    # 계산된 지표
-    total_score: float = 0.0
+    # 계산된 지표 — 총점 + 세부 점수
+    total_score:      float = 0.0
+    price_score:      float = 0.0  # 가격 적정성
+    location_score:   float = 0.0  # 입지 조건
+    investment_score: float = 0.0  # 투자 수익성
+    risk_score:       float = 0.0  # 리스크 (낮을수록 안전)
     price_per_m2: Optional[int] = None
     jeonse_ratio: Optional[float] = None
     monthly_net: Optional[int] = None

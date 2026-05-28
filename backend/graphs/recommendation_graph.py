@@ -38,12 +38,13 @@ logger = logging.getLogger(__name__)
 
 class RecommendationState(TypedDict, total=False):
     """추천 파이프라인 공유 상태"""
-    query:         PropertyQuery          # 입력 쿼리
-    limit:         int                    # 반환 최대 건수
-    run_appraisal: bool                   # 감정평가 연동 여부
+    query:         PropertyQuery               # 입력 쿼리
+    limit:         int                         # 반환 최대 건수
+    run_appraisal: bool                        # 감정평가 연동 여부
     results:       list[RecommendationResult]  # 추천 결과
-    report:        str                    # 마크다운 리포트
-    error:         str                    # 오류 메시지 (있으면 오류처리로 분기)
+    report:        str                         # 마크다운 리포트
+    report_output: Optional[object]            # RecommendationReport (구조화 리포트)
+    error:         str                         # 오류 메시지 (있으면 오류처리로 분기)
 
 
 # ─────────────────────────────────────────
@@ -87,7 +88,8 @@ def recommend_node(state: RecommendationState) -> RecommendationState:
 
 
 def report_node(state: RecommendationState) -> RecommendationState:
-    """format_recommendation_report() 호출 → report 저장"""
+    """format_recommendation_report() 호출 → report + report_output 저장"""
+    from schemas.report import RecommendationReport
     from services.recommendation_service import format_recommendation_report
 
     results = state.get("results", [])
@@ -95,7 +97,8 @@ def report_node(state: RecommendationState) -> RecommendationState:
 
     try:
         report = format_recommendation_report(results, query)
-        return {**state, "report": report}
+        report_output = RecommendationReport(results=results, markdown=report)
+        return {**state, "report": report, "report_output": report_output}
     except Exception as exc:
         logger.exception("[추천그래프] format_recommendation_report 실패")
         return {**state, "error": f"리포트 생성 오류: {exc}", "report": ""}

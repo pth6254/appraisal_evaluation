@@ -33,14 +33,7 @@ def _fmt_won(won: int | None) -> str:
     if won is None:
         return "—"
     sign = "-" if won < 0 else ""
-    won  = abs(won)
-    eok  = won // 1_0000_0000
-    man  = (won % 1_0000_0000) // 10_000
-    if eok and man:
-        return f"{sign}{eok}억 {man:,}만원"
-    if eok:
-        return f"{sign}{eok}억원"
-    return f"{sign}{man:,}만원"
+    return f"{sign}{abs(won):,}원"
 
 
 def _fmt_pct(pct: float | None, decimals: int = 2) -> str:
@@ -59,24 +52,31 @@ def _score_listing(
     recommendation: RecommendationResult | None,
     simulation: SimulationResult | None,
     all_prices: list[int],
-) -> tuple[float, list[str], list[str]]:
+) -> tuple[float, float, float, float, float, list[str], list[str]]:
     """
-    매물 1건 종합 점수 (0~10) 및 강점/주의사항 산출.
-    recommendation이 있으면 total_score를 그대로 사용,
-    없으면 가격 상대순위로 간이 계산.
+    매물 1건 종합·세부 점수(0~10) 및 강점/주의사항 산출.
+
+    반환: (total, price_score, location_score, investment_score, risk_score, highlights, warnings)
+    - recommendation 있으면 세부 점수를 그대로 사용
+    - 없으면 가격 상대순위로 0~10 간이 계산 (세부 점수는 0.0)
     """
     highlights: list[str] = []
     warnings: list[str]   = []
+    price_score = location_score = investment_score = risk_score = 0.0
 
     if recommendation is not None:
-        score = float(recommendation.total_score)
+        score            = float(recommendation.total_score)
+        price_score      = float(recommendation.price_score)
+        location_score   = float(recommendation.location_score)
+        investment_score = float(recommendation.investment_score)
+        risk_score       = float(recommendation.risk_score)
         highlights.extend(recommendation.reasons[:3])
         warnings.extend(recommendation.risks[:2])
     else:
         sorted_prices = sorted(all_prices)
-        idx = sorted_prices.index(listing.asking_price) if listing.asking_price in sorted_prices else 0
+        idx      = sorted_prices.index(listing.asking_price) if listing.asking_price in sorted_prices else 0
         rank_pct = idx / max(len(all_prices) - 1, 1)
-        score = round((1.0 - rank_pct) * 5.0 + 5.0, 2)
+        score    = round((1.0 - rank_pct) * 10.0, 2)  # 0~10 전 구간 사용
 
     # 시뮬레이션 결과 반영
     if simulation is not None:
@@ -91,7 +91,7 @@ def _score_listing(
                 score = max(0.0, score - 1.0)
                 warnings.append(f"연 수익률 {aroi:.1f}% (주의)")
 
-    return round(score, 2), highlights, warnings
+    return round(score, 2), price_score, location_score, investment_score, risk_score, highlights, warnings
 
 
 # ─────────────────────────────────────────
@@ -126,7 +126,9 @@ def compare_listings(
 
     rows: list[PropertyComparisonRow] = []
     for i, (listing, rec, sim) in enumerate(zip(listings, recs, sims)):
-        score, highlights, warnings = _score_listing(listing, rec, sim, all_prices)
+        score, p_score, l_score, i_score, r_score, highlights, warnings = (
+            _score_listing(listing, rec, sim, all_prices)
+        )
 
         price_per_m2 = None
         if listing.area_m2 and listing.area_m2 > 0:
@@ -148,6 +150,10 @@ def compare_listings(
             recommendation    = rec,
             simulation        = sim,
             total_score       = score,
+            price_score       = p_score,
+            location_score    = l_score,
+            investment_score  = i_score,
+            risk_score        = r_score,
             price_per_m2      = price_per_m2,
             jeonse_ratio      = jeonse_ratio,
             monthly_net       = monthly_net,
@@ -257,6 +263,14 @@ def generate_decision_report(result: ComparisonResult) -> str:
         if row.annual_equity_roi is not None:
             lines.append(f"| 연 자기자본수익률 | {_fmt_pct(row.annual_equity_roi)} |")
         lines.append(f"| 종합 점수 | {row.total_score:.1f} / 10 |")
+        if any([row.price_score, row.location_score, row.investment_score, row.risk_score]):
+            lines.append(
+                f"| 세부 점수 | "
+                f"가격 {row.price_score:.1f} / "
+                f"입지 {row.location_score:.1f} / "
+                f"투자 {row.investment_score:.1f} / "
+                f"리스크 {row.risk_score:.1f} |"
+            )
         lines.append("")
         if row.highlights:
             lines.append("**강점**: " + " / ".join(row.highlights))

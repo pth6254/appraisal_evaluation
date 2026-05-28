@@ -48,6 +48,7 @@ class ComparisonState(TypedDict, total=False):
     comparison_input: Optional[ComparisonInput]  # 방식 B
     result:           Optional[ComparisonResult] # 비교 결과
     report:           str                        # 마크다운 리포트
+    report_output:    Optional[object]           # ComparisonReport (구조화 리포트)
     error:            str                        # 오류 메시지
 
 
@@ -111,11 +112,16 @@ def compare_node(state: ComparisonState) -> ComparisonState:
 
 
 def report_node(state: ComparisonState) -> ComparisonState:
-    """ComparisonResult.decision_report를 state.report로 옮긴다."""
+    """ComparisonResult.decision_report를 state.report + report_output으로 저장한다."""
+    from schemas.report import ComparisonReport
+
     result = state.get("result")
     if result is None:
         return {**state, "error": "비교 결과가 없습니다."}
-    return {**state, "report": result.decision_report}
+
+    report        = result.decision_report
+    report_output = ComparisonReport(result=result, markdown=report)
+    return {**state, "report": report, "report_output": report_output}
 
 
 def error_handler_node(state: ComparisonState) -> ComparisonState:

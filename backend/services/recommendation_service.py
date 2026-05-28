@@ -134,16 +134,9 @@ def recommend_listings(
 # ─────────────────────────────────────────
 
 def _fmt_price(won: Optional[int]) -> str:
-    """원 → 억/만원 단위 한국어 표기"""
     if won is None:
         return "—"
-    eok = won // 100_000_000
-    man = (won % 100_000_000) // 10_000
-    if eok and man:
-        return f"{eok}억 {man:,}만원"
-    if eok:
-        return f"{eok}억원"
-    return f"{man:,}만원"
+    return f"{won:,}원"
 
 
 def _score_bar(score: float, width: int = 10) -> str:

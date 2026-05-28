@@ -33,18 +33,10 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────
 
 def _fmt_won(won: int | None) -> str:
-    """원 → 억/만원 한국어 표기"""
     if won is None:
         return "—"
     sign = "-" if won < 0 else ""
-    won  = abs(won)
-    eok  = won // 1_0000_0000
-    man  = (won % 1_0000_0000) // 10_000
-    if eok and man:
-        return f"{sign}{eok}억 {man:,}만원"
-    if eok:
-        return f"{sign}{eok}억원"
-    return f"{sign}{man:,}만원"
+    return f"{sign}{abs(won):,}원"
 
 
 def _fmt_pct(pct: float | None, decimals: int = 2) -> str:

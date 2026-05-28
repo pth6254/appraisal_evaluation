@@ -22,8 +22,49 @@ for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
         sys.path.insert(0, _p)
 
 
+def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":  # type: ignore[name-defined]
+    """
+    analysis_result dict(만원 단위) → AppraisalResult(원 단위) 변환.
+    직접 매핑 가능한 필드만 변환하고, 전체 dict는 raw에 보존한다.
+    """
+    from schemas.appraisal_result import AppraisalResult
+
+    manwon = 10_000
+
+    estimated  = result.get("estimated_value", 0) or 0
+    value_min  = result.get("value_min", 0) or 0
+    value_max  = result.get("value_max", 0) or 0
+    deviation  = result.get("deviation_pct", 0.0) or 0.0
+    verdict    = result.get("valuation_verdict", "")
+    comp_count = result.get("comparable_count", 0) or 0
+
+    # 비교 건수로 신뢰도를 간이 산출 (없으면 낮음)
+    if comp_count >= 5:
+        confidence = 0.85
+    elif comp_count >= 2:
+        confidence = 0.65
+    elif comp_count >= 1:
+        confidence = 0.45
+    else:
+        confidence = 0.25
+
+    return AppraisalResult(
+        estimated_price = estimated * manwon if estimated else None,
+        low_price       = value_min * manwon if value_min else None,
+        high_price      = value_max * manwon if value_max else None,
+        gap_rate        = deviation / 100.0 if deviation else None,
+        judgement       = verdict or "",
+        confidence      = confidence,
+        warnings        = [],
+        data_source     = [result.get("valuation_method", "")] if result.get("valuation_method") else [],
+        raw             = result,
+    )
+
+
 def report_node(state: dict) -> dict:
     """LangGraph 노드 — 감정평가 결과 → 마크다운 리포트 생성"""
+    from schemas.report import AppraisalReport
+
     intent = state.get("intent")
     geo    = state.get("geocoding_result") or {}
     result = state.get("analysis_result") or {}
@@ -70,23 +111,23 @@ def report_node(state: dict) -> dict:
         "## 감정평가액",
         "| 구분 | 금액 |",
         "|------|------|",
-        f"| **추정 시장가치** | **{estimated:,}만원** |",
-        f"| 추정 범위 | {value_min:,} ~ {value_max:,}만원 |",
-        f"| 평당가 | {ppyeong:,}만원/평 |",
-        f"| 지역 평균 평당가 | {reg_ppyeong:,}만원/평 |",
+        f"| **추정 시장가치** | **{estimated * 10_000:,}원** |",
+        f"| 추정 범위 | {value_min * 10_000:,} ~ {value_max * 10_000:,}원 |",
+        f"| 평당가 | {ppyeong * 10_000:,}원/평 |",
+        f"| 지역 평균 평당가 | {reg_ppyeong * 10_000:,}원/평 |",
         "",
         "## 고/저평가 판단",
         "| 구분 | 내용 |",
         "|------|------|",
         f"| **판정** | **{verdict}** |",
-        f"| 인근 실거래 평균 | {comp_avg:,}만원 ({comp_count}건) |",
+        f"| 인근 실거래 평균 | {comp_avg * 10_000:,}원 ({comp_count}건) |",
         f"| 괴리율 | {deviation:+.1f}% |",
         "",
         "## 투자 수익성",
         "| 항목 | 수치 |",
         "|------|------|",
         f"| Cap Rate | {cap_rate}% |",
-        f"| 연 임대수입 추정 | {annual_inc:,}만원 |",
+        f"| 연 임대수입 추정 | {annual_inc * 10_000:,}원 |",
         f"| 5년 예상 수익률 | {roi_5yr}% |",
         f"| **투자등급** | **{inv_grade}** |",
         "",
@@ -105,11 +146,18 @@ def report_node(state: dict) -> dict:
 
     lines += ["", f"**종합 추천**: {recommendation}"]
 
-    state["final_report"] = "\n".join(lines)
+    markdown = "\n".join(lines)
+    state["final_report"] = markdown
+
+    # 구조화 리포트 — Markdown + 원본 수치 함께 보존
+    state["report_output"] = AppraisalReport(
+        structured=_dict_to_appraisal_result(result),
+        markdown=markdown,
+    )
 
     # 콘솔 출력
     print("\n" + "=" * 60)
-    print(state["final_report"])
+    print(markdown)
     print("=" * 60)
 
     return state
@@ -131,7 +179,7 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: i
     def _manwon(won: int | None) -> str:
         if not won:
             return "—"
-        return f"{won // 10_000:,}만원"
+        return f"{won:,}원"
 
     def _pct(rate: float | None) -> str:
         if rate is None:

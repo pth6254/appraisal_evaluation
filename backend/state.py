@@ -28,3 +28,4 @@ class AgentState(TypedDict, total=False):
     rag_match_count:  int
     analysis_result:  dict
     final_report:     str
+    report_output:    Optional[object]   # AppraisalReport (순환 import 방지로 object 사용)

@@ -7,6 +7,12 @@ from schemas.comparison import ComparisonInput, ComparisonResult, PropertyCompar
 from schemas.property_listing import PropertyListing
 from schemas.property_query import PropertyQuery
 from schemas.recommendation_result import RecommendationResult
+from schemas.report import (
+    AppraisalReport,
+    ComparisonReport,
+    RecommendationReport,
+    SimulationReport,
+)
 from schemas.simulation import (
     AcquisitionCost,
     CashFlowSummary,
@@ -31,4 +37,8 @@ __all__ = [
     "ComparisonInput",
     "ComparisonResult",
     "PropertyComparisonRow",
+    "AppraisalReport",
+    "RecommendationReport",
+    "SimulationReport",
+    "ComparisonReport",
 ]
