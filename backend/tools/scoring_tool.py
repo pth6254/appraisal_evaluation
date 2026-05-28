@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from typing import Optional
 
 _TOOLS_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +28,7 @@ from schemas.appraisal_result import AppraisalResult
 from schemas.property_listing import PropertyListing
 from schemas.property_query import PropertyQuery
 
-_CURRENT_YEAR = 2026
+_CURRENT_YEAR = datetime.now().year
 
 # ─────────────────────────────────────────
 #  price_score  (0-10)

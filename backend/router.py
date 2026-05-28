@@ -8,9 +8,12 @@ run_simulation, run_comparison)만 유지.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # 외부 `graphs` 패키지(site-packages)와 충돌하지 않도록 backend/ 와 프로젝트 루트를 sys.path 선두에 삽입
 _BACKEND_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -114,12 +117,16 @@ def run_appraisal(user_input: str, building_name: str = "") -> dict:
         AgentState dict — analysis_result, final_report 포함
     """
     graph = _get_graph()
-    return graph.invoke({
-        "user_input":    user_input.strip(),
-        "building_name": building_name.strip(),
-        "error":         "",
-        "retry_count":   0,
-    })
+    try:
+        return graph.invoke({
+            "user_input":    user_input.strip(),
+            "building_name": building_name.strip(),
+            "error":         "",
+            "retry_count":   0,
+        })
+    except Exception as exc:
+        logger.exception("[router] run_appraisal 실패")
+        return {"error": str(exc), "final_report": f"# 감정평가 실패\n\n> {exc}", "analysis_result": {}}
 
 
 def run_recommendation(
@@ -143,12 +150,16 @@ def run_recommendation(
           - error   : str                         — 오류 시 메시지
     """
     graph = _get_rec_graph()
-    return graph.invoke({
-        "query":         query,
-        "limit":         limit,
-        "run_appraisal": run_appraisal,
-        "error":         "",
-    })
+    try:
+        return graph.invoke({
+            "query":         query,
+            "limit":         limit,
+            "run_appraisal": run_appraisal,
+            "error":         "",
+        })
+    except Exception as exc:
+        logger.exception("[router] run_recommendation 실패")
+        return {"error": str(exc), "report": f"# 추천 실패\n\n> {exc}", "results": []}
 
 
 def run_simulation(
@@ -187,7 +198,11 @@ def run_simulation(
     else:
         state["raw_input"] = None  # build_input_node에서 오류 처리
 
-    return graph.invoke(state)
+    try:
+        return graph.invoke(state)
+    except Exception as exc:
+        logger.exception("[router] run_simulation 실패")
+        return {"error": str(exc), "report": f"# 시뮬레이션 실패\n\n> {exc}", "result": None}
 
 
 def run_comparison(
@@ -228,7 +243,11 @@ def run_comparison(
     else:
         state["raw_input"] = {}  # normalize_input_node에서 오류 처리
 
-    return graph.invoke(state)
+    try:
+        return graph.invoke(state)
+    except Exception as exc:
+        logger.exception("[router] run_comparison 실패")
+        return {"error": str(exc), "report": f"# 비교 분석 실패\n\n> {exc}", "result": None}
 
 
 if __name__ == "__main__":
