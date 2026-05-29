@@ -111,7 +111,7 @@ df = pd.DataFrame([{
 } for r in filtered])
 
 selected = st.dataframe(
-    df, width="stretch", hide_index=True,
+    df, use_container_width=True, hide_index=True,
     on_select="rerun", selection_mode="single-row",
     column_config={
         "ID":          st.column_config.NumberColumn(width="small"),

@@ -136,7 +136,7 @@ def render_area_band_ranges(r: dict):
             "최고 (만원)":   f"{b['price_max']:,}" if b["price_max"] else "—",
             "실거래 건수":   f"{b['count']}건" if b["count"] else "추정",
         })
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def render_metric_row(r: dict):
@@ -288,7 +288,7 @@ def render_price_analysis(r: dict):
                 "건축연도":     c.get("year_built", "—"),
                 "거래년월":     f"{c.get('deal_year','')}년 {c.get('deal_month','')}월".strip(),
             })
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 # ─────────────────────────────────────────

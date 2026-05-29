@@ -96,11 +96,11 @@ st.markdown(f"""
 
 # 버튼 행
 b1, b2, b3 = st.columns([1, 1, 4])
-if b1.button("🔄 새 평가", width="stretch"):
+if b1.button("🔄 새 평가", use_container_width=True):
     for k in ("query", "result", "result_id", "building_name", "raw_inputs"):
         st.session_state.pop(k, None)
     st.switch_page("pages/1_평가하기.py")
-if b2.button("📋 이력 보기", width="stretch"):
+if b2.button("📋 이력 보기", use_container_width=True):
     st.switch_page("pages/3_대시보드.py")
 
 st.divider()
@@ -141,7 +141,7 @@ with tab4:
             "층수":     c.get("floor", ""),
             "거래년월":  f"{c.get('deal_year','')}년 {c.get('deal_month','')}월",
         } for c in comparables])
-        st.dataframe(df, hide_index=True, width="stretch")
+        st.dataframe(df, hide_index=True, use_container_width=True)
 
 if rid:
     st.divider()
