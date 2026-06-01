@@ -30,8 +30,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    image: property_concierge_api:latest
-    container_name: property_concierge_api
+    image: property_concierge_backend:latest
+    container_name: property_concierge_backend
     restart: unless-stopped
     depends_on:
       pgvector:
