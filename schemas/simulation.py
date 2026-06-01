@@ -38,19 +38,26 @@ class SimulationInput(BaseModel):
     expected_annual_growth_rate: float = Field(0.0, ge=-20.0, le=50.0, description="연간 예상 상승률 (%)")
 
     # 임대 수입
-    jeonse_deposit: Optional[int] = Field(None, ge=0, description="전세 보증금 (원)")
-    monthly_rent: Optional[int] = Field(None, ge=0, description="월세 (원)")
+    rent_deposit: Optional[int] = Field(None, ge=0, description="전세 보증금 (원)")
+    rent_fee: Optional[int] = Field(None, ge=0, description="월세 (원)")
     monthly_management_fee: Optional[int] = Field(None, ge=0, description="월 관리비 (원)")
 
     # 물건 정보 (취득세율 결정)
     property_type: Optional[str] = Field("아파트", description="매물 유형 (아파트·오피스텔·상가·토지 등)")
+    owned_homes: int = Field(1, ge=1, description="현재 보유 주택 수 (취득 전 기준, 주거용 취득세 중과 산정용)")
+
+    # 시나리오 설정
+    scenario_spread: float = Field(5.0, ge=1.0, le=20.0, description="강세/약세 시나리오 편차 (%p, 기본 ±5%p)")
+    jeonse_opportunity_rate: float = Field(3.5, ge=0.0, le=20.0, description="전세 보증금 기회수익률 (%, 기본 3.5% — 정기예금 기준)")
 
     @model_validator(mode="after")
     def _validate_loan(self) -> "SimulationInput":
         if self.loan_amount >= self.purchase_price:
             raise ValueError("loan_amount는 purchase_price보다 작아야 합니다.")
-        if self.jeonse_deposit and self.monthly_rent:
-            raise ValueError("jeonse_deposit과 monthly_rent는 동시에 입력할 수 없습니다.")
+        if self.rent_deposit and self.rent_fee:
+            raise ValueError("rent_deposit과 rent_fee는 동시에 입력할 수 없습니다.")
+        if self.rent_deposit and self.rent_deposit >= self.purchase_price:
+            raise ValueError("rent_deposit은 purchase_price보다 작아야 합니다.")
         return self
 
 

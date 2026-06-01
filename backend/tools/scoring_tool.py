@@ -1,12 +1,16 @@
 """
-scoring_tool.py — 매물 종합 점수 산출 도구 (Phase 3-2)
+scoring_tool.py — 매물 종합 점수 산출 도구
 
 calculate_listing_score(listing, query, appraisal) 를 호출하면
 price / location / investment / risk 4개 축 점수(0-10)와
 total_score, recommendation_label, reasons, risks 를 담은 dict 를 반환한다.
 
-가중치:
-  total = price * 0.35 + location * 0.30 + investment * 0.20 + (10 - risk) * 0.15
+가중치는 property_type에 따라 자동 선택:
+  주거용:  price*0.35 + location*0.30 + investment*0.20 + (10-risk)*0.15
+  상업용:  price*0.25 + location*0.30 + investment*0.35 + (10-risk)*0.10
+  업무용:  price*0.25 + location*0.30 + investment*0.35 + (10-risk)*0.10
+  산업용:  price*0.20 + location*0.20 + investment*0.45 + (10-risk)*0.15
+  토지:    price*0.30 + location*0.40 + investment*0.15 + (10-risk)*0.15
 """
 
 from __future__ import annotations
@@ -30,6 +34,24 @@ from schemas.property_query import PropertyQuery
 
 _CURRENT_YEAR = datetime.now().year
 
+# (price, location, investment, risk) 가중치 합계 = 1.0
+_WEIGHTS: dict[str, tuple[float, float, float, float]] = {
+    "주거용": (0.35, 0.30, 0.20, 0.15),
+    "상업용": (0.25, 0.30, 0.35, 0.10),
+    "업무용": (0.25, 0.30, 0.35, 0.10),
+    "산업용": (0.20, 0.20, 0.45, 0.15),
+    "토지":   (0.30, 0.40, 0.15, 0.15),
+}
+_DEFAULT_WEIGHTS: tuple[float, float, float, float] = (0.35, 0.30, 0.20, 0.15)
+
+_JUDGEMENT_BASE: dict[str, float] = {
+    "저평가":      8.5,
+    "적정":        6.5,
+    "소폭 고평가": 4.5,
+    "고평가":      2.5,
+}
+
+
 # ─────────────────────────────────────────
 #  price_score  (0-10)
 # ─────────────────────────────────────────
@@ -39,23 +61,14 @@ def _score_price(
     query: PropertyQuery,
     appraisal: Optional[AppraisalResult],
 ) -> tuple[float, list[str], list[str]]:
-    """가격 적정성 점수. (score, reasons, risks)"""
     reasons: list[str] = []
     risks:   list[str] = []
 
-    judgement_scores = {
-        "저평가":    8.5,
-        "적정":      6.5,
-        "소폭 고평가": 4.5,
-        "고평가":    2.5,
-    }
-
     if appraisal and appraisal.judgement:
-        base = judgement_scores.get(appraisal.judgement, 5.0)
+        base       = _JUDGEMENT_BASE.get(appraisal.judgement, 5.0)
         confidence = appraisal.confidence
-        # 신뢰도 낮을수록 중간값(5)으로 끌어당김
-        score = base * (0.6 + 0.4 * confidence) + 5.0 * (1 - (0.6 + 0.4 * confidence))
-        score = base + (5.0 - base) * (1 - confidence) * 0.4
+        # 신뢰도 비례 선형 보간: confidence=0 → 중립(5.0), confidence=1 → base
+        score = confidence * base + (1.0 - confidence) * 5.0
 
         label = appraisal.judgement
         if label == "저평가":
@@ -94,11 +107,12 @@ def _score_location(
     listing: PropertyListing,
     query: PropertyQuery,
 ) -> tuple[float, list[str], list[str]]:
-    """입지 점수. (score, reasons, risks)"""
     reasons: list[str] = []
     risks:   list[str] = []
 
-    # 역세권 (0-5점)
+    is_residential = listing.property_type == "주거용"
+
+    # 역세권 (0-5점) — 모든 유형 공통
     sd = listing.station_distance_m
     if sd is None:
         station_pts = 0.5
@@ -120,24 +134,23 @@ def _score_location(
         station_pts = 0.5
         risks.append(f"지하철 매우 원거리 ({sd}m)")
 
-    # 학교 접근성 (0-2점, 주거용만 가산)
-    is_residential = listing.property_type == "주거용"
-    sc = listing.school_distance_m
-    if not is_residential:
-        school_pts = 1.0
-    elif sc is None:
-        school_pts = 0.5
-    elif sc <= 300:
-        school_pts = 2.0
-        reasons.append(f"학교 인접 ({sc}m)")
-    elif sc <= 600:
-        school_pts = 1.5
-    elif sc <= 1000:
-        school_pts = 1.0
-    else:
-        school_pts = 0.5
-        if is_residential:
+    # 학교 접근성 (0-2점) — 주거용만 반영, 비주거용은 0
+    if is_residential:
+        sc = listing.school_distance_m
+        if sc is None:
+            school_pts = 0.5
+        elif sc <= 300:
+            school_pts = 2.0
+            reasons.append(f"학교 인접 ({sc}m)")
+        elif sc <= 600:
+            school_pts = 1.5
+        elif sc <= 1000:
+            school_pts = 1.0
+        else:
+            school_pts = 0.5
             risks.append(f"학교 원거리 ({sc}m)")
+    else:
+        school_pts = 0.0
 
     # 건축연도 신축성 (0-2점)
     by = listing.built_year
@@ -186,37 +199,63 @@ def _score_investment(
     listing: PropertyListing,
     appraisal: Optional[AppraisalResult],
 ) -> tuple[float, list[str], list[str]]:
-    """투자 가치 점수. (score, reasons, risks)"""
     reasons: list[str] = []
     risks:   list[str] = []
-
-    # 전세가율 기반 기본 점수 (주거용)
-    jp = listing.jeonse_price
     ap = listing.asking_price
 
-    if jp and ap and ap > 0:
-        ratio = jp / ap
-        if ratio >= 0.75:
-            base = 8.5
-            reasons.append(f"전세가율 {ratio:.0%} — 갭투자 메리트 높음")
-        elif ratio >= 0.65:
-            base = 7.5
-            reasons.append(f"전세가율 {ratio:.0%} — 투자 양호")
-        elif ratio >= 0.55:
-            base = 6.0
-        elif ratio >= 0.45:
-            base = 5.0
-        elif ratio >= 0.35:
-            base = 4.0
-            risks.append(f"전세가율 {ratio:.0%} — 갭 부담")
+    # 주거용: 전세가율 기반
+    if listing.property_type == "주거용":
+        jp = listing.deposit_price
+        if jp and ap and ap > 0:
+            ratio = jp / ap
+            if ratio >= 0.75:
+                base = 8.5
+                reasons.append(f"전세가율 {ratio:.0%} — 갭투자 메리트 높음")
+            elif ratio >= 0.65:
+                base = 7.5
+                reasons.append(f"전세가율 {ratio:.0%} — 투자 양호")
+            elif ratio >= 0.55:
+                base = 6.0
+            elif ratio >= 0.45:
+                base = 5.0
+            elif ratio >= 0.35:
+                base = 4.0
+                risks.append(f"전세가율 {ratio:.0%} — 갭 부담")
+            else:
+                base = 2.5
+                risks.append(f"전세가율 {ratio:.0%} — 갭 매우 큼")
         else:
-            base = 2.5
-            risks.append(f"전세가율 {ratio:.0%} — 갭 매우 큼")
+            base = 5.0
+
+    # 상업용/업무용/산업용: 연 임대수익률 기반
+    elif listing.property_type in ("상업용", "업무용", "산업용"):
+        rent = listing.monthly_rent_income
+        if rent and ap and ap > 0:
+            annual_yield = rent * 12 / ap
+            if annual_yield >= 0.06:
+                base = 8.5
+                reasons.append(f"연 임대수익률 {annual_yield:.1%} — 수익성 우수")
+            elif annual_yield >= 0.05:
+                base = 7.0
+                reasons.append(f"연 임대수익률 {annual_yield:.1%} — 수익성 양호")
+            elif annual_yield >= 0.04:
+                base = 5.5
+                reasons.append(f"연 임대수익률 {annual_yield:.1%}")
+            elif annual_yield >= 0.03:
+                base = 4.0
+                risks.append(f"연 임대수익률 {annual_yield:.1%} — 수익성 낮음")
+            else:
+                base = 2.5
+                risks.append(f"연 임대수익률 {annual_yield:.1%} — 수익성 매우 낮음")
+        else:
+            base = 5.0
+            risks.append("임대수입 정보 없음 — 수익성 산정 불가")
+
+    # 토지 / 기타
     else:
-        # 상업용 등 전세 없는 경우
         base = 5.0
 
-    # 저평가 여부 보정 (gap_rate: 음수 = 저평가)
+    # 시세 대비 저/고평가 보정 (gap_rate) — investment에서만 반영
     gap_adj = 0.0
     if appraisal and appraisal.gap_rate is not None:
         gr = appraisal.gap_rate
@@ -247,7 +286,6 @@ def _score_risk(
     listing: PropertyListing,
     appraisal: Optional[AppraisalResult],
 ) -> tuple[float, list[str], list[str]]:
-    """위험도 점수. (score, reasons, risks) — 높을수록 위험"""
     reasons: list[str] = []
     risks:   list[str] = []
 
@@ -317,8 +355,10 @@ def _calc_total_score(
     location: float,
     investment: float,
     risk: float,
+    property_type: Optional[str] = None,
 ) -> float:
-    raw = price * 0.35 + location * 0.30 + investment * 0.20 + (10.0 - risk) * 0.15
+    wp, wl, wi, wr = _WEIGHTS.get(property_type, _DEFAULT_WEIGHTS)
+    raw = price * wp + location * wl + investment * wi + (10.0 - risk) * wr
     return round(max(0.0, min(10.0, raw)), 2)
 
 
@@ -359,7 +399,10 @@ def calculate_listing_score(
     investment_score, i_reasons, i_risks = _score_investment(listing, appraisal)
     risk_score,       r_reasons, r_risks = _score_risk(listing, appraisal)
 
-    total_score = _calc_total_score(price_score, location_score, investment_score, risk_score)
+    total_score = _calc_total_score(
+        price_score, location_score, investment_score, risk_score,
+        property_type=listing.property_type,
+    )
 
     reasons = p_reasons + l_reasons + i_reasons + r_reasons
     risks   = p_risks   + l_risks   + i_risks   + r_risks

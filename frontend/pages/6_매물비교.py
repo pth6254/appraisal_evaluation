@@ -206,7 +206,7 @@ if run_btn:
                     area_m2            = item.get("area_m2"),
                     floor              = item.get("floor"),
                     built_year         = item.get("built_year"),
-                    jeonse_price       = item.get("jeonse_price"),
+                    deposit_price       = item.get("deposit_price"),
                     maintenance_fee    = item.get("maintenance_fee"),
                     station_distance_m = item.get("station_distance_m"),
                 )
@@ -359,7 +359,7 @@ if cmp_state:
                         st.session_state["sim_from_listing"] = {
                             "asking_price":    l.asking_price,
                             "property_type":   l.property_type,
-                            "jeonse_price":    l.jeonse_price,
+                            "deposit_price":    l.deposit_price,
                             "maintenance_fee": l.maintenance_fee,
                             "complex_name":    l.complex_name or "",
                             "address":         l.address,

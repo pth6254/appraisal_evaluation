@@ -31,7 +31,7 @@ def _make_listing(
     property_type: str = "주거용",
     asking_price: int = 500_000_000,
     area_m2: float | None = 84.0,
-    jeonse_price: int | None = 350_000_000,
+    deposit_price: int | None = 350_000_000,
     station_distance_m: int | None = 350,
     complex_name: str | None = "공덕래미안",
     floor: int | None = 10,
@@ -44,7 +44,7 @@ def _make_listing(
         property_type       = property_type,
         asking_price        = asking_price,
         area_m2             = area_m2,
-        jeonse_price        = jeonse_price,
+        deposit_price        = deposit_price,
         station_distance_m  = station_distance_m,
         complex_name        = complex_name,
         floor               = floor,
@@ -213,16 +213,16 @@ class TestCompareListings:
 
     def test_jeonse_ratio_computed(self):
         from services.comparison_service import compare_listings
-        l1 = _make_listing("L1", asking_price=500_000_000, jeonse_price=350_000_000)
-        l2 = _make_listing("L2", asking_price=600_000_000, jeonse_price=300_000_000)
+        l1 = _make_listing("L1", asking_price=500_000_000, deposit_price=350_000_000)
+        l2 = _make_listing("L2", asking_price=600_000_000, deposit_price=300_000_000)
         result = compare_listings([l1, l2])
         row1 = next(r for r in result.rows if r.listing.listing_id == "L1")
         assert row1.jeonse_ratio == pytest.approx(70.0, abs=0.1)
 
     def test_jeonse_ratio_none_without_jeonse(self):
         from services.comparison_service import compare_listings
-        l1 = _make_listing("L1", asking_price=500_000_000, jeonse_price=None)
-        l2 = _make_listing("L2", asking_price=600_000_000, jeonse_price=None)
+        l1 = _make_listing("L1", asking_price=500_000_000, deposit_price=None)
+        l2 = _make_listing("L2", asking_price=600_000_000, deposit_price=None)
         result = compare_listings([l1, l2])
         for row in result.rows:
             assert row.jeonse_ratio is None

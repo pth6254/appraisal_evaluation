@@ -11,6 +11,7 @@ router.py에서 분리된 독립 모듈
 
 from __future__ import annotations
 
+import logging
 import sys
 import os
 
@@ -20,6 +21,8 @@ _PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
 for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+logger = logging.getLogger(__name__)
 
 
 def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":  # type: ignore[name-defined]
@@ -37,8 +40,9 @@ def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":  # type: ignor
     deviation  = result.get("deviation_pct", 0.0) or 0.0
     verdict    = result.get("valuation_verdict", "")
     comp_count = result.get("comparable_count", 0) or 0
+    months     = result.get("used_months", 0) or 0
 
-    # 비교 건수로 신뢰도를 간이 산출 (없으면 낮음)
+    # 비교 건수로 신뢰도를 간이 산출
     if comp_count >= 5:
         confidence = 0.85
     elif comp_count >= 2:
@@ -47,6 +51,12 @@ def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":  # type: ignor
         confidence = 0.45
     else:
         confidence = 0.25
+
+    # 데이터 노후 패널티
+    if months > 12:
+        confidence = max(confidence - 0.20, 0.10)
+    elif months > 6:
+        confidence = max(confidence - 0.10, 0.10)
 
     return AppraisalResult(
         estimated_price = estimated * manwon if estimated else None,
@@ -155,10 +165,7 @@ def report_node(state: dict) -> dict:
         markdown=markdown,
     )
 
-    # 콘솔 출력
-    print("\n" + "=" * 60)
-    print(markdown)
-    print("=" * 60)
+    logger.debug("report_node: 감정평가 리포트 생성 완료 — %d자", len(markdown))
 
     return state
 
@@ -187,13 +194,24 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: i
         return f"{rate * 100:+.1f}%"
 
     def _conf_label(c: float) -> str:
-        if c >= 0.80: return f"높음 ({c:.0%})"
-        if c >= 0.50: return f"보통 ({c:.0%})"
-        return f"낮음 ({c:.0%})"
+        if c >= 0.80: return f"높음 ({c:.0%}) — 실거래 충분·최신 데이터"
+        if c >= 0.60: return f"보통 ({c:.0%}) — 표본 제한적"
+        if c >= 0.40: return f"낮음 ({c:.0%}) — 폴백 출처 또는 데이터 노후"
+        return f"매우 낮음 ({c:.0%}) — 실거래 없음, 참고용으로만 활용"
+
+    level_map = {
+        "same_complex": "동일 단지",
+        "same_dong":    "동일 동",
+        "same_gu":      "동일 구",
+        "nearby":       "인근",
+        "fallback":     "폴백",
+    }
 
     # ── 헤더 ─────────────────────────────────────────────────────────────
     lines = [
         "# 가격 분석 리포트",
+        "",
+        "> ⚠️ 이 리포트는 공개 실거래가 기반 간이 분석입니다. 실제 거래 판단 시 전문가 자문을 받으세요.",
         "",
     ]
 
@@ -221,25 +239,48 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: i
         "",
     ]
 
+    # ── 투자 의견 (gap_rate 기반) ─────────────────────────────────────────
+    if result.gap_rate is not None and result.asking_price:
+        gr = result.gap_rate
+        if gr > 0.10:
+            opinion = "🔴 **고평가 주의** — 호가가 추정가 대비 10% 이상 높습니다. 협상 여지 확인 후 접근하세요."
+        elif gr > 0.05:
+            opinion = "🟠 **소폭 고평가** — 호가가 추정가보다 다소 높습니다. 시장 상황 모니터링이 필요합니다."
+        elif gr >= -0.05:
+            opinion = "🟢 **적정 가격대** — 호가가 시장 추정가와 부합합니다."
+        elif gr >= -0.10:
+            opinion = "🟡 **소폭 저평가** — 호가가 추정가보다 낮아 상대적 매력이 있습니다."
+        else:
+            opinion = "✅ **저평가 구간** — 호가가 추정가 대비 10% 이상 낮습니다. 추가 확인 후 유리한 매수 기회일 수 있습니다."
+
+        lines += [
+            "## 투자 의견",
+            opinion,
+            "",
+        ]
+
     # ── 비교 사례 ─────────────────────────────────────────────────────────
     if result.comparables:
+        # 매칭 수준별 건수 집계
+        level_counts: dict[str, int] = {}
+        for c in result.comparables:
+            lv = level_map.get(c.match_level or "", c.match_level or "기타")
+            level_counts[lv] = level_counts.get(lv, 0) + 1
+
+        quality_summary = ", ".join(f"{lv} {cnt}건" for lv, cnt in level_counts.items())
+
         lines += [
             "## 비교 사례",
+            f"> 총 {len(result.comparables)}건 — {quality_summary}",
+            "",
             "| 단지명 | 면적 | 거래가 | 거래일 | 매칭 수준 |",
             "|--------|------|--------|--------|-----------|",
         ]
         for c in result.comparables:
-            name     = c.complex_name or "—"
-            area     = f"{c.area_m2:.1f}㎡" if c.area_m2 else "—"
-            price    = _manwon(c.deal_price)
-            date     = c.deal_date or "—"
-            level_map = {
-                "same_complex": "동일 단지",
-                "same_dong":    "동일 동",
-                "same_gu":      "동일 구",
-                "nearby":       "인근",
-                "fallback":     "폴백",
-            }
+            name  = c.complex_name or "—"
+            area  = f"{c.area_m2:.1f}㎡" if c.area_m2 else "—"
+            price = _manwon(c.deal_price)
+            date  = c.deal_date or "—"
             level = level_map.get(c.match_level or "", c.match_level or "—")
             lines.append(f"| {name} | {area} | {price} | {date} | {level} |")
         lines.append("")

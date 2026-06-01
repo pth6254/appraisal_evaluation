@@ -387,12 +387,12 @@ class TestGraphEndToEnd:
         assert "|" in state["report"]
 
     def test_with_jeonse(self):
-        d = {**_minimal_dict(), "jeonse_deposit": 200_000_000}
+        d = {**_minimal_dict(), "rent_deposit": 200_000_000}
         state = self._g().invoke(_base_state(raw_input=d))
         assert state["result"].equity < state["result"].required_cash
 
     def test_with_monthly_rent(self):
-        d = {**_minimal_dict(), "monthly_rent": 1_000_000}
+        d = {**_minimal_dict(), "rent_fee": 1_000_000}
         state = self._g().invoke(_base_state(raw_input=d))
         assert state["result"].cash_flow.monthly_rental_income == 1_000_000
 

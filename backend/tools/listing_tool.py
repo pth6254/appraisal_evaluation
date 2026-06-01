@@ -62,7 +62,7 @@ def _row_to_listing(row: dict) -> PropertyListing:
         lng                = _float(row.get("lng", "")),
         station_distance_m = _int(row.get("station_distance_m", "")),
         school_distance_m  = _int(row.get("school_distance_m", "")),
-        jeonse_price       = _int(row.get("jeonse_price", "")),
+        deposit_price      = _int(row.get("deposit_price", "")),
         maintenance_fee    = _int(row.get("maintenance_fee", "")),
         description        = row.get("description") or None,
     )

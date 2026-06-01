@@ -61,7 +61,7 @@ class TestSimulationInput:
 
     def test_jeonse_and_monthly_rent_together_raises(self):
         with pytest.raises(Exception):
-            _inp(jeonse_deposit=500_000_000, monthly_rent=1_000_000)
+            _inp(rent_deposit=500_000_000, rent_fee=1_000_000)
 
     def test_zero_loan_allowed(self):
         inp = _inp(loan_amount=0)
@@ -283,17 +283,17 @@ class TestCalcLoanSummary:
 
 class TestCalcCashFlow:
     def test_positive_cash_flow(self):
-        cf = calc_cash_flow(monthly_rent=3_000_000, monthly_payment=1_500_000,
+        cf = calc_cash_flow(rent_fee=3_000_000, monthly_payment=1_500_000,
                             monthly_management_fee=200_000)
         assert cf.monthly_net == 3_000_000 - 1_500_000 - 200_000
 
     def test_no_rent_negative_flow(self):
-        cf = calc_cash_flow(monthly_rent=None, monthly_payment=1_500_000,
+        cf = calc_cash_flow(rent_fee=None, monthly_payment=1_500_000,
                             monthly_management_fee=None)
         assert cf.monthly_net == -1_500_000
 
     def test_no_loan_no_mgmt(self):
-        cf = calc_cash_flow(monthly_rent=2_000_000, monthly_payment=0,
+        cf = calc_cash_flow(rent_fee=2_000_000, monthly_payment=0,
                             monthly_management_fee=None)
         assert cf.monthly_net == 2_000_000
 
@@ -339,8 +339,8 @@ class TestCalcScenario:
             holding_years=3,
             total_acquisition_cost=30_000_000,
             total_interest=50_000_000,
-            monthly_rent=None,
-            jeonse_deposit=None,
+            rent_fee=None,
+            rent_deposit=None,
         )
         defaults.update(overrides)
         return defaults
@@ -363,15 +363,15 @@ class TestCalcScenario:
         assert s.capital_gain < 0
 
     def test_rental_income_accumulated(self):
-        s = calc_scenario(**self._base_kwargs(monthly_rent=2_000_000))
+        s = calc_scenario(**self._base_kwargs(rent_fee=2_000_000))
         assert s.total_rental_income == 2_000_000 * 12 * 3
 
     def test_no_rent_zero_rental_income(self):
-        s = calc_scenario(**self._base_kwargs(monthly_rent=None))
+        s = calc_scenario(**self._base_kwargs(rent_fee=None))
         assert s.total_rental_income == 0
 
     def test_rental_yield_calculated(self):
-        s = calc_scenario(**self._base_kwargs(monthly_rent=3_000_000))
+        s = calc_scenario(**self._base_kwargs(rent_fee=3_000_000))
         expected = round(3_000_000 * 12 / 1_000_000_000 * 100, 2)
         assert s.rental_yield == expected
 
@@ -410,11 +410,11 @@ class TestRunSimulation:
         assert result.required_cash == expected
 
     def test_equity_without_jeonse(self):
-        result = run_simulation(_inp(jeonse_deposit=None))
+        result = run_simulation(_inp(rent_deposit=None))
         assert result.equity == result.required_cash
 
     def test_equity_with_jeonse(self):
-        inp    = _inp(jeonse_deposit=300_000_000)
+        inp    = _inp(rent_deposit=300_000_000)
         result = run_simulation(inp)
         assert result.equity == result.required_cash - 300_000_000
 
@@ -436,7 +436,7 @@ class TestRunSimulation:
         assert result.scenario_bear.annual_growth_rate == base - 5.0
 
     def test_with_monthly_rent(self):
-        result = run_simulation(_inp(monthly_rent=2_000_000))
+        result = run_simulation(_inp(rent_fee=2_000_000))
         assert result.cash_flow.monthly_rental_income == 2_000_000
         assert result.scenario_base.total_rental_income == 2_000_000 * 12 * 3  # holding=3
 
@@ -481,6 +481,6 @@ class TestRunSimulation:
         assert r_epp.loan.total_interest < r_ep.loan.total_interest
 
     def test_longer_holding_more_rental_income(self):
-        r3 = run_simulation(_inp(holding_years=3, monthly_rent=2_000_000))
-        r5 = run_simulation(_inp(holding_years=5, monthly_rent=2_000_000))
+        r3 = run_simulation(_inp(holding_years=3, rent_fee=2_000_000))
+        r5 = run_simulation(_inp(holding_years=5, rent_fee=2_000_000))
         assert r5.scenario_base.total_rental_income > r3.scenario_base.total_rental_income

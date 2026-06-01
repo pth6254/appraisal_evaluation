@@ -438,10 +438,10 @@ if state:
                     st.progress(r.total_score / 10,
                                 text=f"종합 {r.total_score:.1f} / 10 ({r.recommendation_label})")
 
-                    if l.jeonse_price:
-                        ratio = l.jeonse_price / l.asking_price * 100
+                    if l.deposit_price:
+                        ratio = l.deposit_price / l.asking_price * 100
                         st.caption(
-                            f"전세가 {_fmt_won(l.jeonse_price)} · "
+                            f"전세가 {_fmt_won(l.deposit_price)} · "
                             f"전세가율 {ratio:.0f}%"
                         )
                     if r.appraisal and r.appraisal.estimated_price:
@@ -462,7 +462,7 @@ if state:
                             st.session_state["sim_from_listing"] = {
                                 "asking_price":    l.asking_price,
                                 "property_type":   l.property_type,
-                                "jeonse_price":    l.jeonse_price,
+                                "deposit_price":    l.deposit_price,
                                 "maintenance_fee": l.maintenance_fee,
                                 "complex_name":    l.complex_name or "",
                                 "address":         l.address,
@@ -491,7 +491,7 @@ if state:
                                     "listing_id":         l.listing_id,
                                     "asking_price":       l.asking_price,
                                     "property_type":      l.property_type,
-                                    "jeonse_price":       l.jeonse_price,
+                                    "deposit_price":       l.deposit_price,
                                     "maintenance_fee":    l.maintenance_fee,
                                     "complex_name":       l.complex_name or "",
                                     "address":            l.address,

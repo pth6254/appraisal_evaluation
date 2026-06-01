@@ -79,12 +79,12 @@ class TestLoadListings:
 
     def test_optional_fields_parsed_correctly(self):
         listings = _load_listings()
-        # 주거용 매물은 jeonse_price가 있어야 함
+        # 주거용 매물은 deposit_price가 있어야 함
         residential = [l for l in listings if l.property_type == "주거용"]
-        assert any(l.jeonse_price is not None for l in residential)
-        # 상업용 매물은 jeonse_price가 없어야 함
+        assert any(l.deposit_price is not None for l in residential)
+        # 상업용 매물은 deposit_price가 없어야 함
         commercial = [l for l in listings if l.property_type == "상업용"]
-        assert all(l.jeonse_price is None for l in commercial)
+        assert all(l.deposit_price is None for l in commercial)
 
     def test_lat_lng_present_for_all(self):
         for l in _load_listings():

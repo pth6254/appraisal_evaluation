@@ -52,7 +52,7 @@ def _listing(**kwargs) -> PropertyListing:
         "floor":         10,
         "station_distance_m": 400,
         "school_distance_m":  500,
-        "jeonse_price":  650_000_000,
+        "deposit_price":  650_000_000,
         "complex_name":  "테스트아파트",
     }
     defaults.update(kwargs)

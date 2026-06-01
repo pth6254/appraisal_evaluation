@@ -96,24 +96,24 @@ def listing_to_simulation_input(
     repayment_type: str = "equal_payment",
     holding_years: int = 3,
     expected_annual_growth_rate: float = 0.0,
-    monthly_rent: Optional[int] = None,
+    rent_fee: Optional[int] = None,
     monthly_management_fee: Optional[int] = None,
 ) -> SimulationInput:
     """
     PropertyListing 객체 또는 dict → SimulationInput 변환 편의 함수.
 
     loan_ratio: 매수가 대비 대출 비율 (기본 50%).
-    PropertyListing.jeonse_price가 있으면 전세 보증금으로 사용.
-    monthly_rent 인자가 주어지면 jeonse_price 대신 월세 모드로 설정.
+    PropertyListing.deposit_price가 있으면 임대 보증금으로 사용.
+    rent_fee 인자가 주어지면 deposit_price 대신 월 임대료 모드로 설정.
     """
     if isinstance(listing, dict):
         purchase_price  = listing.get("asking_price", 0)
-        jeonse_deposit  = listing.get("jeonse_price")
+        rent_deposit    = listing.get("deposit_price")
         mgmt_fee        = listing.get("maintenance_fee") or monthly_management_fee
         ptype_raw       = listing.get("property_type", "주거용")
     else:
         purchase_price  = getattr(listing, "asking_price", 0)
-        jeonse_deposit  = getattr(listing, "jeonse_price", None)
+        rent_deposit    = getattr(listing, "deposit_price", None)
         mgmt_fee        = getattr(listing, "maintenance_fee", None) or monthly_management_fee
         ptype_raw       = getattr(listing, "property_type", "주거용")
 
@@ -121,8 +121,8 @@ def listing_to_simulation_input(
     loan_amount   = int(purchase_price * loan_ratio)
 
     # 월세 모드이면 jeonse 무시
-    if monthly_rent is not None:
-        jeonse_deposit = None
+    if rent_fee is not None:
+        rent_deposit = None
 
     return SimulationInput(
         purchase_price              = purchase_price,
@@ -132,8 +132,8 @@ def listing_to_simulation_input(
         repayment_type              = repayment_type,
         holding_years               = holding_years,
         expected_annual_growth_rate = expected_annual_growth_rate,
-        jeonse_deposit              = jeonse_deposit if not monthly_rent else None,
-        monthly_rent                = monthly_rent,
+        rent_deposit              = rent_deposit if not rent_fee else None,
+        rent_fee                = rent_fee,
         monthly_management_fee      = mgmt_fee,
         property_type               = property_type,
     )
@@ -207,10 +207,10 @@ def generate_simulation_report(
             ("예상 연 상승률", _fmt_pct_plain(inp.expected_annual_growth_rate)),
             ("매물 유형",      inp.property_type or "—"),
         ]
-        if inp.jeonse_deposit:
-            rows.append(("전세 보증금", _fmt_won(inp.jeonse_deposit)))
-        if inp.monthly_rent:
-            rows.append(("월세", _fmt_won(inp.monthly_rent)))
+        if inp.rent_deposit:
+            rows.append(("전세 보증금", _fmt_won(inp.rent_deposit)))
+        if inp.rent_fee:
+            rows.append(("월세", _fmt_won(inp.rent_fee)))
         if inp.monthly_management_fee:
             rows.append(("월 관리비", _fmt_won(inp.monthly_management_fee)))
 
@@ -241,8 +241,8 @@ def generate_simulation_report(
     lines.append(f"| 대출금 | −{_fmt_won(result.loan_amount)} |")
     lines.append(f"| 취득 비용 | +{_fmt_won(acq.total)} |")
     lines.append(f"| **필요 현금 합계** | **{_fmt_won(result.required_cash)}** |")
-    if inp and inp.jeonse_deposit:
-        lines.append(f"| 전세 보증금 (차감) | −{_fmt_won(inp.jeonse_deposit)} |")
+    if inp and inp.rent_deposit:
+        lines.append(f"| 전세 보증금 (차감) | −{_fmt_won(inp.rent_deposit)} |")
         lines.append(f"| **실투자금** | **{_fmt_won(result.equity)}** |")
     lines.append("")
 

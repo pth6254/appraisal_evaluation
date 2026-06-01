@@ -1,4 +1,4 @@
-listing_id,complex_name,address,region,property_type,area_m2,asking_price,floor,built_year,lat,lng,station_distance_m,school_distance_m,jeonse_price,maintenance_fee,description
+listing_id,complex_name,address,region,property_type,area_m2,asking_price,floor,built_year,lat,lng,station_distance_m,school_distance_m,deposit_price,maintenance_fee,description
 L001,마포래미안푸르지오,서울시 마포구 아현동 625,마포구,주거용,84.97,1050000000,15,2005,37.5568,126.9560,420,280,670000000,180000,아파트 / 마포구 대표 랜드마크 단지. 공덕역 도보권.
 L002,마포현대2차,서울시 마포구 아현동 423,마포구,주거용,59.98,730000000,8,1991,37.5523,126.9572,600,350,480000000,120000,아파트 / 아현역 인근 구축 단지.
 L003,공덕파크자이,서울시 마포구 공덕동 260,마포구,주거용,84.84,1020000000,19,2007,37.5455,126.9517,280,420,660000000,190000,아파트 / 공덕 역세권 대단지. 5호선 공덕역 도보 3분.

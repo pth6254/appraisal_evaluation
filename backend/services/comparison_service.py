@@ -135,8 +135,8 @@ def compare_listings(
             price_per_m2 = int(listing.asking_price / listing.area_m2)
 
         jeonse_ratio = None
-        if listing.jeonse_price and listing.asking_price > 0:
-            jeonse_ratio = round(listing.jeonse_price / listing.asking_price * 100, 1)
+        if listing.deposit_price and listing.asking_price > 0:
+            jeonse_ratio = round(listing.deposit_price / listing.asking_price * 100, 1)
 
         monthly_net       = None
         annual_equity_roi = None
@@ -254,8 +254,8 @@ def generate_decision_report(result: ComparisonResult) -> str:
             lines.append(f"| 준공연도 | {l.built_year}년 |")
         if l.station_distance_m:
             lines.append(f"| 역까지 거리 | {l.station_distance_m:,}m |")
-        if l.jeonse_price:
-            lines.append(f"| 전세가 | {_fmt_won(l.jeonse_price)} |")
+        if l.deposit_price:
+            lines.append(f"| 전세가 | {_fmt_won(l.deposit_price)} |")
         if row.jeonse_ratio is not None:
             lines.append(f"| 전세가율 | {row.jeonse_ratio:.0f}% |")
         if row.monthly_net is not None:

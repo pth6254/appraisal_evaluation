@@ -28,9 +28,10 @@ class PropertyListing(BaseModel):
     built_year: Optional[int]    = None  # 준공연도
 
     # 가격 (원 단위)
-    asking_price: int                    # 매도 호가 (원)
-    jeonse_price: Optional[int]  = None  # 전세가 (원)
-    maintenance_fee: Optional[int] = None  # 관리비 (원/월)
+    asking_price: int                          # 매도 호가 (원)
+    deposit_price: Optional[int]       = None  # 임대 보증금가 (원, 주거용·반전세)
+    monthly_rent_income: Optional[int] = None  # 월 임대수입 (원, 상업용/업무용/산업용)
+    maintenance_fee: Optional[int]     = None  # 관리비 (원/월)
 
     # 위치
     lat: Optional[float]         = None  # 위도

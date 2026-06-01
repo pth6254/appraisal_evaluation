@@ -127,7 +127,7 @@ def _make_dict_listing(**kwargs):
     defaults = {
         "asking_price": 500_000_000,
         "property_type": "주거용",
-        "jeonse_price": 300_000_000,
+        "deposit_price": 300_000_000,
         "maintenance_fee": None,
     }
     defaults.update(kwargs)
@@ -138,7 +138,7 @@ class MockListing:
     def __init__(self, **kwargs):
         self.asking_price   = kwargs.get("asking_price", 500_000_000)
         self.property_type  = kwargs.get("property_type", "주거용")
-        self.jeonse_price   = kwargs.get("jeonse_price", None)
+        self.deposit_price   = kwargs.get("deposit_price", None)
         self.maintenance_fee = kwargs.get("maintenance_fee", None)
 
 
@@ -185,15 +185,15 @@ class TestListingToSimulationInput:
         assert inp.property_type == "토지"
 
     def test_jeonse_from_dict(self):
-        listing = _make_dict_listing(jeonse_price=300_000_000)
+        listing = _make_dict_listing(deposit_price=300_000_000)
         inp = listing_to_simulation_input(listing)
-        assert inp.jeonse_deposit == 300_000_000
+        assert inp.rent_deposit == 300_000_000
 
     def test_monthly_rent_overrides_jeonse(self):
-        listing = _make_dict_listing(jeonse_price=300_000_000)
-        inp = listing_to_simulation_input(listing, monthly_rent=800_000)
-        assert inp.monthly_rent == 800_000
-        assert inp.jeonse_deposit is None
+        listing = _make_dict_listing(deposit_price=300_000_000)
+        inp = listing_to_simulation_input(listing, rent_fee=800_000)
+        assert inp.rent_fee == 800_000
+        assert inp.rent_deposit is None
 
     def test_monthly_management_fee_from_dict(self):
         listing = _make_dict_listing(maintenance_fee=200_000)
@@ -212,9 +212,9 @@ class TestListingToSimulationInput:
         assert inp.property_type == "아파트"
 
     def test_object_listing_jeonse(self):
-        listing = MockListing(asking_price=600_000_000, jeonse_price=400_000_000)
+        listing = MockListing(asking_price=600_000_000, deposit_price=400_000_000)
         inp = listing_to_simulation_input(listing)
-        assert inp.jeonse_deposit == 400_000_000
+        assert inp.rent_deposit == 400_000_000
 
     def test_object_listing_maintenance(self):
         listing = MockListing(maintenance_fee=300_000)
@@ -310,12 +310,12 @@ class TestRunPropertySimulation:
         assert result.loan.monthly_payment == 0
 
     def test_with_jeonse(self):
-        data = {**_minimal_input_dict(), "jeonse_deposit": 200_000_000}
+        data = {**_minimal_input_dict(), "rent_deposit": 200_000_000}
         result = run_property_simulation(data)
         assert result.equity < result.required_cash
 
     def test_with_monthly_rent(self):
-        data = {**_minimal_input_dict(), "monthly_rent": 1_000_000}
+        data = {**_minimal_input_dict(), "rent_fee": 1_000_000}
         result = run_property_simulation(data)
         assert result.cash_flow.monthly_rental_income == 1_000_000
 
@@ -393,7 +393,7 @@ class TestGenerateSimulationReport:
         assert "입력 조건" not in report
 
     def test_jeonse_section_shown(self):
-        data = {**_minimal_input_dict(), "jeonse_deposit": 200_000_000}
+        data = {**_minimal_input_dict(), "rent_deposit": 200_000_000}
         inp = SimulationInput(**data)
         from tools.simulation_tool import run_simulation
         result = run_simulation(inp)
@@ -402,7 +402,7 @@ class TestGenerateSimulationReport:
         assert "실투자금" in report
 
     def test_monthly_rent_shown(self):
-        data = {**_minimal_input_dict(), "monthly_rent": 1_000_000}
+        data = {**_minimal_input_dict(), "rent_fee": 1_000_000}
         inp = SimulationInput(**data)
         from tools.simulation_tool import run_simulation
         result = run_simulation(inp)

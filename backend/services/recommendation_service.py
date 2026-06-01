@@ -229,9 +229,9 @@ def format_recommendation_report(
 
         # 가격 정보
         lines.append(f"**호가** {_fmt_price(l.asking_price)}")
-        if l.jeonse_price:
-            ratio = l.jeonse_price / l.asking_price * 100
-            lines.append(f"**전세가** {_fmt_price(l.jeonse_price)} (전세가율 {ratio:.0f}%)")
+        if l.deposit_price:
+            ratio = l.deposit_price / l.asking_price * 100
+            lines.append(f"**전세가** {_fmt_price(l.deposit_price)} (전세가율 {ratio:.0f}%)")
         lines.append("")
 
         # 감정평가

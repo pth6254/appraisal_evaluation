@@ -33,7 +33,7 @@ def _listing(**kwargs) -> PropertyListing:
         "floor":         10,
         "station_distance_m": 400,
         "school_distance_m":  500,
-        "jeonse_price":  650_000_000,
+        "deposit_price":  650_000_000,
     }
     defaults.update(kwargs)
     return PropertyListing(**defaults)
@@ -267,24 +267,24 @@ class TestScoreInvestment:
         assert 0.0 <= score <= 10.0
 
     def test_high_jeonse_ratio_high_score(self):
-        l = _listing(asking_price=1_000_000_000, jeonse_price=800_000_000)  # 80%
+        l = _listing(asking_price=1_000_000_000, deposit_price=800_000_000)  # 80%
         score, reasons, _ = _score_investment(l, None)
         assert score >= 7.0
         assert any("전세가율" in r for r in reasons)
 
     def test_low_jeonse_ratio_low_score(self):
-        l = _listing(asking_price=1_000_000_000, jeonse_price=250_000_000)  # 25%
+        l = _listing(asking_price=1_000_000_000, deposit_price=250_000_000)  # 25%
         score, _, risks = _score_investment(l, None)
         assert score < 5.0
         assert any("갭" in r for r in risks)
 
     def test_no_jeonse_neutral(self):
-        l = _listing(jeonse_price=None)
+        l = _listing(deposit_price=None)
         score, _, _ = _score_investment(l, None)
         assert score == 5.0
 
     def test_undervalued_appraisal_bonus(self):
-        l = _listing(jeonse_price=None)
+        l = _listing(deposit_price=None)
         a_under = _appraisal(gap_rate=-0.15)
         a_over  = _appraisal(gap_rate= 0.20)
         s_under, reasons, _ = _score_investment(l, a_under)
@@ -293,13 +293,13 @@ class TestScoreInvestment:
         assert any("저평가" in r for r in reasons)
 
     def test_overvalued_appraisal_penalty(self):
-        l = _listing(jeonse_price=None)
+        l = _listing(deposit_price=None)
         a = _appraisal(gap_rate=0.20)
         _, _, risks = _score_investment(l, a)
         assert any("고평가" in r for r in risks)
 
     def test_small_gap_rate_no_adjustment(self):
-        l = _listing(jeonse_price=None)
+        l = _listing(deposit_price=None)
         a_before = _appraisal(gap_rate=0.0)
         a_after  = _appraisal(gap_rate=0.03)
         s1, _, _ = _score_investment(l, a_before)
@@ -308,13 +308,13 @@ class TestScoreInvestment:
         assert s1 == s2 == 5.0
 
     def test_score_capped_at_10(self):
-        l = _listing(asking_price=1_000_000_000, jeonse_price=800_000_000)
+        l = _listing(asking_price=1_000_000_000, deposit_price=800_000_000)
         a = _appraisal(gap_rate=-0.20)
         score, _, _ = _score_investment(l, a)
         assert score <= 10.0
 
     def test_score_floor_at_0(self):
-        l = _listing(asking_price=1_000_000_000, jeonse_price=100_000_000)
+        l = _listing(asking_price=1_000_000_000, deposit_price=100_000_000)
         a = _appraisal(gap_rate=0.30)
         score, _, _ = _score_investment(l, a)
         assert score >= 0.0
@@ -429,7 +429,7 @@ class TestCalculateListingScore:
         l = _listing(
             built_year=2022, floor=20,
             station_distance_m=150, school_distance_m=200,
-            asking_price=1_000_000_000, jeonse_price=800_000_000,
+            asking_price=1_000_000_000, deposit_price=800_000_000,
         )
         a = _appraisal(judgement="저평가", confidence=0.95, gap_rate=-0.12)
         result = calculate_listing_score(l, _query(budget_max=1_200_000_000), a)
@@ -441,7 +441,7 @@ class TestCalculateListingScore:
         l = _listing(
             built_year=1975, floor=2,
             station_distance_m=1800, school_distance_m=1500,
-            asking_price=2_000_000_000, jeonse_price=300_000_000,
+            asking_price=2_000_000_000, deposit_price=300_000_000,
         )
         a = _appraisal(judgement="고평가", confidence=0.3, gap_rate=0.25,
                        warnings=["실거래 2건 미만", "공시가 역산"])
@@ -462,14 +462,14 @@ class TestCalculateListingScore:
 
     def test_reasons_not_empty_for_good_listing(self):
         l = _listing(station_distance_m=150, built_year=2022, floor=15,
-                     jeonse_price=750_000_000)
+                     deposit_price=750_000_000)
         a = _appraisal(judgement="저평가", confidence=0.9, gap_rate=-0.10)
         result = calculate_listing_score(l, _query(), a)
         assert len(result["reasons"]) > 0
 
     def test_risks_not_empty_for_bad_listing(self):
         l = _listing(built_year=1975, station_distance_m=2000,
-                     jeonse_price=200_000_000)
+                     deposit_price=200_000_000)
         a = _appraisal(judgement="고평가", confidence=0.2,
                        warnings=["경고1"])
         result = calculate_listing_score(l, _query(budget_max=500_000_000), a)
@@ -479,7 +479,7 @@ class TestCalculateListingScore:
         l = _listing(
             property_type="상업용",
             asking_price=2_000_000_000,
-            jeonse_price=None,
+            deposit_price=None,
         )
         result = calculate_listing_score(l, _query(property_type="상업용"))
         assert 0.0 <= result["total_score"] <= 10.0

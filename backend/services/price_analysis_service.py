@@ -100,7 +100,7 @@ def _to_comparables(
 
 def _calc_confidence(price_data: dict) -> float:
     """
-    실거래 건수와 데이터 출처를 기반으로 신뢰도 산출.
+    실거래 건수·출처·데이터 신선도를 기반으로 신뢰도 산출.
 
     기준:
       건수 20+       → 0.90
@@ -110,6 +110,7 @@ def _calc_confidence(price_data: dict) -> float:
       건수 1         → 0.30
       건수 0 or 오류 → 0.10
     폴백 출처(공시가격·수익환원법·원가법) 사용 시 최대 0.40으로 제한.
+    데이터 노후 패널티: used_months > 12 → −0.15, > 6 → −0.07
     """
     if price_data.get("error") or price_data.get("avg", 0) == 0:
         return 0.10
@@ -129,6 +130,13 @@ def _calc_confidence(price_data: dict) -> float:
     if any(kw in source for kw in fallback_keywords):
         base = min(base, 0.40)
 
+    # 데이터 신선도 패널티
+    months = price_data.get("used_months", 0) or 0
+    if months > 12:
+        base = max(base - 0.15, 0.10)
+    elif months > 6:
+        base = max(base - 0.07, 0.10)
+
     return round(base, 2)
 
 
@@ -136,31 +144,54 @@ def _calc_confidence(price_data: dict) -> float:
 #  경고 메시지 수집
 # ─────────────────────────────────────────
 
-def _collect_warnings(price_data: dict, area_m2: float | None) -> list[str]:
-    warnings = []
+def _collect_warnings(
+    price_data: dict,
+    area_m2: float | None,
+    complex_name: str = "",
+    apt_name_matched: str = "",
+) -> list[str]:
+    """
+    우선순위별 경고 수집.
+      P0 — 치명적: 데이터 없음 / 오류
+      P1 — 품질저하: 폴백 출처, 표본 부족, 단지 미매칭
+      P2 — 정확도제한: 데이터 노후, 면적 미입력
+    """
+    p0, p1, p2 = [], [], []
 
-    count = price_data.get("count", 0)
-    if count == 0:
-        warnings.append("실거래 데이터 없음 — 추정가 신뢰도 낮음")
-    elif count < 5:
-        warnings.append(f"실거래 {count}건 미만 — 표본 부족")
-
+    count  = price_data.get("count", 0)
     source = price_data.get("source", "")
+    months = price_data.get("used_months", 0) or 0
+
+    # P0
+    if price_data.get("error"):
+        p0.append("실거래가 조회 오류 — 추정가 신뢰 불가")
+    elif count == 0:
+        p0.append("실거래 데이터 없음 — 추정가 신뢰도 낮음")
+
+    # P1
     if "공시가격" in source:
-        warnings.append("공시가격 역산 사용 (실거래 없음)")
+        p1.append("공시가격 역산 사용 (실거래 없음)")
     elif "수익환원법" in source:
-        warnings.append("수익환원법 사용 (실거래 없음)")
+        p1.append("수익환원법 사용 (실거래 없음)")
     elif "원가법" in source:
-        warnings.append("건축원가법 사용 (실거래 없음)")
+        p1.append("건축원가법 사용 (실거래 없음)")
+
+    if 0 < count < 5:
+        p1.append(f"실거래 {count}건 — 표본 부족으로 추정가 편차 클 수 있음")
+
+    if complex_name and not apt_name_matched:
+        p1.append(f"'{complex_name}' 단지 미매칭 — 동/구 단위 평균가 사용")
+
+    # P2
+    if months > 12:
+        p2.append(f"최근 {months}개월 데이터 사용 — 시세 변동 미반영 가능성")
+    elif months > 3:
+        p2.append(f"최근 {months}개월 데이터 사용 (3개월 이내 실거래 없음)")
 
     if not area_m2:
-        warnings.append("면적 미입력 — 추정가는 지역 평균 기준")
+        p2.append("면적 미입력 — 추정가는 지역 평균 기준")
 
-    months = price_data.get("used_months", 0)
-    if months and months > 3:
-        warnings.append(f"최근 {months}개월 데이터 사용 (3개월 이내 실거래 없음)")
-
-    return warnings
+    return p0 + p1 + p2
 
 
 def _collect_sources(price_data: dict) -> list[str]:
@@ -239,7 +270,7 @@ def analyze_price(query: PropertyQuery) -> AppraisalResult:
         judgement       = verd.get("valuation_verdict", ""),
         confidence      = _calc_confidence(price_data),
         comparables     = _to_comparables(price_data, apt_name_matched),
-        warnings        = _collect_warnings(price_data, area_m2),
+        warnings        = _collect_warnings(price_data, area_m2, complex_name, apt_name_matched),
         data_source     = _collect_sources(price_data),
         raw             = {**val, **verd, "price_data_count": price_data.get("count", 0)},
     )

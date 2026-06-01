@@ -53,7 +53,7 @@ def _listing(**kwargs) -> PropertyListing:
         "built_year": 2015,
         "floor": 10,
         "station_distance_m": 400,
-        "jeonse_price": 650_000_000,
+        "deposit_price": 650_000_000,
     }
     defaults.update(kwargs)
     return PropertyListing(**defaults)

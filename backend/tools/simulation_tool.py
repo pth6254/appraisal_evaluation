@@ -45,22 +45,28 @@ from schemas.simulation import (
 _COMMERCIAL_TYPES = {"상가", "오피스", "사무실", "업무용", "상업용", "공장", "창고", "산업용", "토지"}
 
 
-def calc_acquisition_tax(purchase_price: int, property_type: str | None) -> int:
+def calc_acquisition_tax(
+    purchase_price: int,
+    property_type: str | None,
+    owned_homes: int = 1,
+) -> int:
     """
     취득세 간이 계산 (취득세 + 지방교육세 포함).
 
-    주거용 (아파트·오피스텔 등):
-      ≤ 6억      : 1.1%
-      6억 초과~9억 : 2.2%
-      9억 초과    : 3.3%
-
-    상업용·업무용·산업용·토지: 4.4%
+    주거용 1주택: 가격 구간별 1.1 / 2.2 / 3.3%
+    주거용 2주택: 8% (조정지역 기준 간이 — 비조정은 기본세율 적용)
+    주거용 3주택 이상: 12% (조정지역 기준 간이)
+    상업용·업무용·산업용·토지: 4.4% (owned_homes 무관)
     """
     ptype = (property_type or "").strip()
     is_commercial = any(kw in ptype for kw in _COMMERCIAL_TYPES)
 
     if is_commercial:
         rate = 0.044
+    elif owned_homes >= 3:
+        rate = 0.12   # 3주택 이상 중과 (조정지역 기준 간이)
+    elif owned_homes == 2:
+        rate = 0.08   # 2주택 중과 (조정지역 기준 간이)
     elif purchase_price <= 600_000_000:
         rate = 0.011
     elif purchase_price <= 900_000_000:
@@ -122,8 +128,9 @@ def calc_other_acquisition_cost(purchase_price: int) -> int:
 def calc_total_acquisition_cost(
     purchase_price: int,
     property_type: str | None,
+    owned_homes: int = 1,
 ) -> AcquisitionCost:
-    acq_tax  = calc_acquisition_tax(purchase_price, property_type)
+    acq_tax  = calc_acquisition_tax(purchase_price, property_type, owned_homes)
     brok_fee = calc_brokerage_fee(purchase_price)
     other    = calc_other_acquisition_cost(purchase_price)
     return AcquisitionCost(
@@ -174,6 +181,47 @@ def calc_monthly_payment(
     raise ValueError(f"알 수 없는 상환 방식: {repayment_type}")
 
 
+def calc_interest_during_holding(
+    loan_amount: int,
+    annual_interest_rate: float,
+    loan_years: int,
+    holding_years: int,
+    repayment_type: str = "equal_payment",
+) -> int:
+    """
+    보유 기간 동안 실제 납부한 이자 합계.
+
+    30년 대출 / 5년 보유 시 5년치 이자만 계산.
+    (매도 시 잔여 원금은 매도 대금에서 상환되므로 수익 계산에 미포함)
+    """
+    if loan_amount <= 0:
+        return 0
+
+    r = annual_interest_rate / 100 / 12
+    n = loan_years * 12
+    k = min(holding_years * 12, n)
+
+    if repayment_type == "equal_payment":
+        if r == 0:
+            return 0
+        M = loan_amount * r * (1 + r) ** n / ((1 + r) ** n - 1)
+        remaining = loan_amount * (1 + r) ** k - M * ((1 + r) ** k - 1) / r
+        principal_repaid = loan_amount - remaining
+        return round(M * k - principal_repaid)
+
+    if repayment_type == "equal_principal":
+        principal_per_month = loan_amount / n
+        return round(sum(
+            (loan_amount - principal_per_month * i) * r
+            for i in range(k)
+        ))
+
+    if repayment_type == "interest_only":
+        return round(loan_amount * r * k)
+
+    raise ValueError(f"알 수 없는 상환 방식: {repayment_type}")
+
+
 def calc_loan_summary(
     loan_amount: int,
     annual_interest_rate: float,
@@ -220,16 +268,16 @@ def calc_loan_summary(
 # ─────────────────────────────────────────
 
 def calc_cash_flow(
-    monthly_rent: int | None,
+    rent_fee: int | None,
     monthly_payment: int,
     monthly_management_fee: int | None,
 ) -> CashFlowSummary:
     """
     월 현금흐름 계산.
 
-    전세의 경우 monthly_rent=None → 임대 수입 0으로 계산.
+    전세의 경우 rent_fee=None → 임대 수입 0으로 계산.
     """
-    income   = monthly_rent or 0
+    income   = rent_fee or 0
     mgmt_fee = monthly_management_fee or 0
     net      = income - monthly_payment - mgmt_fee
 
@@ -265,49 +313,59 @@ def calc_scenario(
     holding_years: int,
     total_acquisition_cost: int,
     total_interest: int,
-    monthly_rent: int | None,
-    jeonse_deposit: int | None,
+    rent_fee: int | None,
+    rent_deposit: int | None,
+    jeonse_opportunity_rate: float = 3.5,
 ) -> ScenarioResult:
     """
     단일 성장률 시나리오 수익성 계산.
 
     순손익 = 시세차익 + 총 임대 수입 − 총 이자 − 취득 비용
     자기자본 수익률 = 순손익 / equity × 100
+
+    전세의 경우 보증금 기회수익률(jeonse_opportunity_rate)로 임대 등가 소득을 산정한다.
     """
-    expected_price  = calc_expected_sale_price(purchase_price, annual_growth_rate, holding_years)
-    capital_gain    = expected_price - purchase_price
+    expected_price = calc_expected_sale_price(purchase_price, annual_growth_rate, holding_years)
+    capital_gain   = expected_price - purchase_price
 
-    # 총 임대 수입 (전세는 보증금 이자 효과 미계산 — 간이 계산)
-    total_rental    = (monthly_rent or 0) * 12 * holding_years
+    # 총 임대 수입
+    if rent_fee:
+        annual_rent  = rent_fee * 12
+        total_rental = annual_rent * holding_years
+    elif rent_deposit:
+        # 전세: 보증금을 시중 금리로 운용했을 때의 등가 임대 소득
+        annual_rent  = round(rent_deposit * jeonse_opportunity_rate / 100)
+        total_rental = annual_rent * holding_years
+    else:
+        annual_rent  = 0
+        total_rental = 0
 
-    # 임대 수익률 (연)
-    annual_rent     = (monthly_rent or 0) * 12
-    rental_yield    = round(annual_rent / purchase_price * 100, 2) if purchase_price > 0 else 0.0
+    rental_yield = round(annual_rent / purchase_price * 100, 2) if purchase_price > 0 else 0.0
 
-    net_profit      = capital_gain + total_rental - total_interest - total_acquisition_cost
-    equity_safe     = equity if equity > 0 else 1  # 0 나눔 방지
+    net_profit  = capital_gain + total_rental - total_interest - total_acquisition_cost
+    equity_safe = equity if equity > 0 else 1  # 0 나눔 방지
 
-    equity_roi      = round(net_profit / equity_safe * 100, 2)
+    equity_roi  = round(net_profit / equity_safe * 100, 2)
 
     # 연환산 (CAGR 방식)
     if holding_years > 0 and equity_safe > 0:
-        total_value    = equity_safe + net_profit
+        total_value = equity_safe + net_profit
         if total_value > 0:
             annual_roi = round((math.pow(total_value / equity_safe, 1 / holding_years) - 1) * 100, 2)
         else:
-            annual_roi = round(-100 + (total_value / equity_safe) * 100, 2)
+            annual_roi = -100.0  # 원금 전액 손실 (CAGR 정의 불가)
     else:
         annual_roi = 0.0
 
     return ScenarioResult(
-        annual_growth_rate   = round(annual_growth_rate, 2),
-        expected_sale_price  = expected_price,
-        capital_gain         = capital_gain,
-        total_rental_income  = total_rental,
-        net_profit           = net_profit,
-        equity_roi           = equity_roi,
-        annual_equity_roi    = annual_roi,
-        rental_yield         = rental_yield,
+        annual_growth_rate  = round(annual_growth_rate, 2),
+        expected_sale_price = expected_price,
+        capital_gain        = capital_gain,
+        total_rental_income = total_rental,
+        net_profit          = net_profit,
+        equity_roi          = equity_roi,
+        annual_equity_roi   = annual_roi,
+        rental_yield        = rental_yield,
     )
 
 
@@ -322,12 +380,13 @@ def run_simulation(inp: SimulationInput) -> SimulationResult:
     모든 계산은 순수 함수이며 외부 API를 호출하지 않는다.
     """
     # 취득 비용
-    acq = calc_total_acquisition_cost(inp.purchase_price, inp.property_type)
+    acq = calc_total_acquisition_cost(inp.purchase_price, inp.property_type, inp.owned_homes)
 
     # 필요 현금 / 실투자금
     required_cash = inp.purchase_price - inp.loan_amount + acq.total
-    jeonse        = inp.jeonse_deposit or 0
+    jeonse        = inp.rent_deposit or 0
     equity        = required_cash - jeonse
+    # equity < 0: 전세 레버리지가 취득비용을 초과 → 무자본 투자 케이스, 계산은 유지
 
     # 대출 요약
     loan = calc_loan_summary(
@@ -339,26 +398,37 @@ def run_simulation(inp: SimulationInput) -> SimulationResult:
 
     # 현금흐름
     cash_flow = calc_cash_flow(
-        inp.monthly_rent,
+        inp.rent_fee,
         loan.monthly_payment,
         inp.monthly_management_fee,
     )
 
+    # 보유 기간 동안의 실제 이자 (전체 대출 기간 이자가 아님)
+    interest_during_holding = calc_interest_during_holding(
+        inp.loan_amount,
+        inp.annual_interest_rate,
+        inp.loan_years,
+        inp.holding_years,
+        inp.repayment_type,
+    )
+
     # 시나리오 공통 인자
     _scenario_kwargs = dict(
-        purchase_price        = inp.purchase_price,
-        equity                = equity,
-        holding_years         = inp.holding_years,
-        total_acquisition_cost= acq.total,
-        total_interest        = loan.total_interest,
-        monthly_rent          = inp.monthly_rent,
-        jeonse_deposit        = inp.jeonse_deposit,
+        purchase_price         = inp.purchase_price,
+        equity                 = equity,
+        holding_years          = inp.holding_years,
+        total_acquisition_cost = acq.total,
+        total_interest         = interest_during_holding,
+        rent_fee           = inp.rent_fee,
+        rent_deposit         = inp.rent_deposit,
     )
 
     base_rate = inp.expected_annual_growth_rate
-    scenario_base = calc_scenario(annual_growth_rate=base_rate,       **_scenario_kwargs)
-    scenario_bull = calc_scenario(annual_growth_rate=base_rate + 5.0, **_scenario_kwargs)
-    scenario_bear = calc_scenario(annual_growth_rate=base_rate - 5.0, **_scenario_kwargs)
+    spread    = inp.scenario_spread
+    opp_rate  = inp.jeonse_opportunity_rate
+    scenario_base = calc_scenario(annual_growth_rate=base_rate,          jeonse_opportunity_rate=opp_rate, **_scenario_kwargs)
+    scenario_bull = calc_scenario(annual_growth_rate=base_rate + spread,  jeonse_opportunity_rate=opp_rate, **_scenario_kwargs)
+    scenario_bear = calc_scenario(annual_growth_rate=base_rate - spread,  jeonse_opportunity_rate=opp_rate, **_scenario_kwargs)
 
     return SimulationResult(
         purchase_price   = inp.purchase_price,

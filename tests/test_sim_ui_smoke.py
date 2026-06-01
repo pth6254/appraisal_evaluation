@@ -329,7 +329,7 @@ class TestBackendSmoke:
         state = run_simulation(data={
             "purchase_price":  700_000_000,
             "loan_amount":     350_000_000,
-            "jeonse_deposit":  300_000_000,
+            "rent_deposit":  300_000_000,
         })
         result = state["result"]
         assert result.equity < result.required_cash
@@ -339,7 +339,7 @@ class TestBackendSmoke:
         state = run_simulation(data={
             "purchase_price": 500_000_000,
             "loan_amount":    250_000_000,
-            "monthly_rent":   1_000_000,
+            "rent_fee":   1_000_000,
         })
         assert state["result"].cash_flow.monthly_rental_income == 1_000_000
 

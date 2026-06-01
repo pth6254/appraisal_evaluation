@@ -177,7 +177,7 @@ def _apply_listing_defaults(data: dict) -> None:
     if mapped in PROP_TYPES:
         st.session_state["sim_prop_type"] = mapped
 
-    jeonse = data.get("jeonse_price") or 0
+    jeonse = data.get("deposit_price") or 0
     if jeonse > 0:
         st.session_state["sim_rental_mode"] = "전세"
         st.session_state["sim_jeonse_str"]  = _won_to_str(jeonse)
@@ -384,8 +384,8 @@ if submitted:
                 repayment_type              = repayment_type,
                 holding_years               = int(holding_years),
                 expected_annual_growth_rate = float(expected_annual_growth_rate),
-                jeonse_deposit              = jeonse_won,
-                monthly_rent                = rent_won,
+                rent_deposit              = jeonse_won,
+                rent_fee                = rent_won,
                 monthly_management_fee      = mgmt_won,
                 property_type               = property_type,
             )
