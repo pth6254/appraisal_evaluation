@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Runtime databases (Streamlit cache/history — 로컬 전용)
+*.db
