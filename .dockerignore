@@ -1,0 +1,68 @@
+# 환경변수 / 시크릿 (절대 포함 금지)
+.env
+*.env
+!.env.example
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 가상환경
+.venv/
+venv/
+env/
+.virtualenv/
+
+# 데이터베이스
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+data/
+
+# Node
+frontend/node_modules
+frontend/.next
+frontend/.turbo
+
+# 테스트 / 커버리지
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# 문서 / 기타
+docs/
+*.md
+!README.md
+*.ipynb
+.ipynb_checkpoints/
+*.log

@@ -5,7 +5,7 @@ services:
   # ────────────────────────────────────────────
   pgvector:
     image: ankane/pgvector:latest
-    container_name: appraisalai_pgvector
+    container_name: property_concierge_pgvector
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -29,8 +29,9 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
-    container_name: appraisalai_api
+      dockerfile: Dockerfile.backend
+    image: property_concierge_api:latest
+    container_name: property_concierge_api
     restart: unless-stopped
     depends_on:
       pgvector:
@@ -60,7 +61,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: appraisalai_frontend
+    image: property_concierge_frontend:latest
+    container_name: property_concierge_frontend
     restart: unless-stopped
     depends_on:
       api:
