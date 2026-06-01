@@ -219,3 +219,7 @@ __marimo__/
 
 # Runtime databases (Streamlit cache/history — 로컬 전용)
 *.db
+
+# Next.js src/lib 예외 (lib/ 패턴이 삼킴)
+!frontend/src/lib/
+!frontend/src/lib/**

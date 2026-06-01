@@ -24,15 +24,13 @@ services:
       start_period: 20s
 
   # ────────────────────────────────────────────
-  #  Streamlit 앱
-  #  (로컬 개발 중이면 이 서비스는 주석 처리하고
-  #   터미널에서 직접 streamlit run app.py 실행해도 됨)
+  #  FastAPI 백엔드
   # ────────────────────────────────────────────
-  app:
+  api:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: appraisalai_app
+      dockerfile: Dockerfile.api
+    container_name: appraisalai_api
     restart: unless-stopped
     depends_on:
       pgvector:
@@ -40,17 +38,37 @@ services:
     env_file:
       - .env
     environment:
-      # pgvector 컨테이너 이름으로 호스트 지정 (Docker 네트워크 내부)
       PG_CONNECTION_STRING: postgresql://postgres:password@pgvector:5432/real_estate_db
     ports:
-      - "8501:8501"
+      - "8000:8000"
     volumes:
-      # 소스 변경 시 컨테이너 재빌드 없이 반영
       - ./backend:/app/backend
-      - ./frontend:/app/frontend
-      # SQLite DB 파일 영속화
-      - appraisalai_sqlite:/app/data
+      - ./api:/app/api
+      - ./schemas:/app/schemas
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ────────────────────────────────────────────
+  #  Next.js 프론트엔드
+  # ────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: appraisalai_frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+    ports:
+      - "3000:3000"
 
 volumes:
   pgvector_data:
-  appraisalai_sqlite:
