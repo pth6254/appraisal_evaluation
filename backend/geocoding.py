@@ -17,12 +17,14 @@ geocoding.py — 좌표 변환 + 건물명·부동산 유형 자동 판단 v2.4
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Optional
 
 import requests
 from dotenv import load_dotenv, find_dotenv
 from pydantic import BaseModel, Field
+from cache_db import cache_get, cache_set
 
 load_dotenv(find_dotenv())
 
@@ -256,7 +258,7 @@ def _address_search(query: str) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────
-#  4. 카카오 키워드검색 — place_name + category 파싱
+#  5. 카카오 키워드검색 — place_name + category 파싱
 # ─────────────────────────────────────────
 
 def _keyword_search(query: str, size: int = 5) -> list[dict]:
@@ -264,12 +266,11 @@ def _keyword_search(query: str, size: int = 5) -> list[dict]:
     카카오 키워드검색 API 호출.
     place_name + category_name 반환.
     """
-    import re as _re
     # 특수문자 제거 (주), (유), (주식회사) → 공백으로 대체
-    clean_query = _re.sub(r'\([주유]\)|\(주식회사\)', ' ', query).strip()
+    clean_query = re.sub(r'\([주유]\)|\(주식회사\)', ' ', query).strip()
     # 나머지 특수문자도 공백으로
-    clean_query = _re.sub(r'[^\w\s가-힣A-Za-z0-9]', ' ', clean_query).strip()
-    clean_query = _re.sub(r'\s+', ' ', clean_query).strip()
+    clean_query = re.sub(r'[^\w\s가-힣A-Za-z0-9]', ' ', clean_query).strip()
+    clean_query = re.sub(r'\s+', ' ', clean_query).strip()
     if clean_query != query:
         print(f"[keyword_search] 쿼리 정제: '{query}' → '{clean_query}'")
     try:
@@ -325,8 +326,29 @@ def _get_category_from_keyword(building_name: str) -> tuple[str, str, str]:
             return cat_name, prop_cat, detail
     return "", "", ""
 
+def _parse_region(address_name: str) -> tuple[str, str, str]:
+    """
+    카카오 address_name 문자열 → (시도, 시군구, 읍면동) 구조화 파싱.
+
+    공백 split 인덱스 대신 행정단위 접미사 기반으로 파싱하여
+    "경기 수원시 팔달구 우만동" 같은 다단계 주소를 정확히 처리.
+    """
+    parts = address_name.split()
+    r1 = parts[0] if parts else ""
+    r2_parts: list[str] = []
+    r3 = ""
+    for p in parts[1:]:
+        last = p[-1:] if p else ""
+        if last in ("시", "군", "구"):
+            r2_parts.append(p)
+        elif last in ("읍", "면", "동", "가", "리"):
+            r3 = p
+            break
+    return r1, " ".join(r2_parts), r3
+
+
 # ─────────────────────────────────────────
-#  5. 통합 지오코딩 진입점
+#  6. 통합 지오코딩 진입점
 # ─────────────────────────────────────────
 
 def geocode(location: str, category: str = "",
@@ -346,9 +368,8 @@ def geocode(location: str, category: str = "",
     # 예: "경기도 용인시 기흥구 보라동 57번길 10 삼성전자(주)기흥캠퍼스"
     #   → location = "경기도 용인시 기흥구 보라동 57번길 10"
     #   → building_hint = "삼성전자(주)기흥캠퍼스" (없을 때만)
-    import re as _re
     # 도로명 주소 패턴 뒤에 건물명이 붙은 경우 감지
-    road_pattern = _re.match(
+    road_pattern = re.match(
         r'^(.+(?:로|길|대로)\s*\d+(?:-\d+)?)\s+([가-힣A-Za-z\(\)·\.\s]{2,})$',
         location.strip()
     )
@@ -473,14 +494,14 @@ def geocode(location: str, category: str = "",
         cat_name         = doc.get("category_name", "")
         prop_cat, detail = _map_kakao_category(cat_name)
 
-        addr_parts = doc.get("address_name", "").split()
+        r1, r2, r3 = _parse_region(doc.get("address_name", ""))
         result = GeocodingResult(
             lat=float(doc["y"]),
             lng=float(doc["x"]),
             address_name=doc.get("address_name", ""),
-            region_1depth=addr_parts[0] if len(addr_parts) > 0 else "",
-            region_2depth=addr_parts[1] if len(addr_parts) > 1 else "",
-            region_3depth=addr_parts[2] if len(addr_parts) > 2 else "",
+            region_1depth=r1,
+            region_2depth=r2,
+            region_3depth=r3,
             method="keyword",
             confidence=0.85,
             place_name=doc.get("place_name", ""),
@@ -504,7 +525,7 @@ def geocode(location: str, category: str = "",
 
 
 # ─────────────────────────────────────────
-#  6. Vworld — 토지 법적 정보
+#  7. Vworld — 토지 법적 정보
 # ─────────────────────────────────────────
 
 VWORLD_LAND_URL = "https://api.vworld.kr/req/data"
@@ -552,7 +573,7 @@ def get_land_info_vworld(lat: float, lng: float) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────
-#  7. LangGraph 노드
+#  8. LangGraph 노드
 # ─────────────────────────────────────────
 
 def geocoding_node(state):
@@ -615,25 +636,26 @@ def geocoding_node(state):
 
 
 # ─────────────────────────────────────────
-#  8. 캐싱
+#  9. 캐싱
 # ─────────────────────────────────────────
 
-_geocode_cache: dict[str, GeocodingResult] = {}
+_GEOCODE_TTL = 60 * 60 * 24 * 7  # 7일
 
 
 def geocode_cached(location: str, category: str = "", building_hint: str = "") -> Optional[GeocodingResult]:
-    key = f"{location}::{category}"
-    if key in _geocode_cache:
-        print(f"[cache] 히트: '{location}'")
-        return _geocode_cache[key]
-    result = geocode(location, category)
+    cached = cache_get("geocode", location=location, category=category, building_hint=building_hint)
+    if cached is not None:
+        print(f"[cache] geocode 히트: '{location}'")
+        return GeocodingResult(**cached)
+    result = geocode(location, category, building_hint)
     if result:
-        _geocode_cache[key] = result
+        cache_set(result.model_dump(), ttl=_GEOCODE_TTL, namespace="geocode",
+                  location=location, category=category, building_hint=building_hint)
     return result
 
 
 # ─────────────────────────────────────────
-#  9. CLI 테스트
+#  10. CLI 테스트
 # ─────────────────────────────────────────
 
 if __name__ == "__main__":
