@@ -136,9 +136,18 @@ def transaction_to_document(
         area = 0.0
     floor = str(transaction.get("floor", "")).strip()
     year_built = str(transaction.get("year_built", "")).strip()
-    address   = transaction.get("address", region)
     place_name = transaction.get("apt_name", "")
-    sub_region    = transaction.get("dong", "")
+    sub_region = transaction.get("dong", "")
+
+    # 거래 데이터의 실제 법정동(dong)으로 주소 구성
+    # MOLIT API는 시군구 단위로 조회하므로 서초구 전체 거래가 섞여 들어옴
+    # → 각 거래의 실제 dong을 써야 "서울 서초구 서초동"처럼 정확한 주소가 됨
+    if sub_region:
+        region_prefix = region.rsplit(" ", 1)[0] if " " in region else region
+        actual_address = f"{region_prefix} {sub_region}"
+    else:
+        actual_address = region
+    address = transaction.get("address", actual_address)
 
     # RAG 검색에 활용할 자연어 설명 생성
     # → 이 텍스트가 임베딩되어 벡터 DB에 저장됨
@@ -185,7 +194,7 @@ def transaction_to_document(
         page_content=content,
         metadata={
             "category":   category,
-            "region":     region,
+            "region":     actual_address,
             "price":      price,
             "area":       area,
             "floor":      str(floor),
@@ -228,6 +237,27 @@ def get_vectorstore(collection_name: str = "real_estate") -> PGVector:
     )
 
 
+def _drop_collection(collection: str):
+    """pgvector 컬렉션 삭제 — 임베딩 모델 교체로 차원 불일치 시 재생성용"""
+    try:
+        conn = psycopg2.connect(PG_CONN_STR)
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM langchain_pg_embedding WHERE collection_id IN "
+                "(SELECT uuid FROM langchain_pg_collection WHERE name = %s)",
+                (collection,),
+            )
+            cur.execute(
+                "DELETE FROM langchain_pg_collection WHERE name = %s",
+                (collection,),
+            )
+        conn.commit()
+        conn.close()
+        print(f"[vectorstore] 컬렉션 '{collection}' 삭제 완료 → 재생성 예정")
+    except Exception as e:
+        print(f"[vectorstore] 컬렉션 삭제 실패: {e}")
+
+
 def upsert_documents(docs: list[Document], collection: str = "real_estate"):
     """Document 리스트를 pgvector에 임베딩하여 저장"""
     if not docs:
@@ -240,7 +270,18 @@ def upsert_documents(docs: list[Document], collection: str = "real_estate"):
         vs.add_documents(docs)
         print(f"[vectorstore] 저장 완료")
     except Exception as e:
-        print(f"[vectorstore] 저장 실패: {e}")
+        if "dimensions" in str(e):
+            # 임베딩 모델 교체로 차원 불일치 — 컬렉션 재생성 후 1회 재시도
+            print(f"[vectorstore] 차원 불일치 감지 → 컬렉션 재생성 후 재시도")
+            _drop_collection(collection)
+            try:
+                vs = get_vectorstore(collection)
+                vs.add_documents(docs)
+                print(f"[vectorstore] 재생성 후 저장 완료")
+            except Exception as e2:
+                print(f"[vectorstore] 재생성 후에도 저장 실패: {e2}")
+        else:
+            print(f"[vectorstore] 저장 실패: {e}")
 
 
 def search_similar(
