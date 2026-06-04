@@ -471,10 +471,10 @@ def fetch_real_transaction_prices(
     # ── 결과 집계 ─────────────────────────────────────────────────────────
     # ── 정밀 필터 (호수 정보 있을 때만, 주거용 단지 매칭 후 적용) ─────────────────
     precision_label = ""
-    if category == "주거용" and apt_name and all_parsed:
+    if category in ("주거용", "상업용", "업무용") and apt_name and all_parsed:
         filtered = all_parsed
 
-        # 면적 필터 (±3㎡, 부족하면 ±6㎡)
+        # 면적 필터 (±3㎡, 부족하면 ±6㎡) — 모든 집합건물 유형 적용
         if area_sqm_exact > 0:
             area_tight = [d for d in filtered
                           if d["area_sqm"] > 0 and abs(d["area_sqm"] - area_sqm_exact) <= 3.0]
@@ -487,8 +487,8 @@ def fetch_real_transaction_prices(
                 filtered = area_loose
                 precision_label += f"면적±6㎡({area_sqm_exact}㎡) "
 
-        # 층수 필터 (±2층, 부족하면 ±4층) — 아파트·오피스텔에만 적용
-        if floor > 0 and category_detail not in ("연립다세대", "단독다가구"):
+        # 층수 필터 — 주거용 아파트·오피스텔만 적용 (상업용·업무용은 층수 데이터 신뢰도 낮음)
+        if floor > 0 and category == "주거용" and category_detail not in ("연립다세대", "단독다가구"):
             def _to_floor(s):
                 try: return int(str(s).strip())
                 except: return 0

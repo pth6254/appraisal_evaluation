@@ -258,16 +258,41 @@ def commercial_agent(state: dict) -> dict:
         location   = getattr(intent, "location_normalized", region)
         area_sqm   = _get_area_sqm(intent)
         asking     = _get_asking_price(intent)
+        dong_no        = getattr(intent, "dong_no", "") or ""
+        ho_no          = getattr(intent, "ho_no", "") or ""
+        floor_inferred = getattr(intent, "floor_inferred", None)
 
         print(f"\n[상업용 에이전트] {location} / 상가 / {area_sqm}㎡")
+
+        # ── 호수 정보로 전유부 전용면적 조회 ──────────────────────────────
+        if (dong_no or ho_no) and area_sqm == 0:
+            from building_info import fetch_unit_area
+            geo_dict   = state.get("geocoding_result") or {}
+            sigungu_cd = geo_dict.get("sigungu_cd", "") if isinstance(geo_dict, dict) else getattr(geo_dict, "sigungu_cd", "")
+            bjdong_cd  = geo_dict.get("bjdong_cd",  "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bjdong_cd",  "")
+            bun        = geo_dict.get("bun",        "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bun",        "")
+            ji         = geo_dict.get("ji",         "") if isinstance(geo_dict, dict) else getattr(geo_dict, "ji",         "")
+            unit_area = fetch_unit_area(sigungu_cd, bjdong_cd, bun, ji, dong_no, ho_no)
+            if unit_area and unit_area > 0:
+                area_sqm = unit_area
+                print(f"  → 전유부 면적 조회 성공: {area_sqm}㎡ ({dong_no or ''}{ho_no})")
 
         area_sqm, _, _ = _auto_fill_area(state, area_sqm, prefer="tot")
 
         building_name = _get_building_name(state)
-        price_data    = fetch_real_transaction_prices("상업용", region, "상가", apt_name=building_name, region_3depth=region3)
+        price_data    = fetch_real_transaction_prices(
+            "상업용", region, "상가",
+            apt_name=building_name, region_3depth=region3,
+            floor=floor_inferred or 0,
+            area_sqm_exact=area_sqm,
+        )
 
         # ── 실거래 없으면 수익환원법 → 공시지가 순으로 폴백 ────────────────
-        valuation_method = "비교사례법 + 수익환원법"
+        precision_label  = price_data.get("precision_filter", "")
+        valuation_method = (
+            f"비교사례법 ({ho_no} 기준 동일타입 실거래)"
+            if precision_label else "비교사례법 + 수익환원법"
+        )
         if price_data.get("count", 0) == 0 and price_data.get("avg", 0) == 0:
             geo_dict   = state.get("geocoding_result") or {}
             region1    = geo_dict.get("region_1depth", "") if isinstance(geo_dict, dict) else getattr(geo_dict, "region_1depth", "")
@@ -356,16 +381,41 @@ def office_agent(state: dict) -> dict:
         location   = getattr(intent, "location_normalized", region)
         area_sqm   = _get_area_sqm(intent)
         asking     = _get_asking_price(intent)
+        dong_no        = getattr(intent, "dong_no", "") or ""
+        ho_no          = getattr(intent, "ho_no", "") or ""
+        floor_inferred = getattr(intent, "floor_inferred", None)
 
         print(f"\n[업무용 에이전트] {location} / 사무실 / {area_sqm}㎡")
+
+        # ── 호수 정보로 전유부 전용면적 조회 ──────────────────────────────
+        if (dong_no or ho_no) and area_sqm == 0:
+            from building_info import fetch_unit_area
+            geo_dict   = state.get("geocoding_result") or {}
+            sigungu_cd = geo_dict.get("sigungu_cd", "") if isinstance(geo_dict, dict) else getattr(geo_dict, "sigungu_cd", "")
+            bjdong_cd  = geo_dict.get("bjdong_cd",  "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bjdong_cd",  "")
+            bun        = geo_dict.get("bun",        "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bun",        "")
+            ji         = geo_dict.get("ji",         "") if isinstance(geo_dict, dict) else getattr(geo_dict, "ji",         "")
+            unit_area = fetch_unit_area(sigungu_cd, bjdong_cd, bun, ji, dong_no, ho_no)
+            if unit_area and unit_area > 0:
+                area_sqm = unit_area
+                print(f"  → 전유부 면적 조회 성공: {area_sqm}㎡ ({dong_no or ''}{ho_no})")
 
         area_sqm, _, _ = _auto_fill_area(state, area_sqm, prefer="tot")
 
         building_name = _get_building_name(state)
-        price_data    = fetch_real_transaction_prices("업무용", region, "사무실", apt_name=building_name, region_3depth=region3)
+        price_data    = fetch_real_transaction_prices(
+            "업무용", region, "사무실",
+            apt_name=building_name, region_3depth=region3,
+            floor=floor_inferred or 0,
+            area_sqm_exact=area_sqm,
+        )
 
         # ── 실거래 없으면 수익환원법 → 공시지가 순으로 폴백 ────────────────
-        valuation_method = "비교사례법 + 오피스등급 보정"
+        precision_label  = price_data.get("precision_filter", "")
+        valuation_method = (
+            f"비교사례법 ({ho_no} 기준 동일타입 실거래)"
+            if precision_label else "비교사례법 + 오피스등급 보정"
+        )
         if price_data.get("count", 0) == 0 and price_data.get("avg", 0) == 0:
             geo_dict = state.get("geocoding_result") or {}
             region1  = geo_dict.get("region_1depth", "") if isinstance(geo_dict, dict) else getattr(geo_dict, "region_1depth", "")
