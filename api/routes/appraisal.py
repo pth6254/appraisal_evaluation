@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api import history_db
+from api.deps import get_optional_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["appraisal"])
@@ -20,7 +22,7 @@ class AppraisalRequest(BaseModel):
 
 
 @router.post("/appraisal")
-async def run_appraisal_endpoint(req: AppraisalRequest):
+async def run_appraisal_endpoint(req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
     from backend.router import run_appraisal
 
     logger.info("감정평가 요청 — %s / %s", req.user_input, req.building_name)
@@ -28,7 +30,7 @@ async def run_appraisal_endpoint(req: AppraisalRequest):
 
     if req.save_history and not result.get("error"):
         try:
-            history_db.save(req.user_input, result)
+            history_db.save(req.user_input, result, user_id=user["id"] if user else None)
         except Exception as e:
             logger.warning("이력 저장 실패: %s", e)
 

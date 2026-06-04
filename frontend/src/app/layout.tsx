@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import { AuthProvider } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "부동산 AI 감정평가",
@@ -11,8 +12,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko" className="h-full">
       <body className="h-full">
-        <Navbar />
-        <main className="ml-[220px] min-h-screen p-6">{children}</main>
+        <AuthProvider>
+          <Navbar />
+          <main className="ml-[220px] min-h-screen p-6">{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );

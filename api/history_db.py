@@ -39,12 +39,18 @@ def init():
                 query     TEXT    NOT NULL,
                 category  TEXT    DEFAULT '',
                 result    TEXT    NOT NULL,
-                created   TEXT    DEFAULT (datetime('now','localtime'))
+                created   TEXT    DEFAULT (datetime('now','localtime')),
+                user_id   INTEGER DEFAULT NULL
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_history_created ON history (created DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_history_category ON history (category)")
         con.commit()
+        try:
+            con.execute("ALTER TABLE history ADD COLUMN user_id INTEGER DEFAULT NULL")
+            con.commit()
+        except Exception:
+            pass
 
 
 def _serialize(obj):
@@ -59,30 +65,39 @@ def _serialize(obj):
     return obj
 
 
-def save(query: str, result: dict) -> int:
+def save(query: str, result: dict, user_id=None) -> int:
     ar       = result.get("analysis_result") or {}
     category = ar.get("agent_name", "") or result.get("category", "")
     with _conn() as con:
         cur = con.execute(
-            "INSERT INTO history (query, category, result) VALUES (?,?,?)",
-            (query, category, json.dumps(_serialize(result), ensure_ascii=False)),
+            "INSERT INTO history (query, category, result, user_id) VALUES (?,?,?,?)",
+            (query, category, json.dumps(_serialize(result), ensure_ascii=False), user_id),
         )
         con.commit()
         return cur.lastrowid
 
 
-def count_all() -> int:
+def count_all(user_id=None) -> int:
     with _conn() as con:
+        if user_id is not None:
+            return con.execute("SELECT COUNT(*) FROM history WHERE user_id=?", (user_id,)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM history").fetchone()[0]
 
 
-def load_all(limit: int = 100, offset: int = 0) -> list[dict]:
+def load_all(limit: int = 100, offset: int = 0, user_id=None) -> list[dict]:
     with _conn() as con:
-        rows = con.execute(
-            "SELECT id, query, category, result, created "
-            "FROM history ORDER BY created DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
+        if user_id is not None:
+            rows = con.execute(
+                "SELECT id, query, category, result, created "
+                "FROM history WHERE user_id=? ORDER BY created DESC LIMIT ? OFFSET ?",
+                (user_id, limit, offset),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT id, query, category, result, created "
+                "FROM history ORDER BY created DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
@@ -98,25 +113,38 @@ def load_one(record_id: int) -> Optional[dict]:
     return d
 
 
-def search_by_query(keyword: str, limit: int = 50) -> list[dict]:
+def search_by_query(keyword: str, limit: int = 50, user_id=None) -> list[dict]:
     with _conn() as con:
-        rows = con.execute(
-            "SELECT id, query, category, result, created "
-            "FROM history WHERE query LIKE ? ORDER BY created DESC LIMIT ?",
-            (f"%{keyword}%", limit),
-        ).fetchall()
+        if user_id is not None:
+            rows = con.execute(
+                "SELECT id, query, category, result, created "
+                "FROM history WHERE query LIKE ? AND user_id=? ORDER BY created DESC LIMIT ?",
+                (f"%{keyword}%", user_id, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT id, query, category, result, created "
+                "FROM history WHERE query LIKE ? ORDER BY created DESC LIMIT ?",
+                (f"%{keyword}%", limit),
+            ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
-def delete_one(record_id: int):
+def delete_one(record_id: int, user_id=None):
     with _conn() as con:
-        con.execute("DELETE FROM history WHERE id=?", (record_id,))
+        if user_id is not None:
+            con.execute("DELETE FROM history WHERE id=? AND user_id=?", (record_id, user_id))
+        else:
+            con.execute("DELETE FROM history WHERE id=?", (record_id,))
         con.commit()
 
 
-def delete_all():
+def delete_all(user_id=None):
     with _conn() as con:
-        con.execute("DELETE FROM history")
+        if user_id is not None:
+            con.execute("DELETE FROM history WHERE user_id=?", (user_id,))
+        else:
+            con.execute("DELETE FROM history")
         con.commit()
 
 

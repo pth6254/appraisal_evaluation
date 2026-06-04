@@ -21,7 +21,8 @@ for _p in [_PROJECT_ROOT, _BACKEND_DIR, _API_DIR]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from api.routes import appraisal, address, comparison, history, recommendation, simulation
+from api.routes import appraisal, address, auth, comparison, history, recommendation, simulation
+from api import auth_db as _adb
 from api import history_db as _hdb
 
 logging.basicConfig(
@@ -34,7 +35,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _hdb.init()
-    logger.info("FastAPI 시작 — history DB 초기화 완료")
+    _adb.init()
+    logger.info("FastAPI 시작 — history DB 및 auth DB 초기화 완료")
     yield
     logger.info("FastAPI 종료")
 
@@ -55,6 +57,7 @@ app.add_middleware(
 )
 
 for _router in [
+    auth.router,
     appraisal.router,
     recommendation.router,
     simulation.router,
