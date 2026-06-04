@@ -336,6 +336,8 @@ def fetch_real_transaction_prices(
     category_detail: str = "",
     apt_name: str = "",
     region_3depth: str = "",
+    floor: int = 0,
+    area_sqm_exact: float = 0.0,
 ) -> dict:
     """
     국토부 실거래가 API.
@@ -467,6 +469,46 @@ def fetch_real_transaction_prices(
         return _empty_price_data("최근 6개월 실거래 데이터 없음")
 
     # ── 결과 집계 ─────────────────────────────────────────────────────────
+    # ── 정밀 필터 (호수 정보 있을 때만, 주거용 단지 매칭 후 적용) ─────────────────
+    precision_label = ""
+    if category == "주거용" and apt_name and all_parsed:
+        filtered = all_parsed
+
+        # 면적 필터 (±3㎡, 부족하면 ±6㎡)
+        if area_sqm_exact > 0:
+            area_tight = [d for d in filtered
+                          if d["area_sqm"] > 0 and abs(d["area_sqm"] - area_sqm_exact) <= 3.0]
+            area_loose = [d for d in filtered
+                          if d["area_sqm"] > 0 and abs(d["area_sqm"] - area_sqm_exact) <= 6.0]
+            if len(area_tight) >= 3:
+                filtered = area_tight
+                precision_label += f"면적±3㎡({area_sqm_exact}㎡) "
+            elif len(area_loose) >= 2:
+                filtered = area_loose
+                precision_label += f"면적±6㎡({area_sqm_exact}㎡) "
+
+        # 층수 필터 (±2층, 부족하면 ±4층) — 아파트·오피스텔에만 적용
+        if floor > 0 and category_detail not in ("연립다세대", "단독다가구"):
+            def _to_floor(s):
+                try: return int(str(s).strip())
+                except: return 0
+            floor_tight = [d for d in filtered
+                           if _to_floor(d.get("floor")) > 0
+                           and abs(_to_floor(d.get("floor")) - floor) <= 2]
+            floor_loose = [d for d in filtered
+                           if _to_floor(d.get("floor")) > 0
+                           and abs(_to_floor(d.get("floor")) - floor) <= 4]
+            if len(floor_tight) >= 2:
+                filtered = floor_tight
+                precision_label += f"층수±2({floor}층) "
+            elif len(floor_loose) >= 2:
+                filtered = floor_loose
+                precision_label += f"층수±4({floor}층) "
+
+        if precision_label and filtered:
+            print(f"[molit] 정밀 필터 적용: {precision_label.strip()} → {len(filtered)}건")
+            all_parsed = filtered
+
     apt_name_matched = all_parsed[0].get("apt_name", "") if apt_clean else ""
     prices = [d["price"] for d in all_parsed if d["price"] > 0]
     areas  = [d["area_sqm"] for d in all_parsed if d["area_sqm"] > 0]
@@ -494,6 +536,7 @@ def fetch_real_transaction_prices(
         "used_months":      used_months,
         "used_region":      used_region,
         "error":            "",
+        "precision_filter": precision_label.strip(),
     }
 
 

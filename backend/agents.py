@@ -172,13 +172,37 @@ def residential_agent(state: dict) -> dict:
         detail     = getattr(intent, "category_detail", "아파트")
         area_sqm   = _get_area_sqm(intent)
         asking     = _get_asking_price(intent)
+        dong_no        = getattr(intent, "dong_no", "") or ""
+        ho_no          = getattr(intent, "ho_no", "") or ""
+        floor_inferred = getattr(intent, "floor_inferred", None)
 
         print(f"\n[주거용 에이전트] {location} / {detail} / {area_sqm}㎡")
 
         building_name = _get_building_name(state)
-        price_data    = fetch_real_transaction_prices("주거용", region, detail, apt_name=building_name, region_3depth=region3)
+
+        # ── 호수 정보가 있으면 건축물대장 전유부로 정확한 면적 조회 ──────────────
+        if (dong_no or ho_no) and area_sqm == 0:
+            from building_info import fetch_unit_area
+            geo_dict   = state.get("geocoding_result") or {}
+            sigungu_cd = geo_dict.get("sigungu_cd", "") if isinstance(geo_dict, dict) else getattr(geo_dict, "sigungu_cd", "")
+            bjdong_cd  = geo_dict.get("bjdong_cd",  "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bjdong_cd",  "")
+            bun        = geo_dict.get("bun",        "") if isinstance(geo_dict, dict) else getattr(geo_dict, "bun",        "")
+            ji         = geo_dict.get("ji",         "") if isinstance(geo_dict, dict) else getattr(geo_dict, "ji",         "")
+            unit_area = fetch_unit_area(sigungu_cd, bjdong_cd, bun, ji, dong_no, ho_no)
+            if unit_area and unit_area > 0:
+                area_sqm = unit_area
+                print(f"  → 전유부 면적 조회 성공: {area_sqm}㎡ ({dong_no} {ho_no})")
+
+        price_data    = fetch_real_transaction_prices(
+            "주거용", region, detail,
+            apt_name=building_name, region_3depth=region3,
+            floor=floor_inferred or 0,
+            area_sqm_exact=area_sqm,
+        )
         if building_name and price_data.get("apt_name_matched"):
-            print(f"  → 단지 감정평가: {price_data['apt_name_matched']} ({price_data['count']}건)")
+            label = price_data.get("precision_filter", "")
+            suffix = f" [{label}]" if label else ""
+            print(f"  → 단지 감정평가: {price_data['apt_name_matched']} ({price_data['count']}건){suffix}")
         elif building_name:
             print(f"  → 단지명 '{building_name}' 미발견 — 지역 평균으로 대체")
 
@@ -201,7 +225,11 @@ def residential_agent(state: dict) -> dict:
 
         result = ValuationResult(
             agent_name="주거용",
-            valuation_method="비교사례법 (인근 실거래 평균)",
+            valuation_method=(
+                f"비교사례법 ({dong_no}{ho_no} 기준 동일타입 실거래)"
+                if price_data.get("precision_filter")
+                else "비교사례법 (인근 실거래 평균)"
+            ),
             price_avg=price_data["avg"], price_min=price_data["min"],
             price_max=price_data["max"], price_sample_count=price_data["count"],
             nearby_facilities=nearby, web_summary=web,

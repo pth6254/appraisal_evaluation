@@ -36,6 +36,7 @@ building_info.py — 건축HUB 건축물대장정보 서비스
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 import xml.etree.ElementTree as ET
 
@@ -54,6 +55,7 @@ ENDPOINTS = {
     "기본개요":   f"{ARCH_HUB_BASE}/getBrBasisOulnInfo",
     "총괄표제부": f"{ARCH_HUB_BASE}/getBrRecapTitleInfo",
     "표제부":     f"{ARCH_HUB_BASE}/getBrTitleInfo",
+    "전유부": f"{ARCH_HUB_BASE}/getBrExposPubuseAreaInfo",
 }
 
 
@@ -253,6 +255,100 @@ def fetch_building_info(
         f"건축연도 {build_year} / 구조 {strct_nm}"
     )
     return result
+
+
+def fetch_unit_area(
+    sigungu_cd: str,
+    bjdong_cd: str,
+    bun: str,
+    ji: str = "",
+    dong_no: str = "",
+    ho_no: str = "",
+) -> Optional[float]:
+    """
+    집합건물 전유부 면적 조회 (아파트·오피스텔·연립다세대).
+    dong_no: "101동" 형태, ho_no: "1502호" 형태.
+    반환: 전용면적(㎡) 또는 None.
+    """
+    if not sigungu_cd or not bun:
+        return None
+
+    bjdong_5 = bjdong_cd[5:] if len(bjdong_cd) == 10 else bjdong_cd
+    if not bjdong_5 or bjdong_5 == "00000":
+        return None
+
+    bun_4 = str(bun).zfill(4) if bun else "0000"
+    ji_4  = str(ji).zfill(4)  if ji  else "0000"
+
+    # 동명·호명 정규화 (숫자만 추출)
+    dong_clean = re.sub(r"[^0-9A-Za-z가-힣]", "", dong_no) if dong_no else ""
+    ho_clean   = re.sub(r"[^0-9A-Za-z]", "", ho_no.replace("호", "")) if ho_no else ""
+
+    safe_key = MOLIT_API_KEY.replace("+", "%2B").replace("=", "%3D")
+    query = (
+        f"serviceKey={safe_key}"
+        f"&sigunguCd={sigungu_cd}"
+        f"&bjdongCd={bjdong_5}"
+        f"&bun={bun_4}"
+        f"&ji={ji_4}"
+        f"&numOfRows=50"
+        f"&pageNo=1"
+        f"&_type=xml"
+    )
+    if dong_clean:
+        query += f"&dongNm={dong_clean}"
+    if ho_clean:
+        query += f"&hoNm={ho_clean}"
+
+    url = f"{ENDPOINTS['전유부']}?{query}"
+    try:
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+        root = ET.fromstring(res.text)
+
+        result_code = root.findtext(".//resultCode", "")
+        if result_code.lstrip("0") not in ("", "0"):
+            print(f"[전유부] API 오류: {result_code}")
+            return None
+
+        items = root.findall(".//item")
+        if not items:
+            print(f"[전유부] 결과 없음 ({dong_no} {ho_no})")
+            return None
+
+        # ho_no로 필터링
+        matched = items
+        if ho_clean:
+            filtered = [
+                it for it in items
+                if re.sub(r"[^0-9]", "", it.findtext("hoNm", "")) == ho_clean
+            ]
+            if filtered:
+                matched = filtered
+
+        # 전용면적 추출
+        for it in matched:
+            area_text = (
+                it.findtext("excluUseAr", "")
+                or it.findtext("sarea", "")
+                or it.findtext("privArea", "")
+            )
+            try:
+                area = float(area_text.strip())
+                if area > 0:
+                    print(f"[전유부] ✅ {dong_no} {ho_no} 전용면적: {area}㎡")
+                    return area
+            except (ValueError, AttributeError):
+                pass
+
+        print(f"[전유부] 면적 파싱 실패 ({dong_no} {ho_no})")
+        return None
+
+    except requests.Timeout:
+        print("[전유부] 타임아웃")
+    except Exception as e:
+        print(f"[전유부] 오류: {e}")
+    return None
 
 
 def get_building_area(
