@@ -1,28 +1,60 @@
-# AppraisalAI — 부동산 감정평가 & 매물 추천 서비스
+# Property Concierge — 부동산 감정평가 & 매물 추천 & 투자 시뮬레이션 진행하는 부동산 종합 컨시어지 서비스
 
 AI 기반 부동산 서비스. 자연어 입력으로 실거래가 데이터와 LLM 추론을 결합한 전문 감정평가 의견서를 생성하고, 조건 기반 매물 추천 점수를 산출한다.
 
 ---
 
-## 빠른 시작
+## 아키텍처 개요
+
+```
+[Next.js 프론트엔드 :3000]
+         │  HTTP (REST)
+[FastAPI 백엔드 :8000]  ←→  [PostgreSQL + pgvector :5432]
+         │
+[LangGraph 파이프라인 (backend/)]
+```
+
+- **프론트엔드**: Next.js 14 (App Router, TypeScript)
+- **백엔드 API**: FastAPI (`api/`) — uvicorn으로 실행
+- **파이프라인**: LangGraph (`backend/`) — 감정평가·추천·시뮬레이션·비교
+- **DB**: PostgreSQL + pgvector (Docker), SQLite (히스토리 캐시)
+
+---
+
+## 빠른 시작 (Docker Compose)
 
 ```bash
-# 1. 패키지 설치
+# 1. 환경변수 설정
+cp .env.example .env
+# .env 파일을 열어 API 키 입력
+
+# 2. 전체 서비스 실행 (백엔드 + 프론트엔드 + DB)
+docker compose up --build
+
+# 서비스 주소
+# 프론트엔드: http://localhost:3000
+# 백엔드 API: http://localhost:8000
+# API 문서:   http://localhost:8000/docs
+```
+
+### 로컬 개발 (Docker 없이)
+
+```bash
+# 1. Python 패키지 설치
 pip install -r requirements.txt
 
 # 2. Ollama 모델 다운로드 (감정평가 기능에 필요)
 ollama pull exaone3.5:7.8b
 ollama pull nomic-embed-text
 
-# 3. 환경변수 설정
-cp .env.example .env
-# .env 파일을 열어 API 키 입력
+# 3. FastAPI 백엔드 실행
+uvicorn api.main:app --reload --port 8000
 
-# 4. DB 초기화 (최초 1회)
-python backend/cache_db.py
-
-# 5. 앱 실행
-streamlit run frontend/app.py
+# 4. Next.js 프론트엔드 실행 (별도 터미널)
+cd frontend
+npm install
+npm run dev
+# http://localhost:3000
 ```
 
 ---
@@ -30,21 +62,32 @@ streamlit run frontend/app.py
 ## 폴더 구조
 
 ```
-appraisal_evaluation/
+property_concierge/
 │
-├── frontend/                       Streamlit UI
-│   ├── app.py                      진입점 — API 키 상태·사이드바
-│   ├── pipeline.py                 Streamlit ↔ LangGraph 연결 래퍼
-│   ├── history_db.py               감정평가 이력 저장소
-│   ├── ui_components.py            재사용 Streamlit 컴포넌트
-│   ├── map_view.py                 지도 뷰 컴포넌트
-│   └── pages/
-│       ├── 1_평가하기.py           자연어 입력 + 건물 검색
-│       ├── 2_결과리포트.py         파이프라인 실행 + 결과 표시
-│       ├── 3_대시보드.py           이력 조회 (페이지네이션·검색)
-│       ├── 4_매물추천.py           AI 매물 추천 UI (→ 시뮬레이션 연동, 비교 바구니)
-│       ├── 5_투자시뮬레이션.py     투자 시뮬레이션 UI (Phase 4-4)
-│       └── 6_매물비교.py           매물 비교·최종 판단 UI (Phase 5)
+├── api/                            FastAPI 진입점 & 라우터
+│   ├── main.py                     FastAPI 앱 설정, CORS, 라우터 등록
+│   ├── history_db.py               히스토리 SQLite DB 관리
+│   └── routes/
+│       ├── appraisal.py            POST /api/appraisal
+│       ├── recommendation.py       POST /api/recommendation
+│       ├── simulation.py           POST /api/simulation
+│       ├── comparison.py           POST /api/comparison
+│       ├── history.py              GET/DELETE /api/history
+│       └── address.py              GET /api/address/search
+│
+├── frontend/                       Next.js 14 (App Router, TypeScript)
+│   ├── src/app/
+│   │   ├── appraisal/page.tsx      감정평가 입력 페이지
+│   │   ├── report/page.tsx         감정평가 결과 리포트 페이지
+│   │   ├── recommendation/page.tsx 매물 추천 페이지
+│   │   ├── simulation/page.tsx     투자 시뮬레이션 페이지
+│   │   ├── comparison/page.tsx     매물 비교 페이지
+│   │   └── dashboard/page.tsx      이력 대시보드 페이지
+│   ├── src/components/
+│   │   └── Navbar.tsx              공통 내비게이션 바
+│   └── src/lib/
+│       ├── api.ts                  API 요청 유틸리티 함수
+│       └── types.ts                TypeScript 타입 정의
 │
 ├── backend/                        비즈니스 로직 + LangGraph 파이프라인
 │   ├── router.py                   공개 API — run_appraisal() / run_recommendation() / run_simulation() / run_comparison()
@@ -65,8 +108,8 @@ appraisal_evaluation/
 │   ├── graphs/                     LangGraph 그래프 모음
 │   │   ├── appraisal_graph.py      감정평가 파이프라인 그래프
 │   │   ├── recommendation_graph.py 매물 추천 파이프라인 그래프
-│   │   ├── simulation_graph.py     투자 시뮬레이션 파이프라인 그래프 (Phase 4-3)
-│   │   └── comparison_graph.py     매물 비교 파이프라인 그래프 (Phase 5)
+│   │   ├── simulation_graph.py     투자 시뮬레이션 파이프라인 그래프
+│   │   └── comparison_graph.py     매물 비교 파이프라인 그래프
 │   │
 │   ├── services/                   비즈니스 서비스 레이어
 │   │   ├── price_analysis_service.py  PropertyQuery → AppraisalResult
@@ -84,12 +127,12 @@ appraisal_evaluation/
 │   ├── appraisal_result.py         감정평가 결과 스키마
 │   ├── recommendation_result.py    매물 추천 결과 스키마
 │   ├── simulation.py               투자 시뮬레이션 입출력 스키마
-│   └── comparison.py               매물 비교 입출력 스키마 (Phase 5)
+│   └── comparison.py               매물 비교 입출력 스키마
 │
 ├── data/
 │   └── sample_listings.csv         개발·테스트용 가상 매물 43건
 │
-├── tests/                          pytest 테스트 (680개)
+├── tests/                          pytest 테스트
 │   ├── conftest.py
 │   ├── test_models.py
 │   ├── test_schemas.py
@@ -104,14 +147,50 @@ appraisal_evaluation/
 │   ├── test_simulation_service.py
 │   ├── test_simulation_graph.py
 │   ├── test_sim_ui_smoke.py
-│   ├── test_comparison_service.py   (Phase 5)
-│   └── test_comparison_ui_smoke.py  (Phase 5)
+│   ├── test_comparison_service.py
+│   └── test_comparison_ui_smoke.py
 │
+├── docker/
+│   └── init.sql                    PostgreSQL 초기화 스크립트
+├── Dockerfile.backend              FastAPI 백엔드 이미지 (python:3.11-slim)
+├── Dockerfile.frontend             Next.js 프론트엔드 이미지 (node:22-alpine, 멀티스테이지)
+├── docker-compose.yml              pgvector + api + frontend 3서비스 구성
+├── .dockerignore                   Docker 빌드 제외 목록
 ├── .env.example                    API 키 템플릿
 ├── .env                            실제 API 키 (Git 제외)
-├── config.toml                     Streamlit 테마·서버 설정
-└── requirements.txt                패키지 목록
+└── requirements.txt                Python 패키지 목록
 ```
+
+---
+
+## Docker Compose 서비스 구성
+
+| 서비스 | 이미지 | 포트 | 설명 |
+|--------|--------|------|------|
+| `pgvector` | `ankane/pgvector:latest` | 5432 | PostgreSQL + pgvector 익스텐션 |
+| `api` | `property_concierge_backend:latest` | 8000 | FastAPI 백엔드 (Dockerfile.backend) |
+| `frontend` | `property_concierge_frontend:latest` | 3000 | Next.js 프론트엔드 (Dockerfile.frontend) |
+
+- `api` 서비스는 `pgvector` 헬스체크 통과 후 시작
+- `frontend` 서비스는 `api` 헬스체크 통과 후 시작
+- 환경변수 `NEXT_PUBLIC_API_URL=http://api:8000` 으로 프론트↔백엔드 연결
+
+---
+
+## REST API 엔드포인트
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/health` | 헬스체크 |
+| `POST` | `/api/appraisal` | 감정평가 실행 |
+| `POST` | `/api/recommendation` | 매물 추천 실행 |
+| `POST` | `/api/simulation` | 투자 시뮬레이션 실행 |
+| `POST` | `/api/comparison` | 매물 비교 실행 |
+| `GET` | `/api/history` | 감정평가 이력 조회 |
+| `DELETE` | `/api/history/{id}` | 이력 삭제 |
+| `GET` | `/api/address/search` | 주소 검색 (카카오 API) |
+
+> 전체 API 명세: `http://localhost:8000/docs` (Swagger UI)
 
 ---
 
@@ -139,19 +218,7 @@ PropertyQuery 입력 (지역·예산·면적·유형)
   → recommendation_service.py 마크다운 리포트 생성
 ```
 
-### 비교 파이프라인 (Phase 5)
-
-```
-입력 (두 방식 중 하나):
-  A. dict (raw_input)          → ComparisonInput 변환
-  B. ComparisonInput 객체      → 그대로 사용
-
-  → comparison_graph.py   입력정규화 — listings + optional recs/sims
-  → comparison_service.py 비교실행  — 점수 산출, 우승자 선정, 지표 계산
-  → comparison_service.py 리포트생성 — 마크다운 결정 리포트
-```
-
-### 시뮬레이션 파이프라인 (Phase 4-3)
+### 시뮬레이션 파이프라인
 
 ```
 입력 (세 방식 중 하나):
@@ -162,6 +229,18 @@ PropertyQuery 입력 (지역·예산·면적·유형)
   → simulation_graph.py   입력준비 — 세 방식을 SimulationInput으로 정규화
   → simulation_tool.py    시뮬레이션실행 — 취득세·대출·현금흐름·시나리오 계산
   → simulation_service.py 리포트생성 — 마크다운 리포트 생성
+```
+
+### 비교 파이프라인
+
+```
+입력 (두 방식 중 하나):
+  A. dict (raw_input)          → ComparisonInput 변환
+  B. ComparisonInput 객체      → 그대로 사용
+
+  → comparison_graph.py   입력정규화 — listings + optional recs/sims
+  → comparison_service.py 비교실행  — 점수 산출, 우승자 선정, 지표 계산
+  → comparison_service.py 리포트생성 — 마크다운 결정 리포트
 ```
 
 ---
@@ -188,16 +267,28 @@ PropertyQuery 입력 (지역·예산·면적·유형)
 | 스키마 | 핵심 필드 |
 |--------|----------|
 | `PropertyQuery` | `intent`, `region`, `property_type`, `area_m2`, `asking_price`, `budget_min/max`, `purpose` |
-| `PropertyListing` | `listing_id`, `address`, `region`, `property_type`, `area_m2`, `asking_price`, `jeonse_price`, `station_distance_m`, `built_year` |
+| `PropertyListing` | `listing_id`, `address`, `region`, `property_type`, `area_m2`, `asking_price`, `deposit_price`, `monthly_rent_income`, `station_distance_m`, `built_year` |
 | `AppraisalResult` | `estimated_price`, `gap_rate`, `judgement`, `confidence`, `comparables`, `warnings` |
 | `RecommendationResult` | `listing`, `appraisal`, `total_score`, `price_score`, `location_score`, `investment_score`, `risk_score`, `recommendation_label`, `reasons`, `risks` |
 | `ComparisonInput` | `listings`, `recommendation_results`, `simulation_results`, `budget_max` |
 | `ComparisonResult` | `rows` (list[PropertyComparisonRow]), `winner_idx`, `decision_report` |
-| `PropertyComparisonRow` | `rank`, `listing`, `recommendation`, `simulation`, `total_score`, `price_per_m2`, `jeonse_ratio`, `is_winner`, `highlights`, `warnings` |
+
+### PropertyListing 필드 변경 (2026-06-01)
+
+| 이전 필드명 | 변경 후 | 설명 |
+|------------|---------|------|
+| `jeonse_price` | `deposit_price` | 임대 보증금 (원) |
+
+### SimulationInput 필드 변경 (2026-06-01)
+
+| 이전 필드명 | 변경 후 | 설명 |
+|------------|---------|------|
+| `jeonse_deposit` | `rent_deposit` | 전세 보증금 (원) |
+| `monthly_rent` | `rent_fee` | 월세 (원) |
 
 ---
 
-## 공개 API
+## 공개 API (Python)
 
 ### 감정평가
 
@@ -227,78 +318,31 @@ state = run_recommendation(query, limit=5, run_appraisal=False)
 # state["report"]  — 마크다운 추천 리포트
 ```
 
-| 파라미터 | 기본값 | 설명 |
-|----------|--------|------|
-| `query` | — | PropertyQuery 객체 |
-| `limit` | 5 | 반환 최대 건수 |
-| `run_appraisal` | False | True 시 매물별 실거래가 API 호출 (API 키 필요) |
-
-### 서비스 레이어 직접 호출
+### 투자 시뮬레이션
 
 ```python
-# 가격 분석만
-from services.price_analysis_service import analyze_price
-appraisal = analyze_price(query)   # AppraisalResult 반환
-
-# 추천 목록만 (그래프 없이)
-from services.recommendation_service import recommend_listings, format_recommendation_report
-results = recommend_listings(query, limit=5, run_appraisal=False)
-report  = format_recommendation_report(results, query)
-
-# 매물 점수만
-from tools.scoring_tool import calculate_listing_score
-score = calculate_listing_score(listing, query, appraisal=None)
-# score["total_score"], score["recommendation_label"], score["reasons"], score["risks"]
-
-# 투자 시뮬레이션 — 계산 엔진 직접 호출 (Phase 4-1)
-from tools.simulation_tool import run_simulation
-from schemas.simulation import SimulationInput
-
-inp = SimulationInput(
-    purchase_price=1_000_000_000,   # 매수가 10억
-    loan_amount=500_000_000,        # 대출 5억
-    annual_interest_rate=4.0,       # 연 4%
-    loan_years=30,
-    holding_years=3,
-    expected_annual_growth_rate=3.0,
-    monthly_rent=2_000_000,         # 월세 200만원
-)
-result = run_simulation(inp)
-print(result.scenario_base.equity_roi)   # 자기자본 수익률 (%)
-print(result.loan.monthly_payment)       # 월 상환액 (원)
-
-# 투자 시뮬레이션 — 서비스 레이어 (Phase 4-2)
-from services.simulation_service import (
-    run_property_simulation,
-    listing_to_simulation_input,
-    generate_simulation_report,
-)
-
-# dict 또는 SimulationInput 모두 수용
-result = run_property_simulation({"purchase_price": 500_000_000, "loan_amount": 250_000_000})
-
-# PropertyListing / dict 매물을 SimulationInput으로 변환
-sim_inp = listing_to_simulation_input(listing, loan_ratio=0.6, holding_years=5)
-
-# 마크다운 리포트 생성
-report = generate_simulation_report(result, sim_inp)
-print(report)   # 입력조건·취득비용·대출정보·시나리오비교 포함 마크다운
-
-# 투자 시뮬레이션 — LangGraph 파이프라인 (Phase 4-3)
 from router import run_simulation
+from schemas.simulation import SimulationInput
 
 # 방식 A: dict 입력
 state = run_simulation(data={"purchase_price": 500_000_000, "loan_amount": 250_000_000})
 
-# 방식 B: SimulationInput 객체 직접 전달
-from schemas.simulation import SimulationInput
-inp   = SimulationInput(purchase_price=500_000_000, loan_amount=250_000_000)
+# 방식 B: SimulationInput 객체
+inp   = SimulationInput(
+    purchase_price=1_000_000_000,
+    loan_amount=500_000_000,
+    annual_interest_rate=4.0,
+    loan_years=30,
+    holding_years=3,
+    expected_annual_growth_rate=3.0,
+    rent_fee=2_000_000,       # 월세 200만원 (구: monthly_rent)
+    owned_homes=1,            # 보유 주택 수 (취득세 중과 산정)
+)
 state = run_simulation(data=inp)
 
 # 방식 C: 매물 + overrides
 state = run_simulation(listing=listing, overrides={"loan_ratio": 0.6, "holding_years": 5})
 
-# 공통 반환값
 print(state["result"].scenario_base.annual_equity_roi)  # 연환산 수익률 (%)
 print(state["report"])                                   # 마크다운 리포트
 ```
@@ -314,31 +358,18 @@ listings = [
     PropertyListing(listing_id="L2", address="서울 서대문구 1", property_type="주거용", asking_price=600_000_000),
 ]
 
-# 방식 A: PropertyListing 목록 직접 전달
 state = run_comparison(listings=listings)
-
-# 방식 B: ComparisonInput 객체
-from schemas.comparison import ComparisonInput
-inp   = ComparisonInput(listings=listings, recommendation_results=recs)
-state = run_comparison(data=inp)
-
-# 방식 C: raw dict
-state = run_comparison(data={"listings": [{"listing_id": "L1", ...}, {"listing_id": "L2", ...}]})
-
-# 공통 반환값
-result = state["result"]            # ComparisonResult
-winner = result.rows[0]             # PropertyComparisonRow (최고 점수)
-print(winner.listing.complex_name)  # 최종 추천 매물명
-print(state["report"])              # 마크다운 결정 리포트
+print(state["result"].rows[0].listing.complex_name)  # 최종 추천 매물명
+print(state["report"])                               # 마크다운 결정 리포트
 ```
 
 ---
 
-## 투자 시뮬레이션 모델 (Phase 4-1 / 4-2)
+## 투자 시뮬레이션 모델
 
 `schemas/simulation.py` + `backend/tools/simulation_tool.py` + `backend/services/simulation_service.py`
 
-외부 API 호출 없는 순수 계산 엔진. `run_simulation(inp)`으로 전체 결과 반환, `generate_simulation_report(result, inp)`으로 마크다운 리포트 생성.
+외부 API 호출 없는 순수 계산 엔진.
 
 ### SimulationInput 주요 필드
 
@@ -351,10 +382,13 @@ print(state["report"])              # 마크다운 결정 리포트
 | `repayment_type` | `equal_payment` | 원리금균등 / 원금균등 / 만기일시 |
 | `holding_years` | 3 | 보유 기간 (년) |
 | `expected_annual_growth_rate` | 0.0 | 연간 예상 상승률 (%) |
-| `jeonse_deposit` | None | 전세 보증금 (원) |
-| `monthly_rent` | None | 월세 (원) — jeonse와 동시 입력 불가 |
+| `rent_deposit` | None | 전세 보증금 (원) — `rent_fee`와 동시 입력 불가 |
+| `rent_fee` | None | 월세 (원) |
 | `monthly_management_fee` | None | 월 관리비 (원) |
 | `property_type` | `아파트` | 매물 유형 (취득세율 결정) |
+| `owned_homes` | 1 | 현재 보유 주택 수 (취득 전 기준, 취득세 중과 산정용) |
+| `scenario_spread` | 5.0 | 강세/약세 시나리오 편차 (%p) |
+| `jeonse_opportunity_rate` | 3.5 | 전세 보증금 기회수익률 (%) |
 
 ### SimulationResult 구조
 
@@ -366,8 +400,8 @@ SimulationResult
 ├── loan               월 상환액 / 총 이자 / 총 상환액
 ├── cash_flow          월 임대수입 − 월 상환 − 관리비 = 순 현금흐름
 ├── scenario_base      입력 성장률 기준 수익성
-├── scenario_bull      성장률 +5%p
-└── scenario_bear      성장률 −5%p
+├── scenario_bull      성장률 +scenario_spread %p
+└── scenario_bear      성장률 −scenario_spread %p
 
 각 ScenarioResult:
   expected_sale_price, capital_gain, total_rental_income,
@@ -376,24 +410,14 @@ SimulationResult
 
 ### 취득세 간이 세율 (주거용, 취득세 + 지방교육세)
 
-| 매수가 구간 | 세율 |
-|------------|------|
-| 6억 이하 | 1.1% |
-| 6억 초과 ~ 9억 이하 | 2.2% |
-| 9억 초과 | 3.3% |
-| 상업용·업무용·산업용·토지 | 4.4% |
+| 매수가 구간 | 1주택 | 다주택 (owned_homes ≥ 2) |
+|------------|-------|--------------------------|
+| 6억 이하 | 1.1% | 중과 적용 |
+| 6억 초과 ~ 9억 이하 | 2.2% | 중과 적용 |
+| 9억 초과 | 3.3% | 중과 적용 |
+| 상업용·업무용·산업용·토지 | 4.4% | 4.4% |
 
-> ⚠️ 간이 계산 — 실제 세율은 보유 주택 수·취득 시점에 따라 달라집니다.
-
-### simulation_service 주요 함수 (Phase 4-2)
-
-| 함수 | 입력 | 출력 | 설명 |
-|------|------|------|------|
-| `run_property_simulation(data)` | `dict \| SimulationInput` | `SimulationResult` | 계산 엔진 호출 래퍼 |
-| `listing_to_simulation_input(listing, ...)` | `PropertyListing \| dict` | `SimulationInput` | 매물 → 시뮬레이션 입력 변환 |
-| `generate_simulation_report(result, inp)` | `SimulationResult` | `str` (마크다운) | 8개 섹션 투자 분석 리포트 |
-
-`listing_to_simulation_input` 매물 유형 매핑: `주거용→아파트`, `상업용→상가`, `업무용→오피스`, `산업용→공장`, `토지→토지`
+> ⚠️ 간이 계산 — 실제 세율은 보유 주택 수·취득 시점·조정대상지역 여부에 따라 달라집니다.
 
 ---
 
@@ -475,42 +499,15 @@ total = price×0.35 + location×0.30 + investment×0.20 + (10 − risk)×0.15
 pytest tests/
 
 # 파일별
-pytest tests/test_schemas.py                  # Pydantic 스키마 (15개)
-pytest tests/test_models.py                   # 내부 모델 (8개)
-pytest tests/test_price_engine_calc.py        # 가격 계산 엔진 (28개)
-pytest tests/test_price_analysis_service.py   # 가격 분석 서비스 (37개)
-pytest tests/test_listing_tool.py             # 매물 조회 도구 (46개)
-pytest tests/test_scoring_tool.py             # 점수 산출 도구 (68개)
-pytest tests/test_recommendation_service.py   # 추천 서비스 (47개)
-pytest tests/test_recommendation_graph.py     # 추천 그래프 (38개)
-pytest tests/test_rec_ui_smoke.py             # UI smoke (27개)
-pytest tests/test_simulation_tool.py          # 시뮬레이션 엔진 (78개)
-pytest tests/test_simulation_service.py       # 시뮬레이션 서비스 (78개)
-```
-
-현재 **470개 테스트 전부 통과**.
-
----
-
-## 단계별 실행 확인
-
-```bash
-# 백엔드 개별 모듈
-python backend/intent_agent.py      # 의도 분석 출력 확인
-python backend/geocoding.py         # 위도/경도 반환 확인
-python backend/analysis_tools.py    # 실거래가 + 감정평가 계산 확인
-python backend/agents.py            # 5개 에이전트 출력 확인
-python backend/router.py            # 감정평가 end-to-end 실행
-
-# 추천 파이프라인 확인
-python -c "
-from router import run_recommendation
-from schemas.property_query import PropertyQuery
-q = PropertyQuery(intent='recommendation', region='마포구')
-s = run_recommendation(q, limit=3)
-print(s['report'])
-"
-
-# UI 실행
-streamlit run frontend/app.py
+pytest tests/test_schemas.py
+pytest tests/test_models.py
+pytest tests/test_price_engine_calc.py
+pytest tests/test_price_analysis_service.py
+pytest tests/test_listing_tool.py
+pytest tests/test_scoring_tool.py
+pytest tests/test_recommendation_service.py
+pytest tests/test_recommendation_graph.py
+pytest tests/test_simulation_tool.py
+pytest tests/test_simulation_service.py
+pytest tests/test_comparison_service.py
 ```
