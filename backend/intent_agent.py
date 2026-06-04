@@ -18,7 +18,7 @@ import re
 from typing import Optional
 from typing_extensions import TypedDict
 
-from langchain_ollama import ChatOllama
+from model_factory import get_llm_json
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
@@ -96,16 +96,8 @@ class IntentState(TypedDict, total=False):
 #  3. LLM 설정
 # ─────────────────────────────────────────
 
-def get_llm() -> ChatOllama:
-    model = os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b")
-    base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    return ChatOllama(
-        model=model,
-        base_url=base_url,
-        temperature=0.0,
-        format="json",
-        num_predict=1024,
-    )
+def get_llm():
+    return get_llm_json()
 
 
 # ─────────────────────────────────────────

@@ -19,7 +19,7 @@ import time
 
 import requests
 from dotenv import find_dotenv, load_dotenv
-from langchain_ollama import ChatOllama
+from model_factory import get_llm_json
 
 load_dotenv(find_dotenv())
 
@@ -110,11 +110,7 @@ APPRAISAL_PROMPT = """당신은 국가공인 부동산 감정평가사입니다.
 
 
 def generate_appraisal_opinion(category, location, valuation_data, nearby_data, web_summary) -> dict:
-    llm = ChatOllama(
-        model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
-        base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        temperature=0.1, format="json", num_predict=1024,
-    )
+    llm = get_llm_json()
     estimated   = valuation_data.get("estimated_value", 0)
     verdict     = valuation_data.get("valuation_verdict", "")
     deviation   = valuation_data.get("deviation_pct", 0)

@@ -22,7 +22,7 @@ from typing import Optional
 import psycopg2
 from langchain_core.documents import Document
 from langchain_community.vectorstores import PGVector
-from langchain_ollama import ChatOllama, OllamaEmbeddings
+from model_factory import get_llm, get_llm_json, get_embeddings
 
 from dotenv import load_dotenv, find_dotenv
 
@@ -32,9 +32,6 @@ PG_CONN_STR = os.getenv(
     "PG_CONNECTION_STRING",
     "postgresql://postgres:password@localhost:5432/real_estate_db",
 )
-EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
-# nomic-embed-text: 무료, 768차원, 한국어 양호
-# mxbai-embed-large: 더 높은 정확도 (1024차원)
 
 
 # ─────────────────────────────────────────
@@ -223,7 +220,7 @@ def build_documents_from_transactions(
 
 def get_vectorstore(collection_name: str = "real_estate") -> PGVector:
     """PGVector 인스턴스 반환 (LangChain 래퍼)"""
-    embeddings = OllamaEmbeddings(model=EMBED_MODEL)
+    embeddings = get_embeddings()
     return PGVector(
         connection_string=PG_CONN_STR,
         collection_name=collection_name,
@@ -353,7 +350,7 @@ def build_rag_query(
 
     conditions_text = ", ".join(special_conditions)
 
-    llm = ChatOllama(model="exaone3.5:7.8b", base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"), temperature=0.0)
+    llm = get_llm()
     prompt = QUERY_EXPAND_PROMPT.format(
         conditions=conditions_text,
         location=location,
@@ -478,7 +475,7 @@ def rerank_with_llm(
             f"[{i}] {doc.page_content} (유사도: {sim_score:.2f})"
         )
 
-    llm = ChatOllama(model="exaone3.5:7.8b", base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"), temperature=0.0, format="json")
+    llm = get_llm_json()
     rerank_prompt = get_rerank_prompt(category)
 
     if price_min and price_max:

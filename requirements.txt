@@ -38,6 +38,14 @@ langchain-protocol==0.0.16
 langchain-text-splitters==1.1.2
 langsmith==0.8.8
 
+# ── LLM 프로바이더 (선택) ─────────────────────────────────────
+# LLM_PROVIDER=openai    → pip install langchain-openai
+# LLM_PROVIDER=anthropic → pip install langchain-anthropic
+# LLM_PROVIDER=google    → pip install langchain-google-genai
+# langchain-openai
+# langchain-anthropic
+# langchain-google-genai
+
 # ── LangGraph ────────────────────────────────────────────────
 langgraph==1.2.2
 langgraph-checkpoint==4.1.1
