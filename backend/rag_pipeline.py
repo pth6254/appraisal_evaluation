@@ -568,13 +568,13 @@ def run_rag_pipeline(
 
 
     # ── Step A: 실거래가 데이터 → Document → pgvector ──
+    geo     = state.get("geocoding_result") or {}
     samples = price_data.get("samples", [])
     if samples:
-        geo = state.get("geocoding_result") or {}
         if isinstance(geo, dict):
-            r1 = geo.get("region_1depth", "")   # 시/도
-            r2 = geo.get("region_2depth", "")   # 시/군/구
-            r3 = geo.get("region_3depth", "")   # 읍/면/동
+            r1 = geo.get("region_1depth", "")
+            r2 = geo.get("region_2depth", "")
+            r3 = geo.get("region_3depth", "")
             region = " ".join(filter(None, [r1, r2, r3]))
         else:
             region = ""

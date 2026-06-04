@@ -24,6 +24,7 @@ for _p in [_PROJECT_ROOT, _BACKEND_DIR, _API_DIR]:
 from api.routes import appraisal, address, auth, comparison, history, recommendation, simulation
 from api import auth_db as _adb
 from api import history_db as _hdb
+from backend.cache_db import init_cache_db as _init_cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,7 +37,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     _hdb.init()
     _adb.init()
-    logger.info("FastAPI 시작 — history DB 및 auth DB 초기화 완료")
+    _init_cache()
+    logger.info("FastAPI 시작 — history DB, auth DB, cache DB 초기화 완료")
     yield
     logger.info("FastAPI 종료")
 
