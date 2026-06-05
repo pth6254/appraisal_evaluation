@@ -33,3 +33,12 @@ body {
 .prose blockquote { border-left: 3px solid #93c5fd; padding-left: 0.75rem; color: #475569; margin: 0.5rem 0; }
 .prose strong { font-weight: 700; }
 .prose code { background: #f1f5f9; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.875em; }
+
+/* 감정평가서 인쇄 */
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; }
+  main { margin-left: 0 !important; padding: 0 !important; }
+  .report-wrapper { background: white !important; padding: 0 !important; }
+  #appraisal-doc { max-width: none !important; box-shadow: none !important; }
+}
