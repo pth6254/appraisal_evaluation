@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
 const NAV = [
+  { href: "/",               label: "🏡 홈",            exact: true },
   { href: "/appraisal",      label: "🏠 감정평가" },
   { href: "/report",         label: "📊 결과 리포트" },
   { href: "/dashboard",      label: "📋 이력 대시보드" },
@@ -23,8 +24,8 @@ export default function Navbar() {
         <div className="text-xs text-slate-400 mt-0.5">감정평가 · 추천 · 시뮬레이션</div>
       </div>
       <nav className="flex-1 overflow-y-auto py-3">
-        {NAV.map(({ href, label }) => {
-          const active = path === href || path.startsWith(href + "/");
+        {NAV.map(({ href, label, exact }) => {
+          const active = exact ? path === href : (path === href || path.startsWith(href + "/"));
           return (
             <Link
               key={href} href={href}

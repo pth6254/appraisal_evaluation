@@ -35,6 +35,10 @@ type AppraisalResult = {
   official_price_ratio?: number;
   build_year?: number;
   exclusive_area_m2?: number;
+  common_area_m2?: number;
+  total_area_m2?: number;
+  jimok?: string;
+  road_side?: string;
   valuation_breakdown?: ValuationBreakdown[];
   legal_restrictions?: string[];
   development_plans?: string[];
@@ -51,6 +55,8 @@ type AnalysisResult = {
   risk_factors?: string[];
   recommendation?: string;
   price_per_pyeong?: number;
+  price_per_sqm?: number;
+  area_pyeong?: number;
   regional_avg_per_pyeong?: number;
   comparable_avg?: number;
   comparable_count?: number;
@@ -71,6 +77,10 @@ const MATCH_LABEL: Record<string, string> = {
   nearby: "인근",
   fallback: "폴백",
 };
+
+function toPyeong(m2: number): string {
+  return (m2 / 3.30579).toFixed(2) + "평";
+}
 
 function numToKorean(n: number): string {
   if (!n) return "";
@@ -120,16 +130,35 @@ function SectionTitle({ number, title }: { number: string; title: string }) {
   );
 }
 
-function InfoTable({ rows }: { rows: [string, string][] }) {
+type InfoRow = [string, string] | { divider: string };
+
+function InfoTable({ rows }: { rows: InfoRow[] }) {
   return (
     <table className="w-full border-collapse text-xs">
       <tbody>
-        {rows.map(([label, value], i) => (
-          <tr key={i}>
-            <td className="border border-gray-400 bg-gray-50 px-4 py-2 font-medium text-gray-600 w-[28%] whitespace-nowrap">{label}</td>
-            <td className="border border-gray-400 px-4 py-2 text-gray-800">{value || "—"}</td>
-          </tr>
-        ))}
+        {rows.map((row, i) => {
+          if ("divider" in row) {
+            return (
+              <tr key={i}>
+                <td
+                  colSpan={2}
+                  className="border border-gray-400 bg-gray-700 text-white px-4 py-1.5 text-center text-[10px] font-semibold tracking-[0.25em]"
+                >
+                  {row.divider}
+                </td>
+              </tr>
+            );
+          }
+          const [label, value] = row;
+          return (
+            <tr key={i}>
+              <td className="border border-gray-400 bg-gray-50 px-4 py-2 font-medium text-gray-600 w-[28%] whitespace-nowrap">
+                {label}
+              </td>
+              <td className="border border-gray-400 px-4 py-2 text-gray-800">{value || "—"}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -203,30 +232,81 @@ export default function ReportPage() {
   const devPlans    = ap.development_plans?.length  ? ap.development_plans  : (ar.development_plans  || []);
   const comparables = ap.comparables?.length ? ap.comparables : (ar.comparables || []);
 
-  /* ── 대상물건 정보 행 (비어있는 항목 제외) ── */
-  const propRows: [string, string][] = ([
-    address      ? ["소 재 지",      address]       : null,
-    buildingName ? ["건 물 명",      buildingName]  : null,
-    propType     ? ["물건 유형",     propType]      : null,
-    transType    ? ["거래 유형",     transType]     : null,
-    unitStr      ? ["동 / 호",      unitStr]       : null,
-    floor        ? ["층     수",    floor]         : null,
-    areaRaw      ? ["전용 면적",    areaRaw]       : null,
-    buildYear    ? ["건축연도",      `${buildYear}년`]                                   : null,
-    landUseZone  ? ["용도지역",      landUseZone]                                        : null,
-    officialLp   ? ["공시지가",      `${officialLp.toLocaleString("ko-KR")}원/㎡`]       : null,
-    purpose      ? ["감정평가 목적", purpose]       : null,
-    methodStr    ? ["평 가 기 준",   methodStr]     : null,
-  ] as ([string, string] | null)[]).filter((r): r is [string, string] => r !== null);
+  /* ── 면적 계산 ── */
+  const exclusiveM2 = ap.exclusive_area_m2 || ar.exclusive_area_m2 || 0;
+  const commonM2    = ap.common_area_m2 || 0;
+  const totalM2     = ap.total_area_m2 || (exclusiveM2 && commonM2 ? exclusiveM2 + commonM2 : 0);
+  const areaPyeong  = ar.area_pyeong || (exclusiveM2 ? exclusiveM2 / 3.30579 : 0);
+
+  /* 전용면적 표시 문자열 */
+  const exclusiveAreaStr = exclusiveM2
+    ? `${exclusiveM2.toFixed(2)}㎡ (${toPyeong(exclusiveM2)})`
+    : areaRaw || "—";
+
+  /* ── 건물 노후도 ── */
+  const currentYear = new Date().getFullYear();
+  const buildAgeStr = buildYear
+    ? `${buildYear}년 준공 (경과 ${currentYear - buildYear}년)`
+    : "";
+
+  /* ── 공시가격 추정액 (공시지가 × 전용면적) ── */
+  const officialTotalManwon =
+    officialLp && exclusiveM2
+      ? Math.round((officialLp * exclusiveM2) / 10_000)
+      : 0;
+
+  /* ── 대상물건 정보 행 (그룹 구분선 포함) ── */
+  const propRows: InfoRow[] = [
+    /* 기본 식별 정보 */
+    { divider: "기 본 정 보" },
+    ...(address      ? [["소  재  지", address]          as [string, string]] : []),
+    ...(buildingName ? [["건  물  명", buildingName]      as [string, string]] : []),
+    ...(propType     ? [["물건 유형",  propType]          as [string, string]] : []),
+    ...(transType    ? [["거래 유형",  transType]         as [string, string]] : []),
+    ...(unitStr      ? [["동  /  호",  unitStr]           as [string, string]] : []),
+    ...(floor        ? [["층     수",  floor]             as [string, string]] : []),
+
+    /* 면적 */
+    { divider: "면 적 정 보" },
+    ["전 용 면 적", exclusiveAreaStr],
+    ...(commonM2     ? [["공 용 면 적", `${commonM2.toFixed(2)}㎡ (${toPyeong(commonM2)})`]   as [string, string]] : []),
+    ...(totalM2      ? [["계 약 면 적", `${totalM2.toFixed(2)}㎡ (${toPyeong(totalM2)})`]     as [string, string]] : []),
+    ...(areaPyeong && !exclusiveM2
+      ? [["전용면적(평)", `${areaPyeong.toFixed(2)}평`] as [string, string]]
+      : []),
+
+    /* 건물 정보 */
+    { divider: "건 물 정 보" },
+    ...(buildAgeStr  ? [["건  축  연  도", buildAgeStr]   as [string, string]] : []),
+
+    /* 토지·공법 정보 */
+    { divider: "토 지 · 공 법 정 보" },
+    ...(landUseZone  ? [["용  도  지  역", landUseZone]                                              as [string, string]] : []),
+    ...(ap.jimok     ? [["지       목",   ap.jimok]                                                  as [string, string]] : []),
+    ...(ap.road_side ? [["도  로  접  면", ap.road_side]                                             as [string, string]] : []),
+    ...(officialLp   ? [["공  시  지  가", `${officialLp.toLocaleString("ko-KR")}원/㎡`]             as [string, string]] : []),
+    ...(officialTotalManwon
+      ? [["공시가격 추정액", `약 ${officialTotalManwon.toLocaleString("ko-KR")}만원 (전용면적 기준)`] as [string, string]]
+      : []),
+
+    /* 감정평가 기본사항 */
+    { divider: "감 정 평 가 기 본 사 항" },
+    ...(purpose     ? [["감정평가 목적", purpose]         as [string, string]] : []),
+    ...(methodStr   ? [["평  가  기  준", methodStr]      as [string, string]] : []),
+    ["기  준  시  점", appraisalDate],
+  ];
 
   /* ── 감정평가액 세부 행 ── */
-  const valueRows: [string, string][] = [
+  const valueRows: InfoRow[] = [
     ["추 정 범 위",
       ap.low_price && ap.high_price
         ? `${ap.low_price.toLocaleString("ko-KR")}원  ~  ${ap.high_price.toLocaleString("ko-KR")}원`
         : "—"],
     ["평 당 가",
       ar.price_per_pyeong ? `${(ar.price_per_pyeong * 10_000).toLocaleString("ko-KR")}원/평` : "—"],
+    ...(ar.price_per_sqm
+      ? [["㎡ 당 단 가", `${(ar.price_per_sqm * 10_000).toLocaleString("ko-KR")}원/㎡`] as [string, string]]
+      : []),
     ["지역 평균 평당가",
       ar.regional_avg_per_pyeong ? `${(ar.regional_avg_per_pyeong * 10_000).toLocaleString("ko-KR")}원/평` : "—"],
     ...(ar.comparable_avg && ar.comparable_count
