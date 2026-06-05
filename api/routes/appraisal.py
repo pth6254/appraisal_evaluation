@@ -19,14 +19,23 @@ class AppraisalRequest(BaseModel):
     user_input: str
     building_name: str = ""
     save_history: bool = True
+    appraisal_date: str = ""       # YYYYMMDD (빈 문자열 = 현재 시점)
+    appraisal_purpose: str = ""    # 담보 / 경매 / 과세 / 매매 / 보상 / 임의
 
 
 @router.post("/appraisal")
 async def run_appraisal_endpoint(req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
     from backend.router import run_appraisal
 
-    logger.info("감정평가 요청 — %s / %s", req.user_input, req.building_name)
-    result = await asyncio.to_thread(run_appraisal, req.user_input, req.building_name)
+    logger.info("감정평가 요청 — %s / %s / 기준시점: %s / 목적: %s",
+                req.user_input, req.building_name, req.appraisal_date or "현재", req.appraisal_purpose or "없음")
+    result = await asyncio.to_thread(
+        run_appraisal,
+        req.user_input,
+        req.building_name,
+        req.appraisal_date,
+        req.appraisal_purpose,
+    )
 
     if req.save_history and not result.get("error"):
         try:

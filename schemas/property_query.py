@@ -45,5 +45,18 @@ class PropertyQuery(BaseModel):
     budget_min: Optional[int]      = None   # 최소 예산 (원)
     budget_max: Optional[int]      = None   # 최대 예산 (원)
 
+    # 감정평가 기준시점 YYYYMMDD (빈 문자열이면 현재 시점)
+    appraisal_date: str             = ""
+
+    # 감정평가 목적
+    appraisal_purpose: Optional[Literal[
+        "담보",   # 담보 감정
+        "경매",   # 경매
+        "과세",   # 과세
+        "매매",   # 매매 참고
+        "보상",   # 보상
+        "임의",   # 임의
+    ]] = None
+
     # 원문 입력 (NLP 파싱 전 사용자 입력 보존)
     raw_input: Optional[str]       = None

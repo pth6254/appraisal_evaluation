@@ -105,24 +105,40 @@ def _get_cmp_graph():
 #  공개 실행 인터페이스
 # ─────────────────────────────────────────
 
-def run_appraisal(user_input: str, building_name: str = "") -> dict:
+def run_appraisal(
+    user_input: str,
+    building_name: str = "",
+    appraisal_date: str = "",
+    appraisal_purpose: str = "",
+) -> dict:
     """
-    감정평가 실행 — Streamlit, FastAPI 등 외부에서 호출하는 공개 API.
+    감정평가 실행 — FastAPI 등 외부에서 호출하는 공개 API.
 
     Args:
-        user_input    : 자연어 요청 (위치, 면적, 가격 등)
-        building_name : 건물명·단지명 (선택)
-
-    Returns:
-        AgentState dict — analysis_result, final_report 포함
+        user_input        : 자연어 요청
+        building_name     : 건물명·단지명 (선택)
+        appraisal_date    : 기준시점 YYYYMMDD (빈 문자열 = 현재)
+        appraisal_purpose : 감정평가 목적 (담보/경매/과세/매매/보상/임의)
     """
+    text = user_input.strip()
+
+    # 기준시점이 명시된 경우 텍스트에 포함 → NLP가 appraisal_date로 추출
+    if appraisal_date:
+        try:
+            from datetime import datetime as _dt
+            d = _dt.strptime(appraisal_date, "%Y%m%d")
+            text = text + f" {d.year}년 {d.month}월 {d.day}일 기준"
+        except ValueError:
+            pass
+
     graph = _get_graph()
     try:
         return graph.invoke({
-            "user_input":    user_input.strip(),
-            "building_name": building_name.strip(),
-            "error":         "",
-            "retry_count":   0,
+            "user_input":        text,
+            "building_name":     building_name.strip(),
+            "appraisal_purpose": appraisal_purpose.strip(),
+            "error":             "",
+            "retry_count":       0,
         })
     except Exception as exc:
         logger.exception("[router] run_appraisal 실패")

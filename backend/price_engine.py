@@ -7,7 +7,6 @@ analysis_tools.py에서 분리된 순수 가격 데이터 계산 모듈.
 공개 인터페이스:
   fetch_real_transaction_prices() — 국토부 실거래가 조회
   calc_estimated_value()          — 추정 시장가치 산출
-  calc_valuation_verdict()        — 고저평가 판단
   calc_investment_return()        — 수익률 계산
   calc_cost_approach()            — 건축원가법
   _fetch_by_income_approach()     — 수익환원법 (상업·업무용)
@@ -54,11 +53,96 @@ def _empty_price_data(reason: str = "") -> dict:
 
 
 # ─────────────────────────────────────────
+#  시점수정 (Time Adjustment)
+# ─────────────────────────────────────────
+
+# 부동산 유형별 월간 평균 가격변동률 (한국부동산원 장기 평균 근사치)
+# 실무에서는 한국부동산원 월간지수를 직접 사용해야 정확하나,
+# API 미연동 시 아래 기본값으로 근사 적용
+_TIME_ADJ_MONTHLY_RATE: dict[str, float] = {
+    "주거용": 0.003,   # 0.30%/월
+    "상업용": 0.001,   # 0.10%/월
+    "업무용": 0.0015,  # 0.15%/월
+    "산업용": 0.001,   # 0.10%/월
+    "토지":   0.002,   # 0.20%/월
+}
+_TIME_ADJ_DEFAULT_RATE = 0.002  # 0.20%/월 (기본값)
+
+
+def _months_between(deal_ym: str, as_of_ymd: str) -> int:
+    """
+    deal_ym  : 거래연월 YYYYMM 문자열
+    as_of_ymd: 기준시점 YYYYMMDD (빈 문자열이면 현재 날짜)
+    반환     : 거래일(해당월 15일 기준) ~ 기준시점 월수 (0 이상)
+    """
+    try:
+        target = datetime.strptime(as_of_ymd[:8], "%Y%m%d") if as_of_ymd else datetime.now()
+        deal   = datetime.strptime(deal_ym + "15", "%Y%m%d")
+        diff   = (target.year - deal.year) * 12 + (target.month - deal.month)
+        return max(0, diff)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _time_adj_factor(months: int, monthly_rate: float) -> float:
+    """시점수정 계수 = (1 + r)^n. 수정 불필요 시 1.0 반환."""
+    if months <= 0 or monthly_rate == 0.0:
+        return 1.0
+    return round((1 + monthly_rate) ** months, 6)
+
+
+def _apply_time_adjustment(
+    samples: list[dict],
+    category: str,
+    as_of: str,
+) -> tuple[list[dict], float]:
+    """
+    실거래 samples 각각에 시점수정 계수를 적용해 price를 보정.
+
+    반환:
+      samples  : price가 보정된 사본 (original_price 필드 추가)
+      monthly_rate: 적용된 월간 변동률
+    """
+    rate = _TIME_ADJ_MONTHLY_RATE.get(category, _TIME_ADJ_DEFAULT_RATE)
+    adjusted = []
+    for d in samples:
+        s = dict(d)
+        deal_ym = ""
+        if s.get("deal_year") and s.get("deal_month"):
+            try:
+                deal_ym = f"{s['deal_year']}{int(s['deal_month']):02d}"
+            except (ValueError, TypeError):
+                deal_ym = ""
+
+        months = _months_between(deal_ym, as_of) if deal_ym else 0
+        factor = _time_adj_factor(months, rate)
+
+        s["original_price"]   = s["price"]
+        s["time_adj_months"]  = months
+        s["time_adj_factor"]  = factor
+        if factor != 1.0 and s["price"] > 0:
+            s["price"] = round(s["price"] * factor)
+        adjusted.append(s)
+    return adjusted, rate
+
+
+# ─────────────────────────────────────────
 #  조회 월 목록
 # ─────────────────────────────────────────
 
-def _get_recent_deal_ymds(months: int = 3) -> list[str]:
-    now    = datetime.now()
+def _get_recent_deal_ymds(months: int = 3, as_of: str = "") -> list[str]:
+    """
+    기준시점(as_of) 이전 months개월의 YYYYMM 목록 반환.
+    as_of: YYYYMMDD 문자열, 빈 문자열이면 현재 날짜 사용.
+    """
+    if as_of:
+        try:
+            now = datetime.strptime(as_of[:8], "%Y%m%d")
+        except ValueError:
+            now = datetime.now()
+    else:
+        now = datetime.now()
+
     result = []
     for i in range(months - 1, -1, -1):
         year  = now.year
@@ -338,6 +422,7 @@ def fetch_real_transaction_prices(
     region_3depth: str = "",
     floor: int = 0,
     area_sqm_exact: float = 0.0,
+    as_of: str = "",
 ) -> dict:
     """
     국토부 실거래가 API.
@@ -378,7 +463,7 @@ def fetch_real_transaction_prices(
     # ── 1단계: 단지명 매칭 (3 → 6 → 12개월) ───────────────────────────────
     if apt_clean:
         for months in [3, 6, 12]:
-            deal_ymds  = _get_recent_deal_ymds(months=months)
+            deal_ymds  = _get_recent_deal_ymds(months=months, as_of=as_of)
             print(f"[molit] 단지 조회: '{apt_clean_stripped}' / {months}개월")
             raw_parsed = _fetch_by_ymds(url, safe_key, lawd_code, deal_ymds, category)
             if not raw_parsed:
@@ -431,7 +516,7 @@ def fetch_real_transaction_prices(
     # ── 2단계: 동 필터링 (3 → 6개월) ───────────────────────────────────────
     if not all_parsed and dong_filter:
         for months in [3, 6]:
-            deal_ymds  = _get_recent_deal_ymds(months=months)
+            deal_ymds  = _get_recent_deal_ymds(months=months, as_of=as_of)
             print(f"[molit] 동 조회: '{dong_filter}동' / {months}개월")
             raw_parsed = _fetch_by_ymds(url, safe_key, lawd_code, deal_ymds, category)
             if raw_parsed:
@@ -446,7 +531,7 @@ def fetch_real_transaction_prices(
     # ── 3단계: 구 전체 (3 → 6개월) ─────────────────────────────────────────
     if not all_parsed:
         for months in [3, 6]:
-            deal_ymds  = _get_recent_deal_ymds(months=months)
+            deal_ymds  = _get_recent_deal_ymds(months=months, as_of=as_of)
             print(f"[molit] 구 전체 조회: {region_2depth} / {months}개월")
             raw_parsed = _fetch_by_ymds(url, safe_key, lawd_code, deal_ymds, category)
             if raw_parsed:
@@ -510,6 +595,10 @@ def fetch_real_transaction_prices(
             all_parsed = filtered
 
     apt_name_matched = all_parsed[0].get("apt_name", "") if apt_clean else ""
+
+    # ── 시점수정 적용 ─────────────────────────────────────────────────────
+    all_parsed, time_adj_rate = _apply_time_adjustment(all_parsed, category, as_of)
+
     prices = [d["price"] for d in all_parsed if d["price"] > 0]
     areas  = [d["area_sqm"] for d in all_parsed if d["area_sqm"] > 0]
 
@@ -523,7 +612,11 @@ def fetch_real_transaction_prices(
     for s in samples:
         s["apt_name_matched"] = apt_name_matched
 
-    print(f"[molit] ✅ {len(prices)}건 / 평균 {avg_price:,}만원 / ㎡당 {per_sqm:,}만원 / {used_months}개월 기준")
+    adj_months_avg = round(sum(s.get("time_adj_months", 0) for s in samples) / len(samples)) if samples else 0
+    if adj_months_avg > 0:
+        print(f"[molit] ✅ {len(prices)}건 / 평균 {avg_price:,}만원 (시점수정 {adj_months_avg}개월 평균, {time_adj_rate*100:.2f}%/월) / ㎡당 {per_sqm:,}만원")
+    else:
+        print(f"[molit] ✅ {len(prices)}건 / 평균 {avg_price:,}만원 / ㎡당 {per_sqm:,}만원 / {used_months}개월 기준")
 
     return {
         "avg":              avg_price,
@@ -537,6 +630,8 @@ def fetch_real_transaction_prices(
         "used_region":      used_region,
         "error":            "",
         "precision_filter": precision_label.strip(),
+        "time_adj_rate":    time_adj_rate,
+        "time_adj_applied": adj_months_avg > 0,
     }
 
 
@@ -624,32 +719,6 @@ def calc_estimated_value(price_data: dict, area_sqm: float, category: str) -> di
         "price_per_sqm":           per_sqm,
         "area_band_ranges":        area_band_ranges,
         "has_area_input":          area_sqm > 0,
-    }
-
-
-def calc_valuation_verdict(
-    estimated_value: int,
-    price_data: dict,
-    asking_price: Optional[int] = None,
-) -> dict:
-    comparable_avg   = price_data.get("avg", 0)
-    comparable_count = price_data.get("count", 0)
-    samples          = price_data.get("samples", [])[:5]
-
-    base      = asking_price if asking_price and asking_price > 0 else estimated_value
-    deviation = round((base - comparable_avg) / comparable_avg * 100, 1) if comparable_avg > 0 else 0.0
-
-    if deviation <= -10:   verdict = "저평가"
-    elif deviation <= 5:   verdict = "적정"
-    elif deviation <= 15:  verdict = "소폭 고평가"
-    else:                  verdict = "고평가"
-
-    return {
-        "comparable_avg":    comparable_avg,
-        "comparable_count":  comparable_count,
-        "deviation_pct":     deviation,
-        "valuation_verdict": verdict,
-        "comparables":       samples,
     }
 
 

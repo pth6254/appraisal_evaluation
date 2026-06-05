@@ -43,8 +43,9 @@ export default function AppraisalPage() {
   const [dongNo, setDongNo]             = useState("");
   const [hoNo, setHoNo]                 = useState("");
   const [transactionType, setTransactionType] = useState("매매");
-  const [areaSqm, setAreaSqm]           = useState("");
-  const [askingPrice, setAskingPrice]   = useState("");
+  const [appraisalDateType, setAppraisalDateType] = useState<"current" | "custom">("current");
+  const [customDate, setCustomDate]     = useState("");          // YYYY-MM-DD
+  const [appraisalPurpose, setAppraisalPurpose] = useState(""); // 목적
 
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
@@ -77,10 +78,19 @@ export default function AppraisalPage() {
     if (buildingName) parts.push(buildingName);
     if (dongNo) parts.push(dongNo);
     if (hoNo)   parts.push(hoNo);
-    if (areaSqm) parts.push(`${areaSqm}㎡`);
     parts.push(transactionType);
-    if (askingPrice) parts.push(`${askingPrice}만원`);
+    if (appraisalDateType === "custom" && customDate) {
+      const d = new Date(customDate);
+      parts.push(`${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 기준`);
+    }
     return parts.join(" ");
+  };
+
+  const getAppraisalDate = (): string => {
+    if (appraisalDateType === "custom" && customDate) {
+      return customDate.replace(/-/g, ""); // YYYYMMDD
+    }
+    return "";
   };
 
   const handleSubmit = async () => {
@@ -89,7 +99,7 @@ export default function AppraisalPage() {
     setLoading(true);
     try {
       const userInput = buildUserInput();
-      const result = await api.appraisal(userInput, buildingName);
+      const result = await api.appraisal(userInput, buildingName, true, getAppraisalDate(), appraisalPurpose);
       sessionStorage.setItem("appraisalResult", JSON.stringify(result));
       sessionStorage.setItem("appraisalQuery", userInput);
       router.push("/report");
@@ -302,21 +312,6 @@ export default function AppraisalPage() {
             </div>
           )}
 
-          {/* 면적 */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-600 mb-1">
-              전용면적 <span className="text-slate-400 font-normal text-xs">(선택 · ㎡)</span>
-            </label>
-            <input
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="예: 84"
-              type="number"
-              min="1"
-              value={areaSqm}
-              onChange={e => setAreaSqm(e.target.value)}
-            />
-          </div>
-
           {/* 거래 유형 */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-slate-600 mb-2">거래 유형</label>
@@ -337,19 +332,62 @@ export default function AppraisalPage() {
             </div>
           </div>
 
-          {/* 희망 가격 */}
+          {/* 기준시점 */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-600 mb-2">기준시점</label>
+            <div className="flex gap-2 mb-2">
+              <button
+                onClick={() => setAppraisalDateType("current")}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  appraisalDateType === "current"
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                현재 시점
+              </button>
+              <button
+                onClick={() => setAppraisalDateType("custom")}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  appraisalDateType === "custom"
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                날짜 지정
+              </button>
+            </div>
+            {appraisalDateType === "custom" && (
+              <input
+                type="date"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                value={customDate}
+                max={new Date().toISOString().split("T")[0]}
+                onChange={e => setCustomDate(e.target.value)}
+              />
+            )}
+          </div>
+
+          {/* 감정평가 목적 */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-600 mb-1">
-              호가 / 희망 가격 <span className="text-slate-400 font-normal text-xs">(선택 · 만원)</span>
+            <label className="block text-sm font-medium text-slate-600 mb-2">
+              감정평가 목적 <span className="text-slate-400 font-normal text-xs">(선택)</span>
             </label>
-            <input
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="예: 150000"
-              type="number"
-              min="0"
-              value={askingPrice}
-              onChange={e => setAskingPrice(e.target.value)}
-            />
+            <div className="grid grid-cols-3 gap-2">
+              {["", "담보", "경매", "과세", "매매", "보상", "임의"].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setAppraisalPurpose(p)}
+                  className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    appraisalPurpose === p
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {p === "" ? "선택 안 함" : p}
+                </button>
+              ))}
+            </div>
           </div>
 
           {error && <p className="text-red-500 text-sm mb-3">⚠️ {error}</p>}

@@ -112,8 +112,6 @@ APPRAISAL_PROMPT = """당신은 국가공인 부동산 감정평가사입니다.
 def generate_appraisal_opinion(category, location, valuation_data, nearby_data, web_summary) -> dict:
     llm = get_llm_json()
     estimated   = valuation_data.get("estimated_value", 0)
-    verdict     = valuation_data.get("valuation_verdict", "")
-    deviation   = valuation_data.get("deviation_pct", 0)
     cap_rate    = valuation_data.get("cap_rate", 0)
     ppyeong     = valuation_data.get("price_per_pyeong", 0)
     reg_ppyeong = valuation_data.get("regional_avg_per_pyeong", 0)
@@ -127,7 +125,6 @@ def generate_appraisal_opinion(category, location, valuation_data, nearby_data, 
 감정평가 대상: {category} / {location}
 추정 시장가치: {estimated:,}만원
 평당가: {ppyeong:,}만원/평 (지역 평균: {reg_ppyeong:,}만원/평)
-고저평가 판정: {verdict} ({deviation:+.1f}%)
 Cap Rate: {cap_rate}%
 주변 환경: {nearby_text}
 시장 동향: {web_summary or '정보 없음'}

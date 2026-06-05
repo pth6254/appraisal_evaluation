@@ -67,7 +67,7 @@ def _appraise_listing(
             asking_price  = listing.asking_price,
             purpose       = base_query.purpose,
         )
-        return analyze_price(listing_query)
+        return analyze_price(listing_query, as_of=base_query.appraisal_date)
     except Exception as exc:
         logger.debug("감정평가 실패 (%s): %s", listing.listing_id, exc)
         return None
@@ -239,7 +239,6 @@ def format_recommendation_report(
             a = r.appraisal
             lines.append(
                 f"**감정평가** 추정가 {_fmt_price(a.estimated_price)}"
-                f"  |  판정: {a.judgement}"
                 f"  |  신뢰도: {a.confidence:.0%}"
             )
             lines.append("")

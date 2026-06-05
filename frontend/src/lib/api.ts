@@ -16,10 +16,22 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  appraisal: (userInput: string, buildingName = "", saveHistory = true) =>
+  appraisal: (
+    userInput: string,
+    buildingName = "",
+    saveHistory = true,
+    appraisalDate = "",      // YYYYMMDD
+    appraisalPurpose = "",   // 담보/경매/과세/매매/보상/임의
+  ) =>
     req("/appraisal", {
       method: "POST",
-      body: JSON.stringify({ user_input: userInput, building_name: buildingName, save_history: saveHistory }),
+      body: JSON.stringify({
+        user_input:        userInput,
+        building_name:     buildingName,
+        save_history:      saveHistory,
+        appraisal_date:    appraisalDate,
+        appraisal_purpose: appraisalPurpose,
+      }),
     }),
 
   recommendation: (params: RecommendationRequest) =>

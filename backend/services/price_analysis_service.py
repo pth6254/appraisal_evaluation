@@ -1,13 +1,8 @@
 """
-price_analysis_service.py — 가격 분석 서비스 v1.0
+price_analysis_service.py — 가격 분석 서비스 v1.1
 
 기존 price_engine 함수들을 재사용해 PropertyQuery → AppraisalResult 흐름을 제공.
 LangGraph 파이프라인(NLP→지오코딩→에이전트)을 거치지 않는 직접 호출 경로.
-
-사용 대상:
-  - 매물 추천 (recommendation_graph): 후보 매물 일괄 가격 분석
-  - 매물 비교 (comparison): 두 매물 나란히 분석
-  - 빠른 가격 조회: NLP 파싱이 이미 끝난 상태에서 숫자만 필요할 때
 
 단위 주의:
   price_engine 내부 — 만원 (int)
@@ -19,19 +14,22 @@ from __future__ import annotations
 
 import sys
 import os
+from datetime import datetime as _dt
 
-# backend/ 를 경로에 추가 (schemas/ 는 프로젝트 루트에 위치)
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
 for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from schemas.appraisal_result import AppraisalResult, ComparableTransaction
+from schemas.appraisal_result import (
+    AppraisalResult,
+    ComparableTransaction,
+    ValuationMethodResult,
+)
 from schemas.property_query import PropertyQuery
 from price_engine import (
     calc_estimated_value,
-    calc_valuation_verdict,
     fetch_real_transaction_prices,
 )
 
@@ -41,17 +39,28 @@ from price_engine import (
 # ─────────────────────────────────────────
 
 def _to_won(manwon: int | None) -> int | None:
-    """만원 → 원"""
     if manwon is None or manwon == 0:
         return None
     return manwon * 10_000
 
 
 def _to_manwon(won: int | None) -> int | None:
-    """원 → 만원"""
     if won is None or won == 0:
         return None
     return won // 10_000
+
+
+# ─────────────────────────────────────────
+#  지역요인 보정치 (match_level 기반 근사)
+# ─────────────────────────────────────────
+
+_REGION_FACTOR: dict[str, float] = {
+    "same_complex": 1.00,
+    "same_dong":    0.98,
+    "same_gu":      0.95,
+    "nearby":       0.92,
+    "fallback":     1.00,
+}
 
 
 # ─────────────────────────────────────────
@@ -81,15 +90,37 @@ def _to_comparables(
         if s.get("deal_year") and s.get("deal_month"):
             deal_date = f"{s['deal_year']}-{int(s['deal_month']):02d}"
 
+        # 요인 보정치
+        region_factor    = _REGION_FACTOR.get(match_level, 1.0)
+        individual_factor = 1.0   # 개별요인: 기본 1.0 (데이터 한계로 현재 미분화)
+        circumstance_adj  = 1.0   # 사정보정: 공개 실거래 → 정상거래로 간주
+
+        # 비준단가 = 원단가 × 사정보정 × 시점수정 × 지역요인 × 개별요인
+        raw_per_m2 = s.get("per_sqm", 0)
+        time_factor = s.get("time_adj_factor", 1.0)
+        adj_price_per_m2 = None
+        if raw_per_m2 and raw_per_m2 > 0:
+            adj = raw_per_m2 * circumstance_adj * time_factor * region_factor * individual_factor
+            adj_price_per_m2 = round(adj * 10_000)  # 만원/m² → 원/m²
+
         result.append(ComparableTransaction(
-            complex_name  = s.get("apt_name") or None,
-            address       = s.get("dong") or None,
-            area_m2       = s.get("area_sqm") or None,
-            deal_price    = _to_won(s.get("price")),
-            deal_date     = deal_date,
-            price_per_m2  = _to_won(s.get("per_sqm")),
-            source        = "국토부 실거래가",
-            match_level   = match_level,
+            complex_name     = s.get("apt_name") or None,
+            address          = s.get("dong") or None,
+            area_m2          = s.get("area_sqm") or None,
+            floor            = str(s["floor"]) if s.get("floor") else None,
+            year_built       = str(s["year_built"]) if s.get("year_built") else None,
+            deal_price       = _to_won(s.get("price")),
+            original_price   = _to_won(s.get("original_price")),
+            deal_date        = deal_date,
+            price_per_m2     = round(raw_per_m2 * 10_000) if raw_per_m2 else None,
+            source           = "국토부 실거래가",
+            match_level      = match_level,
+            time_adj_months  = s.get("time_adj_months", 0),
+            time_adj_factor  = s.get("time_adj_factor", 1.0),
+            circumstance_adj = circumstance_adj,
+            region_factor    = region_factor,
+            individual_factor = individual_factor,
+            adjusted_price_per_m2 = adj_price_per_m2,
         ))
     return result
 
@@ -125,12 +156,10 @@ def _calc_confidence(price_data: dict) -> float:
     elif count == 1:  base = 0.30
     else:             base = 0.10
 
-    # 폴백 출처 패널티
     fallback_keywords = ["공시가격", "수익환원법", "원가법", "공시지가"]
     if any(kw in source for kw in fallback_keywords):
         base = min(base, 0.40)
 
-    # 데이터 신선도 패널티
     months = price_data.get("used_months", 0) or 0
     if months > 12:
         base = max(base - 0.15, 0.10)
@@ -150,25 +179,17 @@ def _collect_warnings(
     complex_name: str = "",
     apt_name_matched: str = "",
 ) -> list[str]:
-    """
-    우선순위별 경고 수집.
-      P0 — 치명적: 데이터 없음 / 오류
-      P1 — 품질저하: 폴백 출처, 표본 부족, 단지 미매칭
-      P2 — 정확도제한: 데이터 노후, 면적 미입력
-    """
     p0, p1, p2 = [], [], []
 
     count  = price_data.get("count", 0)
     source = price_data.get("source", "")
     months = price_data.get("used_months", 0) or 0
 
-    # P0
     if price_data.get("error"):
         p0.append("실거래가 조회 오류 — 추정가 신뢰 불가")
     elif count == 0:
         p0.append("실거래 데이터 없음 — 추정가 신뢰도 낮음")
 
-    # P1
     if "공시가격" in source:
         p1.append("공시가격 역산 사용 (실거래 없음)")
     elif "수익환원법" in source:
@@ -182,7 +203,6 @@ def _collect_warnings(
     if complex_name and not apt_name_matched:
         p1.append(f"'{complex_name}' 단지 미매칭 — 동/구 단위 평균가 사용")
 
-    # P2
     if months > 12:
         p2.append(f"최근 {months}개월 데이터 사용 — 시세 변동 미반영 가능성")
     elif months > 3:
@@ -204,36 +224,43 @@ def _collect_sources(price_data: dict) -> list[str]:
 
 
 # ─────────────────────────────────────────
+#  기준시점 문자열 변환
+# ─────────────────────────────────────────
+
+def _format_appraisal_date(as_of: str) -> str:
+    if as_of and len(as_of) >= 8:
+        try:
+            d = _dt.strptime(as_of[:8], "%Y%m%d")
+            return d.strftime("%Y년 %m월 %d일")
+        except ValueError:
+            pass
+    return _dt.now().strftime("%Y년 %m월 %d일") + " (현재)"
+
+
+# ─────────────────────────────────────────
 #  공개 인터페이스
 # ─────────────────────────────────────────
 
-def analyze_price(query: PropertyQuery) -> AppraisalResult:
+def analyze_price(query: PropertyQuery, as_of: str = "") -> AppraisalResult:
     """
     PropertyQuery를 받아 가격 분석 결과(AppraisalResult)를 반환.
 
     LangGraph 파이프라인을 거치지 않는 직접 호출 경로.
     query.region과 query.property_type이 있어야 실거래가를 조회할 수 있다.
-    둘 다 없으면 빈 결과를 반환한다.
-
-    Args:
-        query: 구조화된 부동산 요청. region·property_type이 핵심 필드.
-
-    Returns:
-        AppraisalResult: 추정가·고저평가·비교사례·신뢰도 포함.
     """
     region        = query.region or ""
     property_type = query.property_type or "주거용"
     area_m2       = query.area_m2
     complex_name  = query.complex_name or ""
+    as_of_str     = as_of or query.appraisal_date or ""
 
-    # asking_price: 원 → 만원 변환
     asking_manwon = _to_manwon(query.asking_price)
 
     if not region:
         return AppraisalResult(
-            judgement  = "분석 불가",
-            confidence = 0.0,
-            warnings   = ["region(지역) 정보 없음 — 실거래가 조회 불가"],
+            confidence    = 0.0,
+            appraisal_date = _format_appraisal_date(as_of_str),
+            warnings      = ["region(지역) 정보 없음 — 실거래가 조회 불가"],
         )
 
     # ── 1. 실거래가 조회 ─────────────────────────────────────────────────
@@ -242,35 +269,40 @@ def analyze_price(query: PropertyQuery) -> AppraisalResult:
         region_2depth   = region,
         category_detail = property_type,
         apt_name        = complex_name,
+        as_of           = as_of_str,
     )
 
     apt_name_matched = price_data.get("apt_name_matched", "")
 
-    # ── 2. 추정가 계산 (면적 있으면 단일가, 없으면 평균가) ──────────────
+    # ── 2. 추정가 계산 ──────────────────────────────────────────────────
     val = calc_estimated_value(price_data, area_m2 or 0.0, property_type)
 
-    # ── 3. 고저평가 판단 ─────────────────────────────────────────────────
-    verd = calc_valuation_verdict(
-        estimated_value = val["estimated_value"],
-        price_data      = price_data,
-        asking_price    = asking_manwon,
-    )
+    # ── 3. 시산가액 조정 (단일 방법) ───────────────────────────────────
+    sources    = _collect_sources(price_data)
+    method_nm  = sources[0] if sources else "비교사례법"
+    comp_count = price_data.get("count", 0)
+    breakdown  = []
+    if val.get("estimated_value"):
+        breakdown.append(ValuationMethodResult(
+            method          = method_nm,
+            estimated_value = _to_won(val["estimated_value"]),
+            weight          = 1.0,
+            note            = f"실거래 {comp_count}건 기반" if comp_count > 0 else "폴백 데이터 기반",
+        ))
 
-    # ── 4. gap_rate: % → 소수 (예: 5.0 → 0.05) ─────────────────────────
-    deviation_pct = verd.get("deviation_pct", 0.0)
-    gap_rate      = round(deviation_pct / 100, 4) if deviation_pct else None
-
-    # ── 5. 조립 및 반환 ──────────────────────────────────────────────────
+    # ── 4. 조립 및 반환 ──────────────────────────────────────────────────
     return AppraisalResult(
-        estimated_price = _to_won(val["estimated_value"]),
-        low_price       = _to_won(val["value_min"]),
-        high_price      = _to_won(val["value_max"]),
-        asking_price    = query.asking_price,
-        gap_rate        = gap_rate,
-        judgement       = verd.get("valuation_verdict", ""),
-        confidence      = _calc_confidence(price_data),
-        comparables     = _to_comparables(price_data, apt_name_matched),
-        warnings        = _collect_warnings(price_data, area_m2, complex_name, apt_name_matched),
-        data_source     = _collect_sources(price_data),
-        raw             = {**val, **verd, "price_data_count": price_data.get("count", 0)},
+        estimated_price    = _to_won(val["estimated_value"]),
+        low_price          = _to_won(val["value_min"]),
+        high_price         = _to_won(val["value_max"]),
+        asking_price       = query.asking_price,
+        confidence         = _calc_confidence(price_data),
+        appraisal_date     = _format_appraisal_date(as_of_str),
+        appraisal_purpose  = getattr(query, "appraisal_purpose", None),
+        exclusive_area_m2  = area_m2,
+        valuation_breakdown = breakdown,
+        comparables        = _to_comparables(price_data, apt_name_matched),
+        warnings           = _collect_warnings(price_data, area_m2, complex_name, apt_name_matched),
+        data_source        = sources,
+        raw                = {**val, "price_data_count": price_data.get("count", 0)},
     )

@@ -14,8 +14,8 @@ from __future__ import annotations
 import logging
 import sys
 import os
+from datetime import datetime as _dt
 
-# schemas/ 는 프로젝트 루트에 위치 — 경로 추가
 _BACKEND_DIR  = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
 for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
@@ -25,54 +25,105 @@ for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
 logger = logging.getLogger(__name__)
 
 
-def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":  # type: ignore[name-defined]
-    """
-    analysis_result dict(만원 단위) → AppraisalResult(원 단위) 변환.
-    직접 매핑 가능한 필드만 변환하고, 전체 dict는 raw에 보존한다.
-    """
-    from schemas.appraisal_result import AppraisalResult
+# ─────────────────────────────────────────
+#  내부 헬퍼
+# ─────────────────────────────────────────
+
+def _fmt_won(manwon: int, suffix: str = "원") -> str:
+    return f"{manwon * 10_000:,}{suffix}"
+
+
+def _fmt_date(as_of: str) -> str:
+    if as_of and len(as_of) >= 8:
+        try:
+            d = _dt.strptime(as_of[:8], "%Y%m%d")
+            return d.strftime("%Y년 %m월 %d일")
+        except ValueError:
+            pass
+    return _dt.now().strftime("%Y년 %m월 %d일") + " (현재)"
+
+
+def _geo_val(geo, key: str, default=None):
+    if isinstance(geo, dict):
+        return geo.get(key, default)
+    return getattr(geo, key, default)
+
+
+# ─────────────────────────────────────────
+#  analysis_result dict → AppraisalResult 변환
+# ─────────────────────────────────────────
+
+def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":
+    from schemas.appraisal_result import AppraisalResult, ValuationMethodResult
 
     manwon = 10_000
 
     estimated  = result.get("estimated_value", 0) or 0
     value_min  = result.get("value_min", 0) or 0
     value_max  = result.get("value_max", 0) or 0
-    deviation  = result.get("deviation_pct", 0.0) or 0.0
-    verdict    = result.get("valuation_verdict", "")
     comp_count = result.get("comparable_count", 0) or 0
     months     = result.get("used_months", 0) or 0
 
-    # 비교 건수로 신뢰도를 간이 산출
-    if comp_count >= 5:
-        confidence = 0.85
-    elif comp_count >= 2:
-        confidence = 0.65
-    elif comp_count >= 1:
-        confidence = 0.45
-    else:
-        confidence = 0.25
+    # 신뢰도 간이 산출
+    if comp_count >= 5:   confidence = 0.85
+    elif comp_count >= 2: confidence = 0.65
+    elif comp_count >= 1: confidence = 0.45
+    else:                 confidence = 0.25
 
-    # 데이터 노후 패널티
     if months > 12:
         confidence = max(confidence - 0.20, 0.10)
     elif months > 6:
         confidence = max(confidence - 0.10, 0.10)
 
+    # 공시가격 대비 비율
+    official_land_price = result.get("official_land_price", 0) or 0
+    area_pyeong         = result.get("area_pyeong", 0) or 0
+    area_sqm_approx     = round(area_pyeong * 3.3058, 1) if area_pyeong else 0
+    exclusive_area      = result.get("exclusive_area_m2", 0.0) or area_sqm_approx or 0.0
+
+    official_price_ratio = None
+    if official_land_price > 0 and exclusive_area > 0 and estimated > 0:
+        official_total_manwon = round(official_land_price * exclusive_area / 10000)
+        if official_total_manwon > 0:
+            official_price_ratio = round(estimated / official_total_manwon, 2)
+
+    # 시산가액 조정 (단일 방법)
+    breakdown = []
+    if result.get("valuation_method") and estimated:
+        breakdown.append(ValuationMethodResult(
+            method          = result["valuation_method"],
+            estimated_value = estimated * manwon,
+            weight          = 1.0,
+            note            = f"신뢰도 {confidence:.0%}",
+        ))
+
+    appraisal_date_str = _dt.now().strftime("%Y년 %m월 %d일") + " (현재)"
+
     return AppraisalResult(
-        estimated_price = estimated * manwon if estimated else None,
-        low_price       = value_min * manwon if value_min else None,
-        high_price      = value_max * manwon if value_max else None,
-        gap_rate        = deviation / 100.0 if deviation else None,
-        judgement       = verdict or "",
-        confidence      = confidence,
-        warnings        = [],
-        data_source     = [result.get("valuation_method", "")] if result.get("valuation_method") else [],
-        raw             = result,
+        estimated_price      = estimated * manwon if estimated else None,
+        low_price            = value_min * manwon if value_min else None,
+        high_price           = value_max * manwon if value_max else None,
+        confidence           = confidence,
+        appraisal_date       = appraisal_date_str,
+        land_use_zone        = result.get("land_use_zone") or None,
+        official_land_price  = official_land_price if official_land_price > 0 else None,
+        official_price_ratio = official_price_ratio,
+        build_year           = result.get("build_year") or None,
+        exclusive_area_m2    = exclusive_area if exclusive_area > 0 else None,
+        valuation_breakdown  = breakdown,
+        legal_restrictions   = result.get("legal_restrictions", []) or [],
+        development_plans    = result.get("development_plans", []) or [],
+        warnings             = [],
+        data_source          = [result["valuation_method"]] if result.get("valuation_method") else [],
+        raw                  = result,
     )
 
 
+# ─────────────────────────────────────────
+#  LangGraph 노드
+# ─────────────────────────────────────────
+
 def report_node(state: dict) -> dict:
-    """LangGraph 노드 — 감정평가 결과 → 마크다운 리포트 생성"""
     from schemas.report import AppraisalReport
 
     intent = state.get("intent")
@@ -83,70 +134,141 @@ def report_node(state: dict) -> dict:
         state["final_report"] = "❌ 감정평가 결과 없음"
         return state
 
-    address  = geo.get("address_name", "") if isinstance(geo, dict) else ""
-    category = getattr(intent, "category", "")
-    detail   = getattr(intent, "category_detail", "")
-    area_raw = getattr(intent, "area_raw", "미입력")
+    address    = _geo_val(geo, "address_name", "") or ""
+    category   = getattr(intent, "category", "")
+    detail     = getattr(intent, "category_detail", "")
+    area_raw   = getattr(intent, "area_raw", "") or ""
+    building   = state.get("building_name", "") or (_geo_val(geo, "place_name", "") or "")
+    dong_no    = getattr(intent, "dong_no", "") or ""
+    ho_no      = getattr(intent, "ho_no", "") or ""
+    floor      = getattr(intent, "floor_inferred", None)
+    trans_type = getattr(intent, "transaction_type", "") or ""
+    land_use          = _geo_val(geo, "land_use_zone", "") or ""
+    asking            = getattr(intent, "price_max", None) or getattr(intent, "price_min", None)
+    as_of             = getattr(intent, "appraisal_date", "") or ""
+    # state에서 명시적으로 전달된 감정평가 목적 (intent보다 우선)
+    appraisal_purpose = state.get("appraisal_purpose", "") or getattr(intent, "appraisal_purpose", "") or ""
 
-    estimated      = result.get("estimated_value", 0)
-    value_min      = result.get("value_min", 0)
-    value_max      = result.get("value_max", 0)
-    ppyeong        = result.get("price_per_pyeong", 0)
-    reg_ppyeong    = result.get("regional_avg_per_pyeong", 0)
-    verdict        = result.get("valuation_verdict", "")
-    deviation      = result.get("deviation_pct", 0.0)
-    comp_avg       = result.get("comparable_avg", 0)
-    comp_count     = result.get("comparable_count", 0)
-    cap_rate       = result.get("cap_rate", 0.0)
-    annual_inc     = result.get("annual_income", 0)
-    roi_5yr        = result.get("roi_5yr", 0.0)
-    inv_grade      = result.get("investment_grade", "")
-    method         = result.get("valuation_method", "")
-    opinion        = result.get("appraisal_opinion", "")
-    strengths      = result.get("strengths", [])
-    risks          = result.get("risk_factors", [])
+    # 기준시점 표시
+    appraisal_date_display = _fmt_date(as_of)
+
+    # 감정평가 핵심 수치
+    estimated   = result.get("estimated_value", 0)
+    value_min   = result.get("value_min", 0)
+    value_max   = result.get("value_max", 0)
+    ppyeong     = result.get("price_per_pyeong", 0)
+    reg_ppyeong = result.get("regional_avg_per_pyeong", 0)
+    comp_avg    = result.get("comparable_avg", 0)
+    comp_count  = result.get("comparable_count", 0)
+    cap_rate    = result.get("cap_rate", 0.0)
+    annual_inc  = result.get("annual_income", 0)
+    roi_5yr     = result.get("roi_5yr", 0.0)
+    inv_grade   = result.get("investment_grade", "")
+    method      = result.get("valuation_method", "")
+    opinion     = result.get("appraisal_opinion", "")
+    strengths   = result.get("strengths", [])
+    risks       = result.get("risk_factors", [])
     recommendation = result.get("recommendation", "")
+
+    # 신규 필드
+    build_year_val      = result.get("build_year", 0) or 0
+    exclusive_area_val  = result.get("exclusive_area_m2", 0.0) or 0.0
+    land_use_zone_val   = result.get("land_use_zone", "") or land_use
+    official_lp         = _geo_val(geo, "official_land_price", 0) or result.get("official_land_price", 0) or 0
+    legal_restrictions  = result.get("legal_restrictions", []) or []
+    development_plans   = result.get("development_plans", []) or []
+
+    # 공시가격 대비 비율
+    official_ratio_str = ""
+    if official_lp > 0 and exclusive_area_val > 0 and estimated > 0:
+        official_total_manwon = round(official_lp * exclusive_area_val / 10000)
+        if official_total_manwon > 0:
+            ratio = round(estimated / official_total_manwon, 2)
+            official_ratio_str = f"공시가 기준 추정액의 {ratio:.1f}배"
+
+    # ── 대상물 정보 테이블 ────────────────────────────────────────────────
+    unit_str = " ".join(filter(None, [dong_no, ho_no]))
+    subject_rows = [r for r in [
+        f"| 소재지 | {address} |"                          if address              else None,
+        f"| 건물명 | {building} |"                         if building             else None,
+        f"| 유형 | {category} / {detail} |"                if detail               else f"| 유형 | {category} |",
+        f"| 거래 유형 | {trans_type} |"                    if trans_type           else None,
+        f"| 동 / 호 | {unit_str} |"                       if unit_str             else None,
+        f"| 층수 | {floor}층 |"                            if floor                else None,
+        f"| 전용면적 | {area_raw} |"                       if area_raw             else None,
+        f"| 건축연도 | {build_year_val}년 |"               if build_year_val       else None,
+        f"| 용도지역 | {land_use_zone_val} |"              if land_use_zone_val    else None,
+        f"| 공시지가 | {official_lp:,}원/㎡ |"             if official_lp          else None,
+        f"| 호가 | {asking:,}만원 |"                       if asking               else None,
+        f"| 감정평가 목적 | {appraisal_purpose} |"         if appraisal_purpose    else None,
+        f"| 평가 기준 | {method} |"                        if method               else None,
+        f"| 감정평가 기준시점 | {appraisal_date_display} |",
+    ] if r is not None]
 
     lines = [
         "# 부동산 가치 감정평가 리포트",
         "",
-        "## 대상 물건",
+        "## 대상물 정보",
         "| 항목 | 내용 |",
         "|------|------|",
-        f"| 소재지 | {address} |",
-        f"| 유형 | {category} / {detail} |",
-        f"| 면적 | {area_raw} |",
-        f"| 평가 기준 | {method} |",
+        *subject_rows,
         "",
         "## 감정평가액",
         "| 구분 | 금액 |",
         "|------|------|",
-        f"| **추정 시장가치** | **{estimated * 10_000:,}원** |",
-        f"| 추정 범위 | {value_min * 10_000:,} ~ {value_max * 10_000:,}원 |",
-        f"| 평당가 | {ppyeong * 10_000:,}원/평 |",
-        f"| 지역 평균 평당가 | {reg_ppyeong * 10_000:,}원/평 |",
-        "",
-        "## 고/저평가 판단",
-        "| 구분 | 내용 |",
-        "|------|------|",
-        f"| **판정** | **{verdict}** |",
-        f"| 인근 실거래 평균 | {comp_avg * 10_000:,}원 ({comp_count}건) |",
-        f"| 괴리율 | {deviation:+.1f}% |",
-        "",
+        f"| **추정 시장가치** | **{_fmt_won(estimated)}** |",
+        f"| 추정 범위 | {_fmt_won(value_min)} ~ {_fmt_won(value_max)} |",
+        f"| 평당가 | {_fmt_won(ppyeong, '원/평')} |",
+        f"| 지역 평균 평당가 | {_fmt_won(reg_ppyeong, '원/평')} |",
+        f"| 인근 실거래 평균 | {_fmt_won(comp_avg)} ({comp_count}건) |",
+    ]
+    if official_ratio_str:
+        lines.append(f"| 공시가격 대비 | {official_ratio_str} |")
+    lines.append("")
+
+    # ── 시산가액 조정 ─────────────────────────────────────────────────────
+    if method and estimated:
+        lines += [
+            "## 시산가액 조정",
+            "| 평가방법 | 시산가액 | 가중치 | 비고 |",
+            "|---|---|---|---|",
+            f"| {method} | {_fmt_won(estimated)} | 100% | |",
+            "",
+        ]
+
+    # ── 투자 수익성 ───────────────────────────────────────────────────────
+    lines += [
         "## 투자 수익성",
         "| 항목 | 수치 |",
         "|------|------|",
         f"| Cap Rate | {cap_rate}% |",
-        f"| 연 임대수입 추정 | {annual_inc * 10_000:,}원 |",
+        f"| 연 임대수입 추정 | {_fmt_won(annual_inc)} |",
         f"| 5년 예상 수익률 | {roi_5yr}% |",
         f"| **투자등급** | **{inv_grade}** |",
         "",
+    ]
+
+    # ── 공법상 제한사항 ───────────────────────────────────────────────────
+    if legal_restrictions:
+        lines += ["## 공법상 제한사항"]
+        for item in legal_restrictions:
+            lines.append(f"- ⚠️ {item}")
+        lines.append("")
+
+    # ── 인근 개발계획 ─────────────────────────────────────────────────────
+    if development_plans:
+        lines += ["## 인근 개발계획"]
+        for item in development_plans:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    # ── 감정평가 의견 ─────────────────────────────────────────────────────
+    lines += [
         "## 감정평가 의견",
         opinion,
         "",
         "### 가치 상승 요인",
     ]
-
     for s in strengths:
         lines.append(f"- {s}")
 
@@ -159,14 +281,12 @@ def report_node(state: dict) -> dict:
     markdown = "\n".join(lines)
     state["final_report"] = markdown
 
-    # 구조화 리포트 — Markdown + 원본 수치 함께 보존
     state["report_output"] = AppraisalReport(
         structured=_dict_to_appraisal_result(result),
         markdown=markdown,
     )
 
     logger.debug("report_node: 감정평가 리포트 생성 완료 — %d자", len(markdown))
-
     return state
 
 
@@ -174,24 +294,13 @@ def report_node(state: dict) -> dict:
 #  AppraisalResult 기반 가격 분석 리포트
 # ─────────────────────────────────────────
 
-def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: ignore[name-defined]
+def generate_price_analysis_report(result: "AppraisalResult") -> str:
     """
     AppraisalResult → 마크다운 가격 분석 리포트.
-
-    기존 report_node()와 독립적으로 동작.
-    단위 변환: 원(schemas) → 만원(표시용)
+    단위 변환: 원(schemas) → 표시용
     """
-    from schemas.appraisal_result import AppraisalResult  # 지연 import — 순환 방지
-
-    def _manwon(won: int | None) -> str:
-        if not won:
-            return "—"
-        return f"{won:,}원"
-
-    def _pct(rate: float | None) -> str:
-        if rate is None:
-            return "—"
-        return f"{rate * 100:+.1f}%"
+    def _won(v: int | None) -> str:
+        return f"{v:,}원" if v else "—"
 
     def _conf_label(c: float) -> str:
         if c >= 0.80: return f"높음 ({c:.0%}) — 실거래 충분·최신 데이터"
@@ -207,7 +316,6 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: i
         "fallback":     "폴백",
     }
 
-    # ── 헤더 ─────────────────────────────────────────────────────────────
     lines = [
         "# 가격 분석 리포트",
         "",
@@ -215,74 +323,129 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:  # type: i
         "",
     ]
 
-    # ── 추정가 섹션 ──────────────────────────────────────────────────────
+    # ── 추정가 ────────────────────────────────────────────────────────────
     lines += [
         "## 추정 시장가치",
         "| 구분 | 금액 |",
         "|------|------|",
-        f"| **추정가** | **{_manwon(result.estimated_price)}** |",
-        f"| 하단 | {_manwon(result.low_price)} |",
-        f"| 상단 | {_manwon(result.high_price)} |",
+        f"| **추정가** | **{_won(result.estimated_price)}** |",
+        f"| 하단 | {_won(result.low_price)} |",
+        f"| 상단 | {_won(result.high_price)} |",
     ]
     if result.asking_price:
-        lines.append(f"| 호가 | {_manwon(result.asking_price)} |")
+        lines.append(f"| 호가 | {_won(result.asking_price)} |")
+    if result.official_price_ratio:
+        lines.append(f"| 공시가격 대비 | 공시가 기준 추정액의 {result.official_price_ratio:.1f}배 |")
+    lines.append(f"| 신뢰도 | {_conf_label(result.confidence)} |")
+    if result.appraisal_date:
+        lines.append(f"| 기준시점 | {result.appraisal_date} |")
+    if result.appraisal_purpose:
+        lines.append(f"| 감정 목적 | {result.appraisal_purpose} |")
     lines.append("")
 
-    # ── 고저평가 판단 ─────────────────────────────────────────────────────
-    lines += [
-        "## 고저평가 판단",
-        "| 구분 | 내용 |",
-        "|------|------|",
-        f"| **판정** | **{result.judgement or '—'}** |",
-        f"| 괴리율 | {_pct(result.gap_rate)} |",
-        f"| 신뢰도 | {_conf_label(result.confidence)} |",
-        "",
-    ]
+    # ── 물건 기본사항 ──────────────────────────────────────────────────────
+    prop_rows = []
+    if result.land_use_zone:
+        prop_rows.append(f"| 용도지역 | {result.land_use_zone} |")
+    if result.official_land_price:
+        prop_rows.append(f"| 공시지가 | {result.official_land_price:,}원/㎡ |")
+    if result.build_year:
+        prop_rows.append(f"| 건축연도 | {result.build_year}년 |")
+    if result.exclusive_area_m2:
+        prop_rows.append(f"| 전용면적 | {result.exclusive_area_m2:.2f}㎡ |")
+    if result.total_area_m2:
+        prop_rows.append(f"| 연면적 | {result.total_area_m2:.2f}㎡ |")
+    if result.jimok:
+        prop_rows.append(f"| 지목 | {result.jimok} |")
+    if result.road_side:
+        prop_rows.append(f"| 도로접면 | {result.road_side} |")
 
-    # ── 투자 의견 (gap_rate 기반) ─────────────────────────────────────────
-    if result.gap_rate is not None and result.asking_price:
-        gr = result.gap_rate
-        if gr > 0.10:
-            opinion = "🔴 **고평가 주의** — 호가가 추정가 대비 10% 이상 높습니다. 협상 여지 확인 후 접근하세요."
-        elif gr > 0.05:
-            opinion = "🟠 **소폭 고평가** — 호가가 추정가보다 다소 높습니다. 시장 상황 모니터링이 필요합니다."
-        elif gr >= -0.05:
-            opinion = "🟢 **적정 가격대** — 호가가 시장 추정가와 부합합니다."
-        elif gr >= -0.10:
-            opinion = "🟡 **소폭 저평가** — 호가가 추정가보다 낮아 상대적 매력이 있습니다."
-        else:
-            opinion = "✅ **저평가 구간** — 호가가 추정가 대비 10% 이상 낮습니다. 추가 확인 후 유리한 매수 기회일 수 있습니다."
-
+    if prop_rows:
         lines += [
-            "## 투자 의견",
-            opinion,
+            "## 물건 기본사항",
+            "| 항목 | 내용 |",
+            "|---|---|",
+            *prop_rows,
             "",
         ]
 
+    # ── 시산가액 조정 ─────────────────────────────────────────────────────
+    if result.valuation_breakdown:
+        lines += [
+            "## 시산가액 조정",
+            "| 평가방법 | 시산가액 | 가중치 | 비고 |",
+            "|---|---|---|---|",
+        ]
+        for b in result.valuation_breakdown:
+            val_str    = _won(b.estimated_value)
+            weight_str = f"{b.weight:.0%}" if b.weight is not None else "—"
+            note_str   = b.note or ""
+            lines.append(f"| {b.method} | {val_str} | {weight_str} | {note_str} |")
+        lines.append("")
+
     # ── 비교 사례 ─────────────────────────────────────────────────────────
     if result.comparables:
-        # 매칭 수준별 건수 집계
         level_counts: dict[str, int] = {}
         for c in result.comparables:
             lv = level_map.get(c.match_level or "", c.match_level or "기타")
             level_counts[lv] = level_counts.get(lv, 0) + 1
-
         quality_summary = ", ".join(f"{lv} {cnt}건" for lv, cnt in level_counts.items())
+
+        # 요인보정 컬럼 포함 여부 결정 (비기본값이 있으면 상세 테이블)
+        has_factors = any(
+            c.region_factor != 1.0 or c.individual_factor != 1.0 or c.adjusted_price_per_m2
+            for c in result.comparables
+        )
 
         lines += [
             "## 비교 사례",
             f"> 총 {len(result.comparables)}건 — {quality_summary}",
             "",
-            "| 단지명 | 면적 | 거래가 | 거래일 | 매칭 수준 |",
-            "|--------|------|--------|--------|-----------|",
         ]
-        for c in result.comparables:
-            name  = c.complex_name or "—"
-            area  = f"{c.area_m2:.1f}㎡" if c.area_m2 else "—"
-            price = _manwon(c.deal_price)
-            date  = c.deal_date or "—"
-            level = level_map.get(c.match_level or "", c.match_level or "—")
-            lines.append(f"| {name} | {area} | {price} | {date} | {level} |")
+
+        if has_factors:
+            lines += [
+                "| 단지명 | 면적 | 층수 | 원거래가/㎡ | 시점수정 | 지역요인 | 개별요인 | 비준단가/㎡ | 거래일 | 매칭 |",
+                "|--------|------|------|-----------|---------|---------|---------|----------|--------|------|",
+            ]
+            for c in result.comparables:
+                name      = c.complex_name or "—"
+                area      = f"{c.area_m2:.1f}㎡" if c.area_m2 else "—"
+                fl        = c.floor or "—"
+                raw_pm2   = f"{c.price_per_m2:,}원" if c.price_per_m2 else "—"
+                tadj      = f"×{c.time_adj_factor:.4f}" if c.time_adj_factor != 1.0 else "없음"
+                rgf       = f"×{c.region_factor:.2f}" if c.region_factor != 1.0 else "×1.00"
+                idf       = f"×{c.individual_factor:.2f}" if c.individual_factor != 1.0 else "×1.00"
+                adj_pm2   = f"{c.adjusted_price_per_m2:,}원" if c.adjusted_price_per_m2 else "—"
+                date      = c.deal_date or "—"
+                level     = level_map.get(c.match_level or "", c.match_level or "—")
+                lines.append(f"| {name} | {area} | {fl} | {raw_pm2} | {tadj} | {rgf} | {idf} | {adj_pm2} | {date} | {level} |")
+        else:
+            lines += [
+                "| 단지명 | 면적 | 거래가 | 거래일 | 매칭 수준 |",
+                "|--------|------|--------|--------|-----------|",
+            ]
+            for c in result.comparables:
+                name  = c.complex_name or "—"
+                area  = f"{c.area_m2:.1f}㎡" if c.area_m2 else "—"
+                price = _won(c.deal_price)
+                date  = c.deal_date or "—"
+                level = level_map.get(c.match_level or "", c.match_level or "—")
+                lines.append(f"| {name} | {area} | {price} | {date} | {level} |")
+        lines.append("")
+
+    # ── 공법상 제한사항 ───────────────────────────────────────────────────
+    if result.legal_restrictions:
+        lines += ["## 공법상 제한사항"]
+        for item in result.legal_restrictions:
+            lines.append(f"- ⚠️ {item}")
+        lines.append("")
+
+    # ── 인근 개발계획 ─────────────────────────────────────────────────────
+    if result.development_plans:
+        lines += ["## 인근 개발계획"]
+        for item in result.development_plans:
+            lines.append(f"- {item}")
         lines.append("")
 
     # ── 경고 및 데이터 출처 ──────────────────────────────────────────────

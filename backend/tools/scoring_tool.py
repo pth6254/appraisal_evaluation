@@ -44,14 +44,6 @@ _WEIGHTS: dict[str, tuple[float, float, float, float]] = {
 }
 _DEFAULT_WEIGHTS: tuple[float, float, float, float] = (0.35, 0.30, 0.20, 0.15)
 
-_JUDGEMENT_BASE: dict[str, float] = {
-    "저평가":      8.5,
-    "적정":        6.5,
-    "소폭 고평가": 4.5,
-    "고평가":      2.5,
-}
-
-
 # ─────────────────────────────────────────
 #  price_score  (0-10)
 # ─────────────────────────────────────────
@@ -64,23 +56,7 @@ def _score_price(
     reasons: list[str] = []
     risks:   list[str] = []
 
-    if appraisal and appraisal.judgement:
-        base       = _JUDGEMENT_BASE.get(appraisal.judgement, 5.0)
-        confidence = appraisal.confidence
-        # 신뢰도 비례 선형 보간: confidence=0 → 중립(5.0), confidence=1 → base
-        score = confidence * base + (1.0 - confidence) * 5.0
-
-        label = appraisal.judgement
-        if label == "저평가":
-            reasons.append(f"감정평가 결과 저평가 (신뢰도 {confidence:.0%})")
-        elif label == "적정":
-            reasons.append(f"감정평가 결과 적정가 수준 (신뢰도 {confidence:.0%})")
-        elif label == "소폭 고평가":
-            risks.append(f"감정평가 결과 소폭 고평가 (신뢰도 {confidence:.0%})")
-        else:
-            risks.append(f"감정평가 결과 고평가 — 추정가 대비 호가 과다 (신뢰도 {confidence:.0%})")
-    else:
-        score = 5.0
+    score = 5.0  # 고/저평가 판단 미사용 — 예산 적합도 기준으로만 조정
 
     # 예산 범위 적합도 보정
     price = listing.asking_price
@@ -255,26 +231,7 @@ def _score_investment(
     else:
         base = 5.0
 
-    # 시세 대비 저/고평가 보정 (gap_rate) — investment에서만 반영
-    gap_adj = 0.0
-    if appraisal and appraisal.gap_rate is not None:
-        gr = appraisal.gap_rate
-        if gr < -0.10:
-            gap_adj = 2.0
-            reasons.append(f"시세 대비 {abs(gr):.0%} 저평가 — 상승 여력")
-        elif gr < -0.05:
-            gap_adj = 1.0
-            reasons.append(f"시세 대비 소폭 저평가 ({abs(gr):.0%})")
-        elif gr < 0.05:
-            gap_adj = 0.0
-        elif gr < 0.15:
-            gap_adj = -1.0
-            risks.append(f"시세 대비 {gr:.0%} 고평가 — 상승 여력 제한")
-        else:
-            gap_adj = -2.0
-            risks.append(f"시세 대비 {gr:.0%} 고평가 — 조정 위험")
-
-    score = base + gap_adj
+    score = base
     return max(0.0, min(10.0, score)), reasons, risks
 
 
@@ -334,15 +291,7 @@ def _score_risk(
     if warning_count >= 2:
         risks.append(f"감정평가 주의사항 {warning_count}건")
 
-    # 고평가 리스크
-    overval_risk = 0.0
-    if appraisal and appraisal.judgement:
-        if appraisal.judgement == "고평가":
-            overval_risk = 2.0
-        elif appraisal.judgement == "소폭 고평가":
-            overval_risk = 1.0
-
-    score = age_risk + conf_risk + warn_risk + overval_risk
+    score = age_risk + conf_risk + warn_risk
     return max(0.0, min(10.0, score)), reasons, risks
 
 

@@ -27,8 +27,6 @@ class ValuationResult(BaseModel):
 
     comparable_avg: int          = Field(default=0)
     comparable_count: int        = Field(default=0)
-    deviation_pct: float         = Field(default=0.0)
-    valuation_verdict: str       = Field(default="")
     comparables: list[dict]      = Field(default_factory=list)
 
     cap_rate: float              = Field(default=0.0)
@@ -50,6 +48,16 @@ class ValuationResult(BaseModel):
     recommendation: str          = Field(default="")
 
     price_error: str             = Field(default="")
+
+    # 물건 기본사항 (감정평가서 공부 정보)
+    land_use_zone: str           = Field(default="")     # 용도지역
+    official_land_price: int     = Field(default=0)      # 공시지가 (원/m²)
+    build_year: int              = Field(default=0)      # 건축연도
+    exclusive_area_m2: float     = Field(default=0.0)    # 전용면적 m²
+
+    # 공법상 제한 & 개발계획 (web_summary 파싱)
+    legal_restrictions: list[str] = Field(default_factory=list)
+    development_plans: list[str]  = Field(default_factory=list)
 
 
 def _intent_summary(intent) -> str:
