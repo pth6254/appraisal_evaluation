@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 import time
 from collections import Counter
 from contextlib import contextmanager
@@ -24,22 +25,34 @@ _INITIALIZED = False           # 모듈 레벨 초기화 플래그
 
 # ─────────────────────────────────────────
 #  커넥션 헬퍼
+#  - WAL은 WSL /mnt/c (9p) 등 일부 파일시스템에서 공유메모리 미지원으로
+#    "database is locked"를 유발 → 실패 시 기본 저널 모드로 폴백
+#  - 스레드 동시 접근 대비, 모든 DB 접근을 락으로 직렬화
+#    (캐시 조회/저장은 ms 단위라 성능 영향 없음)
 # ─────────────────────────────────────────
+
+_DB_LOCK = threading.Lock()
+
 
 @contextmanager
 def _conn():
     """
-    WAL 모드 + check_same_thread=False 커넥션.
+    직렬화된 커넥션 (WAL 시도, 미지원 시 기본 저널 폴백).
     with 블록 종료 시 항상 close.
     """
-    con = sqlite3.connect(DB_PATH, check_same_thread=False)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")   # 멀티 읽기 / 단일 쓰기 동시성
-    con.execute("PRAGMA synchronous=NORMAL") # WAL 에선 NORMAL 이 안전하고 빠름
-    try:
-        yield con
-    finally:
-        con.close()
+    with _DB_LOCK:
+        con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+        con.row_factory = sqlite3.Row
+        try:
+            con.execute("PRAGMA journal_mode=WAL")   # 멀티 읽기 / 단일 쓰기 동시성
+        except sqlite3.OperationalError:
+            pass  # WAL 미지원 파일시스템 → 기본(DELETE) 저널 유지
+        con.execute("PRAGMA synchronous=NORMAL")
+        con.execute("PRAGMA busy_timeout=5000")
+        try:
+            yield con
+        finally:
+            con.close()
 
 
 # ─────────────────────────────────────────
@@ -257,6 +270,20 @@ def get_lawd_code(region_name: str) -> str:
     except Exception as e:
         print(f"[cache_db] 지역코드 조회 오류: {e}")
         return ""
+
+
+def list_region_codes() -> list[dict]:
+    """등록된 전체 지역코드 목록. [{region_name, lawd_code, sido, sigungu}, ...]"""
+    init_cache_db()
+    try:
+        with _conn() as con:
+            rows = con.execute(
+                "SELECT region_name, lawd_code, sido, sigungu FROM region_codes ORDER BY lawd_code"
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[cache_db] 지역코드 목록 조회 오류: {e}")
+        return []
 
 
 def add_region_code(region_name: str, lawd_code: str, sido: str = "", sigungu: str = ""):

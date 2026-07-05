@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "@/lib/api";
 import type { HistoryItem } from "@/lib/types";
@@ -145,7 +146,14 @@ export default function DashboardPage() {
                   </td>
                   <td className="px-4 py-3">{it.investment_grade || "—"}</td>
                   <td className="px-4 py-3 text-slate-400 text-xs">{it.created?.slice(0, 16) || "—"}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <Link
+                      href={`/report/${it.id}`}
+                      onClick={e => e.stopPropagation()}
+                      className="text-blue-500 hover:text-blue-700 text-xs mr-3"
+                    >
+                      리포트
+                    </Link>
                     <button onClick={e => doDelete(it.id, e)} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
                   </td>
                 </tr>

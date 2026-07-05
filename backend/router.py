@@ -110,15 +110,18 @@ def run_appraisal(
     building_name: str = "",
     appraisal_date: str = "",
     appraisal_purpose: str = "",
+    progress_cb=None,
 ) -> dict:
     """
-    감정평가 실행 — FastAPI 등 외부에서 호출하는 공개 API.
+    감정평가(시세추정) 실행 — FastAPI 등 외부에서 호출하는 공개 API.
 
     Args:
         user_input        : 자연어 요청
         building_name     : 건물명·단지명 (선택)
         appraisal_date    : 기준시점 YYYYMMDD (빈 문자열 = 현재)
-        appraisal_purpose : 감정평가 목적 (담보/경매/과세/매매/보상/임의)
+        appraisal_purpose : 조회 목적 (담보/경매/과세/매매/보상/임의)
+        progress_cb       : 노드 완료마다 호출되는 콜백 fn(node_name: str).
+                            None이면 invoke(), 지정 시 stream()으로 실행.
     """
     text = user_input.strip()
 
@@ -131,18 +134,33 @@ def run_appraisal(
         except ValueError:
             pass
 
+    initial_state = {
+        "user_input":        text,
+        "building_name":     building_name.strip(),
+        "appraisal_purpose": appraisal_purpose.strip(),
+        "error":             "",
+        "retry_count":       0,
+    }
+
     graph = _get_graph()
     try:
-        return graph.invoke({
-            "user_input":        text,
-            "building_name":     building_name.strip(),
-            "appraisal_purpose": appraisal_purpose.strip(),
-            "error":             "",
-            "retry_count":       0,
-        })
+        if progress_cb is None:
+            return graph.invoke(initial_state)
+
+        # 진행 콜백 모드: 노드별 부분 상태를 병합하며 완료 노드 통지
+        state = dict(initial_state)
+        for update in graph.stream(initial_state, stream_mode="updates"):
+            for node_name, partial in update.items():
+                if isinstance(partial, dict):
+                    state.update(partial)
+                try:
+                    progress_cb(node_name)
+                except Exception:
+                    pass  # 콜백 오류가 파이프라인을 중단시키지 않도록
+        return state
     except Exception as exc:
         logger.exception("[router] run_appraisal 실패")
-        return {"error": str(exc), "final_report": f"# 감정평가 실패\n\n> {exc}", "analysis_result": {}}
+        return {"error": str(exc), "final_report": f"# 시세추정 실패\n\n> {exc}", "analysis_result": {}}
 
 
 def run_recommendation(

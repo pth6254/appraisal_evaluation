@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -17,17 +18,26 @@ _API_DIR      = Path(__file__).parent
 _PROJECT_ROOT = _API_DIR.parent
 DB = _PROJECT_ROOT / "data" / "history.db"
 
+# WAL은 WSL /mnt/c (9p) 등 일부 파일시스템에서 "database is locked"를
+# 유발할 수 있어 실패 시 기본 저널로 폴백하고, 접근을 락으로 직렬화한다.
+_DB_LOCK = threading.Lock()
+
 
 @contextmanager
 def _conn():
-    con = sqlite3.connect(str(DB), check_same_thread=False)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA synchronous=NORMAL")
-    try:
-        yield con
-    finally:
-        con.close()
+    with _DB_LOCK:
+        con = sqlite3.connect(str(DB), check_same_thread=False, timeout=10)
+        con.row_factory = sqlite3.Row
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass  # WAL 미지원 파일시스템 → 기본(DELETE) 저널 유지
+        con.execute("PRAGMA synchronous=NORMAL")
+        con.execute("PRAGMA busy_timeout=5000")
+        try:
+            yield con
+        finally:
+            con.close()
 
 
 def init():

@@ -34,6 +34,36 @@ export const api = {
       }),
     }),
 
+  /** 비동기 시세추정 작업 시작 → { job_id } */
+  appraisalJobStart: (
+    userInput: string,
+    buildingName = "",
+    saveHistory = true,
+    appraisalDate = "",
+    appraisalPurpose = "",
+  ) =>
+    req<{ job_id: string }>("/appraisal/jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        user_input:        userInput,
+        building_name:     buildingName,
+        save_history:      saveHistory,
+        appraisal_date:    appraisalDate,
+        appraisal_purpose: appraisalPurpose,
+      }),
+    }),
+
+  /** 작업 상태 폴링 → { status, step, history_id?, result? } */
+  appraisalJob: (jobId: string) =>
+    req<{
+      job_id: string;
+      status: "queued" | "running" | "done" | "error";
+      step: string;
+      error: string;
+      history_id?: number;
+      result?: Record<string, unknown>;
+    }>(`/appraisal/jobs/${jobId}`),
+
   recommendation: (params: RecommendationRequest) =>
     req("/recommendation", { method: "POST", body: JSON.stringify(params) }),
 

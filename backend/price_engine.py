@@ -367,8 +367,19 @@ def _parse_items(items, category: str) -> list[dict]:
     return result
 
 
-def _fetch_one_month(args: tuple) -> list:
-    url, safe_key, lawd_code, deal_ymd, category = args
+def _endpoint_name(url: str) -> str:
+    """엔드포인트 URL → 스토어 키용 짧은 이름 (예: RTMSDataSvcAptTrade)."""
+    parts = url.rstrip("/").split("/")
+    return parts[-2] if len(parts) >= 2 else url
+
+
+def _fetch_one_month_api(url: str, safe_key: str, lawd_code: str,
+                         deal_ymd: str, category: str) -> list | None:
+    """
+    MOLIT API 원시 호출.
+    반환: 성공 시 파싱된 샘플 리스트 (거래 0건이면 빈 리스트),
+          API 오류·타임아웃 시 None — 호출측이 스토어 적재를 건너뛰도록 구분.
+    """
     query_string = (
         f"serviceKey={safe_key}"
         f"&LAWD_CD={lawd_code}"
@@ -386,19 +397,43 @@ def _fetch_one_month(args: tuple) -> list:
         if result_code and result_code.lstrip("0") not in ("", "0"):
             result_msg = root.findtext(".//resultMsg", "")
             print(f"[molit] API 오류 ({deal_ymd}): {result_code} - {result_msg}")
-            return []
+            return None
 
         items  = root.findall(".//item")
         parsed = _parse_items(items, category)
-        print(f"[molit] {deal_ymd}: {len(parsed)}건")
+        print(f"[molit] {deal_ymd}: {len(parsed)}건 (API)")
         return parsed
 
     except requests.Timeout:
         print(f"[molit] {deal_ymd} 타임아웃")
-        return []
+        return None
     except Exception as e:
         print(f"[molit] {deal_ymd} 오류: {e}")
+        return None
+
+
+def _fetch_one_month(args: tuple) -> list:
+    """
+    월 단위 실거래 조회 — 로컬 스토어 우선, 미스 시 API 호출 후 write-through 적재.
+    """
+    url, safe_key, lawd_code, deal_ymd, category = args
+    endpoint = _endpoint_name(url)
+
+    # 1) 로컬 스토어 조회 (적재됨 + TTL 유효 → API 생략)
+    import transaction_store
+    cached = transaction_store.get_month(endpoint, category, lawd_code, deal_ymd)
+    if cached is not None:
+        print(f"[molit] {deal_ymd}: {len(cached)}건 (로컬 DB)")
+        return cached
+
+    # 2) API 호출
+    parsed = _fetch_one_month_api(url, safe_key, lawd_code, deal_ymd, category)
+    if parsed is None:          # 오류 — 적재하지 않음 (빈 결과 고착 방지)
         return []
+
+    # 3) write-through 적재 (0건도 유효한 결과로 기록)
+    transaction_store.put_month(endpoint, category, lawd_code, deal_ymd, parsed)
+    return parsed
 
 
 def _fetch_by_ymds(url: str, safe_key: str, lawd_code: str,

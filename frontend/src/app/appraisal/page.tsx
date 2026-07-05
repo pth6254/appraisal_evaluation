@@ -49,6 +49,7 @@ export default function AppraisalPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
+  const [progressStep, setProgressStep] = useState(""); // 파이프라인 현재 노드명
 
   const handleAddressSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -93,16 +94,41 @@ export default function AppraisalPage() {
     return "";
   };
 
+  const POLL_INTERVAL_MS = 2000;
+
   const handleSubmit = async () => {
     if (!selectedAddress) { setError("주소를 입력해주세요."); return; }
     setError("");
     setLoading(true);
+    setProgressStep("");
     try {
       const userInput = buildUserInput();
-      const result = await api.appraisal(userInput, buildingName, true, getAppraisalDate(), appraisalPurpose);
-      sessionStorage.setItem("appraisalResult", JSON.stringify(result));
-      sessionStorage.setItem("appraisalQuery", userInput);
-      router.push("/report");
+
+      // 1) 작업 시작 → job_id
+      const { job_id } = await api.appraisalJobStart(
+        userInput, buildingName, true, getAppraisalDate(), appraisalPurpose,
+      );
+
+      // 2) 완료까지 폴링 (진행 단계 표시)
+      for (;;) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+        const job = await api.appraisalJob(job_id);
+        if (job.step) setProgressStep(job.step);
+
+        if (job.status === "done") {
+          if (job.result) {
+            sessionStorage.setItem("appraisalResult", JSON.stringify(job.result));
+            sessionStorage.setItem("appraisalQuery", userInput);
+          }
+          // 이력에 저장된 경우 영속 URL로, 아니면 세션 리포트로
+          router.push(job.history_id ? `/report/${job.history_id}` : "/report");
+          return;
+        }
+        if (job.status === "error") {
+          setError(job.error || "시세추정 실패");
+          return;
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "시세추정 실패");
     } finally {
@@ -402,12 +428,51 @@ export default function AppraisalPage() {
         </section>
       )}
 
-      {loading && (
-        <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
-          <div className="font-semibold mb-1">분석 중입니다...</div>
-          <div className="text-blue-500">LLM 에이전트가 실거래가·입지·수익성을 분석하고 있습니다.</div>
-        </div>
-      )}
+      {loading && (() => {
+        // 파이프라인 노드명 → 사용자 표시 단계 매핑
+        const PIPELINE = [
+          { match: ["의도분석", "검증"],        label: "요청 분석" },
+          { match: ["지오코딩"],                label: "주소·입지 확인" },
+          { match: ["심층분석"],                label: "실거래 데이터 수집" },
+          { match: ["라우터", "_agent"],        label: "AI 가치 분석" },
+          { match: ["리포트"],                  label: "리포트 생성" },
+        ];
+        let currentIdx = 0;
+        PIPELINE.forEach((p, i) => {
+          if (p.match.some(m => progressStep.includes(m))) currentIdx = i;
+        });
+
+        return (
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm">
+            <div className="font-semibold text-blue-700 mb-3">AI 시세추정 진행 중...</div>
+            <div className="space-y-2">
+              {PIPELINE.map((p, i) => {
+                const done   = progressStep !== "" && i < currentIdx;
+                const active = progressStep !== "" ? i === currentIdx : i === 0;
+                return (
+                  <div key={p.label} className="flex items-center gap-2.5">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                      done   ? "bg-blue-600 text-white" :
+                      active ? "bg-white border-2 border-blue-600 text-blue-600 animate-pulse" :
+                               "bg-slate-200 text-slate-400"
+                    }`}>
+                      {done ? "✓" : i + 1}
+                    </span>
+                    <span className={
+                      done   ? "text-blue-700" :
+                      active ? "text-blue-700 font-semibold" :
+                               "text-slate-400"
+                    }>
+                      {p.label}{active && "..."}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-blue-400 mt-3">보통 30초~2분 정도 소요됩니다. 페이지를 벗어나도 결과는 이력에 저장됩니다.</p>
+          </div>
+        );
+      })()}
     </div>
   );
 }
