@@ -4,8 +4,8 @@ import Navbar from "@/components/Navbar";
 import { AuthProvider } from "@/lib/auth";
 
 export const metadata: Metadata = {
-  title: "부동산 AI 감정평가",
-  description: "LangGraph 기반 부동산 가치 분석 · 추천 · 시뮬레이션",
+  title: "부동산 AI 시세추정",
+  description: "LangGraph 기반 부동산 시세추정 · 추천 · 시뮬레이션",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

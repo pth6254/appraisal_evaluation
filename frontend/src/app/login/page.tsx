@@ -27,7 +27,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
         <h1 className="text-2xl font-bold text-slate-800 mb-1">로그인</h1>
-        <p className="text-sm text-slate-400 mb-6">부동산 AI 감정평가 서비스</p>
+        <p className="text-sm text-slate-400 mb-6">부동산 AI 시세추정 서비스</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

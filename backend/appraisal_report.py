@@ -131,7 +131,7 @@ def report_node(state: dict) -> dict:
     result = state.get("analysis_result") or {}
 
     if not result:
-        state["final_report"] = "❌ 감정평가 결과 없음"
+        state["final_report"] = "❌ 시세추정 결과 없음"
         return state
 
     address    = _geo_val(geo, "address_name", "") or ""
@@ -200,20 +200,23 @@ def report_node(state: dict) -> dict:
         f"| 용도지역 | {land_use_zone_val} |"              if land_use_zone_val    else None,
         f"| 공시지가 | {official_lp:,}원/㎡ |"             if official_lp          else None,
         f"| 호가 | {asking:,}만원 |"                       if asking               else None,
-        f"| 감정평가 목적 | {appraisal_purpose} |"         if appraisal_purpose    else None,
-        f"| 평가 기준 | {method} |"                        if method               else None,
-        f"| 감정평가 기준시점 | {appraisal_date_display} |",
+        f"| 조회 목적 | {appraisal_purpose} |"             if appraisal_purpose    else None,
+        f"| 산정 방식 | {method} |"                        if method               else None,
+        f"| 기준시점 | {appraisal_date_display} |",
     ] if r is not None]
 
     lines = [
-        "# 부동산 가치 감정평가 리포트",
+        "# 부동산 AI 시세추정 리포트",
+        "",
+        "> 본 리포트는 자동가치산정(AVM) 기반 참고용 시세 추정 자료이며, "
+        "「감정평가 및 감정평가사에 관한 법률」에 따른 감정평가가 아닙니다.",
         "",
         "## 대상물 정보",
         "| 항목 | 내용 |",
         "|------|------|",
         *subject_rows,
         "",
-        "## 감정평가액",
+        "## AI 추정 시세",
         "| 구분 | 금액 |",
         "|------|------|",
         f"| **추정 시장가치** | **{_fmt_won(estimated)}** |",
@@ -226,11 +229,11 @@ def report_node(state: dict) -> dict:
         lines.append(f"| 공시가격 대비 | {official_ratio_str} |")
     lines.append("")
 
-    # ── 시산가액 조정 ─────────────────────────────────────────────────────
+    # ── 산정방법별 추정가 ─────────────────────────────────────────────────
     if method and estimated:
         lines += [
-            "## 시산가액 조정",
-            "| 평가방법 | 시산가액 | 가중치 | 비고 |",
+            "## 산정방법별 추정가",
+            "| 산정방법 | 추정가 | 가중치 | 비고 |",
             "|---|---|---|---|",
             f"| {method} | {_fmt_won(estimated)} | 100% | |",
             "",
@@ -262,9 +265,9 @@ def report_node(state: dict) -> dict:
             lines.append(f"- {item}")
         lines.append("")
 
-    # ── 감정평가 의견 ─────────────────────────────────────────────────────
+    # ── AI 분석 의견 ──────────────────────────────────────────────────────
     lines += [
-        "## 감정평가 의견",
+        "## AI 분석 의견",
         opinion,
         "",
         "### 가치 상승 요인",
@@ -340,7 +343,7 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:
     if result.appraisal_date:
         lines.append(f"| 기준시점 | {result.appraisal_date} |")
     if result.appraisal_purpose:
-        lines.append(f"| 감정 목적 | {result.appraisal_purpose} |")
+        lines.append(f"| 조회 목적 | {result.appraisal_purpose} |")
     lines.append("")
 
     # ── 물건 기본사항 ──────────────────────────────────────────────────────
@@ -369,11 +372,11 @@ def generate_price_analysis_report(result: "AppraisalResult") -> str:
             "",
         ]
 
-    # ── 시산가액 조정 ─────────────────────────────────────────────────────
+    # ── 산정방법별 추정가 ─────────────────────────────────────────────────
     if result.valuation_breakdown:
         lines += [
-            "## 시산가액 조정",
-            "| 평가방법 | 시산가액 | 가중치 | 비고 |",
+            "## 산정방법별 추정가",
+            "| 산정방법 | 추정가 | 가중치 | 비고 |",
             "|---|---|---|---|",
         ]
         for b in result.valuation_breakdown:

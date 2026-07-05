@@ -58,7 +58,7 @@ export default function DashboardPage() {
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
-          { label: "총 감정평가", value: total.toLocaleString() + "건" },
+          { label: "총 시세추정", value: total.toLocaleString() + "건" },
           { label: "평균 추정가", value: avgEst > 0 ? Math.round(avgEst / 10000).toLocaleString() + "만원" : "—" },
           { label: "저평가 매물", value: underCount + "건" },
           { label: "이번 페이지", value: items.length + "건" },

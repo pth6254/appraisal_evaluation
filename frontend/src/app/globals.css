@@ -34,7 +34,7 @@ body {
 .prose strong { font-weight: 700; }
 .prose code { background: #f1f5f9; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.875em; }
 
-/* 감정평가서 인쇄 */
+/* 시세추정 리포트 인쇄 */
 @media print {
   .no-print { display: none !important; }
   body { background: white !important; }

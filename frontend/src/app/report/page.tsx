@@ -178,12 +178,12 @@ export default function ReportPage() {
   if (!result) {
     return (
       <div className="max-w-2xl mx-auto text-center py-20">
-        <p className="text-slate-500 mb-4">감정평가 결과가 없습니다.</p>
+        <p className="text-slate-500 mb-4">시세추정 결과가 없습니다.</p>
         <Link
           href="/appraisal"
           className="inline-block px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
         >
-          감정평가 시작하기
+          AI 시세추정 시작하기
         </Link>
       </div>
     );
@@ -193,7 +193,7 @@ export default function ReportPage() {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="bg-red-50 border border-red-200 rounded-xl p-5">
-          <h2 className="font-semibold text-red-700 mb-2">감정평가 실패</h2>
+          <h2 className="font-semibold text-red-700 mb-2">시세추정 실패</h2>
           <p className="text-sm text-red-600">{String(result.error)}</p>
         </div>
         <Link href="/appraisal" className="mt-4 inline-block text-sm text-blue-600 hover:underline">
@@ -216,8 +216,10 @@ export default function ReportPage() {
   const unitStr      = extractFromReport(report, "대상물 정보", "동");
   const floor        = extractFromReport(report, "대상물 정보", "층수");
   const areaRaw      = extractFromReport(report, "대상물 정보", "전용면적");
-  const purpose      = ap.appraisal_purpose || extractFromReport(report, "대상물 정보", "감정평가 목적");
-  const methodStr    = ar.valuation_method  || extractFromReport(report, "대상물 정보", "평가 기준");
+  const purpose      = ap.appraisal_purpose || extractFromReport(report, "대상물 정보", "목적");
+  const methodStr    = ar.valuation_method
+    || extractFromReport(report, "대상물 정보", "산정 방식")
+    || extractFromReport(report, "대상물 정보", "평가 기준"); // 구버전 리포트 호환
 
   const appraisalDate =
     ap.appraisal_date ||
@@ -289,14 +291,14 @@ export default function ReportPage() {
       ? [["공시가격 추정액", `약 ${officialTotalManwon.toLocaleString("ko-KR")}만원 (전용면적 기준)`] as [string, string]]
       : []),
 
-    /* 감정평가 기본사항 */
-    { divider: "감 정 평 가 기 본 사 항" },
-    ...(purpose     ? [["감정평가 목적", purpose]         as [string, string]] : []),
-    ...(methodStr   ? [["평  가  기  준", methodStr]      as [string, string]] : []),
+    /* 시세추정 기본사항 */
+    { divider: "시 세 추 정 기 본 사 항" },
+    ...(purpose     ? [["조 회 목 적",   purpose]         as [string, string]] : []),
+    ...(methodStr   ? [["산 정 방 식",   methodStr]       as [string, string]] : []),
     ["기  준  시  점", appraisalDate],
   ];
 
-  /* ── 감정평가액 세부 행 ── */
+  /* ── 추정 시세 세부 행 ── */
   const valueRows: InfoRow[] = [
     ["추 정 범 위",
       ap.low_price && ap.high_price
@@ -341,7 +343,7 @@ export default function ReportPage() {
       {/* ── 상단 툴바 (인쇄 시 숨김) ── */}
       <div className="no-print max-w-[880px] mx-auto mb-4 flex justify-between items-center">
         <Link href="/appraisal" className="text-sm text-blue-700 hover:underline font-medium">
-          ← 새 감정평가
+          ← 새 시세추정
         </Link>
         <button
           onClick={() => window.print()}
@@ -361,11 +363,14 @@ export default function ReportPage() {
         {/* ── 표지 헤더 ── */}
         <div className="border-b-4 border-double border-gray-800 px-14 pt-12 pb-8 text-center">
           <p className="text-[10px] tracking-[0.5em] text-gray-400 mb-2 uppercase">
-            Real Estate Appraisal Report
+            AI Automated Valuation Report
           </p>
-          <h1 className="text-[28px] font-bold tracking-[0.2em] text-gray-900 mb-5">
-            부 동 산 감 정 평 가 서
+          <h1 className="text-[28px] font-bold tracking-[0.15em] text-gray-900 mb-2">
+            부동산 AI 시세추정 리포트
           </h1>
+          <p className="text-[11px] text-gray-400 mb-5">
+            본 리포트는 자동가치산정(AVM) 기반 시세 추정 자료이며, 「감정평가 및 감정평가사에 관한 법률」에 따른 감정평가서가 아닙니다.
+          </p>
           <div className="inline-flex gap-10 border border-gray-300 bg-gray-50 px-8 py-3 text-xs text-gray-600">
             <div className="flex gap-2">
               <span className="text-gray-400">기 준 시 점</span>
@@ -392,11 +397,11 @@ export default function ReportPage() {
             </section>
           )}
 
-          {/* ── 제 2 절: 감정평가액 ── */}
+          {/* ── 제 2 절: AI 추정 시세 ── */}
           <section>
-            <SectionTitle number="제 2 절" title="감정평가액" />
+            <SectionTitle number="제 2 절" title="AI 추정 시세" />
 
-            {/* 감정평가액 대형 표시 */}
+            {/* 추정 시세 대형 표시 */}
             <div className="border-2 border-gray-800 mb-4">
               <div className="bg-gray-800 text-white text-center py-2.5">
                 <span className="text-[11px] tracking-[0.35em]">추 정 시 장 가 치 (Estimated Market Value)</span>
@@ -421,7 +426,7 @@ export default function ReportPage() {
           {/* ── 제 3 절: 시산가액 조정 ── */}
           {breakdownRows.length > 0 && (
             <section>
-              <SectionTitle number="제 3 절" title="시산가액 조정" />
+              <SectionTitle number="제 3 절" title="산정방법별 추정가" />
               <table className="w-full border-collapse text-xs">
                 <thead>
                   <tr>
@@ -565,10 +570,10 @@ export default function ReportPage() {
             </section>
           )}
 
-          {/* ── 제 7 절: 감정평가 의견 ── */}
+          {/* ── 제 7 절: AI 분석 의견 ── */}
           {(ar.appraisal_opinion || ar.strengths?.length || ar.risk_factors?.length || ar.recommendation) && (
             <section>
-              <SectionTitle number="제 7 절" title="감정평가 의견" />
+              <SectionTitle number="제 7 절" title="AI 분석 의견" />
 
               {ar.appraisal_opinion && (
                 <div className="border border-gray-400 bg-gray-50 px-5 py-4 mb-5 text-xs leading-relaxed text-gray-800">
@@ -628,29 +633,26 @@ export default function ReportPage() {
             </div>
           )}
 
-          {/* ── 하단 면책 및 직인 ── */}
+          {/* ── 하단 고지사항 ── */}
           <div className="border-t-2 border-gray-800 pt-6 mt-4">
-            <div className="flex justify-between items-end gap-4">
-              <div className="text-[10px] text-gray-400 leading-[1.7] max-w-[560px]">
-                <p className="font-semibold text-gray-500 mb-1">【 주 의 】</p>
-                <p>
-                  본 감정평가서는 AI 기반 자동분석 시스템에 의해 생성된 참고용 문서로, 법적 효력이 없습니다.
-                </p>
-                <p>
-                  실제 법적 효력이 있는 감정평가를 위해서는 한국감정평가사협회에 등록된 감정평가사의
-                  검토 및 서명이 필요합니다.
-                </p>
-                {ap.data_source && ap.data_source.length > 0 && (
-                  <p className="mt-2">데이터 출처: {ap.data_source.join(" · ")}</p>
-                )}
-              </div>
-              <div className="shrink-0 text-center">
-                <div className="border-2 border-gray-300 w-[92px] h-[92px] flex items-center justify-center">
-                  <span className="text-[10px] text-gray-300 leading-[1.5] text-center">
-                    감정평가사<br />직 인
-                  </span>
-                </div>
-              </div>
+            <div className="text-[10px] text-gray-400 leading-[1.8]">
+              <p className="font-semibold text-gray-500 mb-1.5">【 고 지 사 항 】</p>
+              <p>
+                1. 본 리포트는 공개 데이터 기반 자동가치산정 모형(AVM, Automated Valuation Model)이
+                산출한 <span className="font-semibold text-gray-500">참고용 시세 추정 자료</span>이며,
+                「감정평가 및 감정평가사에 관한 법률」에 따른 감정평가가 아니고 법적 효력이 없습니다.
+              </p>
+              <p>
+                2. 담보 설정·소송·과세 등 법적 효력이 필요한 가치 판단은 국가자격을 보유한
+                감정평가사에게 의뢰하시기 바랍니다.
+              </p>
+              <p>
+                3. 추정 시세는 데이터 상황에 따라 실제 거래 가능 가격과 차이가 있을 수 있으며,
+                본 리포트를 근거로 한 의사결정의 책임은 이용자에게 있습니다.
+              </p>
+              {ap.data_source && ap.data_source.length > 0 && (
+                <p className="mt-2">데이터 출처: {ap.data_source.join(" · ")}</p>
+              )}
             </div>
           </div>
 

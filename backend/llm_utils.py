@@ -94,15 +94,20 @@ def search_web_tavily(query: str, max_results: int = 3) -> str:
 
 
 # ─────────────────────────────────────────
-#  Ollama 감정평가 의견서 생성
+#  Ollama AI 분석 의견 생성
 # ─────────────────────────────────────────
 
-APPRAISAL_PROMPT = """당신은 국가공인 부동산 감정평가사입니다.
-아래 데이터를 바탕으로 전문적인 감정평가 의견서를 작성하세요.
+APPRAISAL_PROMPT = """당신은 부동산 시장 데이터 분석 전문가입니다.
+아래 데이터를 바탕으로 AI 시세추정 리포트에 들어갈 분석 의견을 작성하세요.
+
+작성 규칙:
+- 스스로를 감정평가사로 칭하거나 "감정평가"라는 단어를 사용하지 마세요. (본 서비스는 감정평가가 아닌 AI 시세추정입니다)
+- "추정 시세", "시세 분석", "AI 분석" 등의 표현을 사용하세요.
+- 제공된 수치를 그대로 인용하고, 새로운 금액·수치를 만들어내지 마세요.
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {
-  "appraisal_opinion": "3~4문장의 전문 감정평가 의견",
+  "appraisal_opinion": "3~4문장의 시세 분석 의견",
   "strengths": ["가치 상승 요인1", "요인2", "요인3"],
   "risk_factors": ["리스크 요인1", "요인2"],
   "recommendation": "매수 적극 고려 | 매수 고려 | 관망 | 매수 비추천"
@@ -122,7 +127,7 @@ def generate_appraisal_opinion(category, location, valuation_data, nearby_data, 
     ) or "주변 시설 정보 없음"
 
     user_content = f"""
-감정평가 대상: {category} / {location}
+분석 대상: {category} / {location}
 추정 시장가치: {estimated:,}만원
 평당가: {ppyeong:,}만원/평 (지역 평균: {reg_ppyeong:,}만원/평)
 Cap Rate: {cap_rate}%
@@ -140,9 +145,17 @@ Cap Rate: {cap_rate}%
         import traceback
         traceback.print_exc()
 
+    # 폴백: 지역 평균 대비 수준 산출 (LLM 실패 시)
+    if reg_ppyeong > 0 and ppyeong > 0:
+        ratio = ppyeong / reg_ppyeong
+        verdict = "높은" if ratio > 1.05 else "낮은" if ratio < 0.95 else "유사한"
+        verdict_str = f" 인근 지역 평균 평당가 대비 {verdict} 수준."
+    else:
+        verdict_str = ""
+
     return {
-        "appraisal_opinion": f"{location} {category} 추정 시장가치 {estimated:,}만원. 인근 실거래 대비 {verdict} 수준.",
+        "appraisal_opinion": f"{location} {category} 추정 시세 {estimated:,}만원.{verdict_str}",
         "strengths":    ["실거래 데이터 기반 분석 완료"],
-        "risk_factors": ["LLM 의견서 생성 실패 — 수치 기반 결과만 제공"],
+        "risk_factors": ["LLM 분석 의견 생성 실패 — 수치 기반 결과만 제공"],
         "recommendation": "관망",
     }

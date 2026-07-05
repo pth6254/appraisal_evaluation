@@ -9,8 +9,8 @@ const FEATURES = [
   {
     href: "/appraisal",
     icon: "🏠",
-    title: "부동산 감정평가",
-    desc: "AI가 실거래가 기반으로 시장가치를 분석합니다",
+    title: "AI 시세추정",
+    desc: "AI가 실거래가 기반으로 시세를 추정합니다",
     border: "border-blue-200",
     bg: "bg-blue-50 hover:bg-blue-100",
     label: "text-blue-700",
@@ -46,7 +46,7 @@ const FEATURES = [
     href: "/dashboard",
     icon: "📋",
     title: "이력 대시보드",
-    desc: "과거 감정평가 이력과 통계를 확인합니다",
+    desc: "과거 시세추정 이력과 통계를 확인합니다",
     border: "border-slate-200",
     bg: "bg-slate-50 hover:bg-slate-100",
     label: "text-slate-700",
@@ -93,7 +93,7 @@ export default function HomePage() {
           안녕하세요, {displayName}님 👋
         </h1>
         <p className="text-sm text-slate-300">
-          AI 기반 부동산 감정평가 시스템입니다. 아래 서비스를 바로 시작해 보세요.
+          AI 기반 부동산 시세추정 서비스입니다. 아래 서비스를 바로 시작해 보세요.
         </p>
       </div>
 
@@ -122,11 +122,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 최근 감정평가 이력 ── */}
+      {/* ── 최근 시세추정 이력 ── */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-xs font-bold text-slate-400 tracking-widest uppercase">
-            최근 감정평가 이력
+            최근 시세추정 이력
           </h2>
           {recent.length > 0 && (
             <Link href="/dashboard" className="text-xs text-blue-600 hover:underline">
@@ -141,12 +141,12 @@ export default function HomePage() {
           </div>
         ) : recent.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-10 text-center">
-            <p className="text-slate-400 text-sm mb-5">아직 감정평가 이력이 없습니다.</p>
+            <p className="text-slate-400 text-sm mb-5">아직 시세추정 이력이 없습니다.</p>
             <Link
               href="/appraisal"
               className="inline-block px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
             >
-              첫 감정평가 시작하기 →
+              첫 시세추정 시작하기 →
             </Link>
           </div>
         ) : (

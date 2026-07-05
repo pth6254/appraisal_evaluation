@@ -104,7 +104,7 @@ export default function AppraisalPage() {
       sessionStorage.setItem("appraisalQuery", userInput);
       router.push("/report");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "감정평가 실패");
+      setError(e instanceof Error ? e.message : "시세추정 실패");
     } finally {
       setLoading(false);
     }
@@ -114,8 +114,8 @@ export default function AppraisalPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-1">부동산 감정평가</h1>
-      <p className="text-slate-500 mb-5 text-sm">물건 정보를 단계별로 입력하면 AI가 시장가치를 분석합니다.</p>
+      <h1 className="text-2xl font-bold mb-1">AI 시세추정</h1>
+      <p className="text-slate-500 mb-5 text-sm">물건 정보를 단계별로 입력하면 AI가 실거래 데이터 기반으로 시세를 추정합니다.</p>
 
       {/* 스텝 인디케이터 */}
       <div className="flex items-center gap-1 mb-6">
@@ -368,10 +368,10 @@ export default function AppraisalPage() {
             )}
           </div>
 
-          {/* 감정평가 목적 */}
+          {/* 조회 목적 */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-600 mb-2">
-              감정평가 목적 <span className="text-slate-400 font-normal text-xs">(선택)</span>
+              조회 목적 <span className="text-slate-400 font-normal text-xs">(선택)</span>
             </label>
             <div className="grid grid-cols-3 gap-2">
               {["", "담보", "경매", "과세", "매매", "보상", "임의"].map(p => (
@@ -397,7 +397,7 @@ export default function AppraisalPage() {
             disabled={loading}
             className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? "AI 감정평가 실행 중... (30초~2분 소요)" : "감정평가 시작"}
+            {loading ? "AI 시세추정 실행 중... (30초~2분 소요)" : "시세추정 시작"}
           </button>
         </section>
       )}

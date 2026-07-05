@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 
 const NAV = [
   { href: "/",               label: "🏡 홈",            exact: true },
-  { href: "/appraisal",      label: "🏠 감정평가" },
+  { href: "/appraisal",      label: "🏠 AI 시세추정" },
   { href: "/report",         label: "📊 결과 리포트" },
   { href: "/dashboard",      label: "📋 이력 대시보드" },
   { href: "/recommendation", label: "✨ 매물 추천" },
@@ -21,7 +21,7 @@ export default function Navbar() {
     <aside className="fixed left-0 top-0 h-full w-[220px] bg-slate-900 text-white flex flex-col z-50 shadow-lg">
       <div className="px-5 py-5 border-b border-slate-700">
         <div className="text-lg font-bold text-blue-400">부동산 AI</div>
-        <div className="text-xs text-slate-400 mt-0.5">감정평가 · 추천 · 시뮬레이션</div>
+        <div className="text-xs text-slate-400 mt-0.5">시세추정 · 추천 · 시뮬레이션</div>
       </div>
       <nav className="flex-1 overflow-y-auto py-3">
         {NAV.map(({ href, label, exact }) => {
