@@ -32,8 +32,63 @@ function ScoreBar({ score, max = 10 }: { score?: number; max?: number }) {
   );
 }
 
+type ComplexResult = {
+  complex_name: string; dong: string; avg_price: number;
+  avg_per_sqm: number; avg_area_m2: number; deal_count: number;
+  build_year: number; last_deal_ym: string; score: number; reasons: string[];
+};
+
+function fmtEok(manwon: number): string {
+  if (manwon >= 10000) {
+    const eok = manwon / 10000;
+    return eok >= 100 ? `${Math.round(eok)}억` : `${eok.toFixed(1)}억`;
+  }
+  return `${manwon.toLocaleString("ko-KR")}만원`;
+}
+
 export default function RecommendationPage() {
   const router = useRouter();
+
+  // 추천 모드: 실거래 단지(전국) | 샘플 매물
+  const [mode, setMode] = useState<"complex" | "listing">("complex");
+
+  // 단지 추천 상태
+  const [cxRegion, setCxRegion]       = useState("");
+  const [cxBudgetMin, setCxBudgetMin] = useState("");
+  const [cxBudgetMax, setCxBudgetMax] = useState("");
+  const [cxArea, setCxArea]           = useState("");
+  const [cxMonths, setCxMonths]       = useState(6);
+  const [cxLimit, setCxLimit]         = useState(5);
+  const [cxResults, setCxResults]     = useState<ComplexResult[]>([]);
+  const [cxMeta, setCxMeta]           = useState<{ sample: number; complexes: number; avgPerSqm: number } | null>(null);
+  const [cxLoading, setCxLoading]     = useState(false);
+  const [cxError, setCxError]         = useState("");
+
+  const handleComplexSubmit = async () => {
+    if (!cxRegion.trim()) { setCxError("지역명을 입력하세요 (예: 춘천시, 해운대구)"); return; }
+    setCxError("");
+    setCxLoading(true);
+    setCxResults([]);
+    setCxMeta(null);
+    try {
+      const res = await api.recommendComplexes({
+        region:     cxRegion.trim(),
+        budget_min: cxBudgetMin ? Math.round((parsePrice(cxBudgetMin) || 0) / 10000) : 0,
+        budget_max: cxBudgetMax ? Math.round((parsePrice(cxBudgetMax) || 0) / 10000) : 0,
+        area_m2:    cxArea ? parseFloat(cxArea) : 0,
+        months:     cxMonths,
+        limit:      cxLimit,
+      });
+      if (res.error) throw new Error(res.error);
+      setCxResults(res.results);
+      setCxMeta({ sample: res.sample_count, complexes: res.complex_count, avgPerSqm: res.region_avg_per_sqm });
+    } catch (e: unknown) {
+      setCxError(e instanceof Error ? e.message : "단지 추천 실패");
+    } finally {
+      setCxLoading(false);
+    }
+  };
+
   const [region, setRegion]   = useState("전체");
   const [propType, setPropType] = useState("전체");
   const [purpose, setPurpose] = useState("전체");
@@ -96,7 +151,122 @@ export default function RecommendationPage() {
         {/* 메인 */}
         <div className="flex-1">
           <h1 className="text-2xl font-bold mb-1">✨ 매물 추천</h1>
-          <p className="text-slate-500 text-sm mb-5">조건을 입력하면 AI가 최적 매물을 추천합니다.</p>
+          <p className="text-slate-500 text-sm mb-4">조건을 입력하면 AI가 최적 매물·단지를 추천합니다.</p>
+
+          {/* 모드 토글 */}
+          <div className="flex gap-1 mb-5 bg-slate-100 rounded-xl p-1 w-fit">
+            {([
+              { key: "complex", label: "🏢 실거래 단지 추천 (전국)" },
+              { key: "listing", label: "📋 샘플 매물 추천" },
+            ] as const).map(({ key, label }) => (
+              <button key={key} onClick={() => setMode(key)}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  mode === key ? "bg-white shadow text-blue-700" : "text-slate-500 hover:text-slate-700"
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ══ 실거래 단지 추천 모드 ══ */}
+          {mode === "complex" && (
+            <>
+              <div className="bg-white rounded-xl shadow p-5 mb-5">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">지역 (전국 시군구)</label>
+                    <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="예: 춘천시, 해운대구, 서초구"
+                      value={cxRegion} onChange={e => setCxRegion(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleComplexSubmit()} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">예산 최소</label>
+                    <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="예: 2억" value={cxBudgetMin} onChange={e => setCxBudgetMin(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">예산 최대</label>
+                    <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="예: 5억" value={cxBudgetMax} onChange={e => setCxBudgetMax(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">전용면적 (㎡, 선택)</label>
+                    <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="예: 84" value={cxArea} onChange={e => setCxArea(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">분석 기간</label>
+                    <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      value={cxMonths} onChange={e => setCxMonths(Number(e.target.value))}>
+                      <option value={3}>최근 3개월</option>
+                      <option value={6}>최근 6개월</option>
+                      <option value={12}>최근 12개월</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">추천 수</label>
+                    <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      value={cxLimit} onChange={e => setCxLimit(Number(e.target.value))}>
+                      {[3, 5, 10].map(n => <option key={n} value={n}>{n}개</option>)}
+                    </select>
+                  </div>
+                </div>
+                <button onClick={handleComplexSubmit} disabled={cxLoading}
+                  className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
+                  {cxLoading ? "실거래 데이터 분석 중... (최초 조회 시 수십 초)" : "🔍 단지 추천받기"}
+                </button>
+                {cxError && <p className="text-red-500 text-sm mt-2">⚠️ {cxError}</p>}
+              </div>
+
+              {cxMeta && (
+                <p className="text-xs text-slate-400 mb-3">
+                  실거래 {cxMeta.sample.toLocaleString()}건 · 단지 {cxMeta.complexes}개 분석
+                  · 지역 평균 평단가 {cxMeta.avgPerSqm.toLocaleString()}만원/㎡
+                </p>
+              )}
+
+              {cxResults.length > 0 && (
+                <div className="space-y-4">
+                  {cxResults.map((c, i) => (
+                    <div key={c.complex_name} className="bg-white rounded-xl shadow p-5 border-l-4 border-emerald-500">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">{i + 1}위</span>
+                          <h3 className="font-bold mt-1">{c.complex_name}</h3>
+                          <p className="text-xs text-slate-400">{c.dong} · 평균 전용 {c.avg_area_m2}㎡{c.build_year ? ` · ${c.build_year}년 준공` : ""}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-emerald-700">{fmtEok(c.avg_price)}</div>
+                          <div className="text-xs text-slate-400">{c.avg_per_sqm.toLocaleString()}만원/㎡ · {c.deal_count}건</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-slate-500 w-14">종합 점수</span>
+                        <ScoreBar score={c.score} />
+                      </div>
+                      {c.reasons.length > 0 && (
+                        <div>
+                          {c.reasons.map((rn, j) => (
+                            <span key={j} className="inline-block text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded mr-1 mb-1">✅ {rn}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <p className="text-xs text-slate-400">
+                    ⚠️ 국토부 실거래가 기반 추정 시세입니다. 실제 매물 존재 여부·호가는 별도 확인이 필요합니다.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ══ 샘플 매물 추천 모드 ══ */}
+          {mode === "listing" && (<>
+          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-4">
+            ⚠️ 샘플 매물 모드는 개발·테스트용 가상 매물(서울 8개 구, 43건) 기반입니다.
+          </p>
 
           {/* 검색 폼 */}
           <div className="bg-white rounded-xl shadow p-5 mb-5">
@@ -234,6 +404,7 @@ export default function RecommendationPage() {
               )}
             </>
           )}
+          </>)}
         </div>
 
         {/* 비교 바구니 사이드바 */}

@@ -26,10 +26,10 @@ def deep_analysis_node(state: dict) -> dict:
     if not intent:
         return {**state, "error": "deep_analysis: intent 없음"}
 
-    # 지역코드 조회 (SQLite 룩업)
+    # 지역코드: 지오코딩 시군구코드 우선 (전국 지원) → 지역명 테이블 폴백
     geo    = state.get("geocoding_result") or {}
     region = geo.get("region_2depth", "") if isinstance(geo, dict) else ""
-    lawd   = get_lawd_code(region)
+    lawd   = (geo.get("sigungu_cd", "")[:5] if isinstance(geo, dict) else "") or get_lawd_code(region)
 
     if not lawd:
         print(f"[deep_analysis] '{region}' 지역코드 없음 — 더미 데이터 사용")
@@ -41,6 +41,7 @@ def deep_analysis_node(state: dict) -> dict:
         ttl=86400,   # 24시간
         category=intent.category,
         region_2depth=region,
+        lawd_code=lawd,
     )
 
     state["price_data"] = price_data
@@ -65,6 +66,7 @@ def deep_analysis_lite(state: dict) -> dict:
 
     geo    = state.get("geocoding_result") or {}
     region = geo.get("region_2depth", "") if isinstance(geo, dict) else ""
+    lawd   = (geo.get("sigungu_cd", "")[:5] if isinstance(geo, dict) else "") or get_lawd_code(region)
 
     price_data = cached_api_call(
         func=fetch_real_transaction_prices,
@@ -72,6 +74,7 @@ def deep_analysis_lite(state: dict) -> dict:
         ttl=86400,
         category=intent.category,
         region_2depth=region,
+        lawd_code=lawd,
     )
 
     state["price_data"]     = price_data

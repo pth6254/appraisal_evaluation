@@ -495,6 +495,7 @@ def fetch_real_transaction_prices(
     floor: int = 0,
     area_sqm_exact: float = 0.0,
     as_of: str = "",
+    lawd_code: str = "",
 ) -> dict:
     """
     국토부 실거래가 API.
@@ -504,13 +505,16 @@ def fetch_real_transaction_prices(
       2) 동 필터링 (3 → 6개월)
       3) 구 전체 (3 → 6개월)
       4) 주거용 한정: 공시가격 역산 폴백
+
+    lawd_code: 법정동코드 5자리. 지오코딩(sigungu_cd)에서 넘어오면 그대로 사용
+               (전국 어디든 동작) — 없을 때만 지역명 테이블 조회 폴백.
     """
     if not MOLIT_API_KEY:
         return _empty_price_data("MOLIT_API_KEY 미설정 — .env 파일을 확인하세요")
 
-    lawd_code = get_lawd_code(region_2depth)
+    lawd_code = (lawd_code or "").strip() or get_lawd_code(region_2depth)
     if not lawd_code:
-        return _empty_price_data(f"'{region_2depth}' 지역코드 없음 — cache_db 확인 필요")
+        return _empty_price_data(f"'{region_2depth}' 지역코드 없음 — 주소를 더 정확히 입력하세요")
 
     endpoint = _select_endpoint(category, category_detail)
     url      = MOLIT_BASE_URL + endpoint

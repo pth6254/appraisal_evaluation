@@ -246,6 +246,7 @@ def residential_agent(state: dict) -> dict:
             floor=floor_inferred or 0,
             area_sqm_exact=area_sqm,
             as_of=as_of,
+            lawd_code=sigungu_cd,   # 지오코딩 시군구코드 — 전국 어디든 동작
         )
         if building_name and price_data.get("apt_name_matched"):
             label = price_data.get("precision_filter", "")

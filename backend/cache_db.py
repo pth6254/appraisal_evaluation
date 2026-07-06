@@ -286,12 +286,18 @@ def list_region_codes() -> list[dict]:
         return []
 
 
-def add_region_code(region_name: str, lawd_code: str, sido: str = "", sigungu: str = ""):
-    """지역코드 수동 추가."""
+def add_region_code(region_name: str, lawd_code: str, sido: str = "", sigungu: str = "",
+                    overwrite: bool = True):
+    """
+    지역코드 추가.
+    overwrite=False: 동명이구(예: 서울 중구 vs 부산 중구)가 기존 등록을
+    덮어쓰지 않도록 이미 있는 지역명은 유지 (지오코딩 자동 등록용).
+    """
     try:
         with _conn() as con:
+            verb = "REPLACE" if overwrite else "IGNORE"
             con.execute(
-                """INSERT OR REPLACE INTO region_codes
+                f"""INSERT OR {verb} INTO region_codes
                    (region_name, lawd_code, sido, sigungu)
                    VALUES (?, ?, ?, ?)""",
                 (region_name, lawd_code, sido, sigungu),

@@ -630,6 +630,17 @@ def geocoding_node(state):
         _s(state, "building_name", result.place_name)
         print(f"[geocoding_node] building_name 자동 설정: '{result.place_name}'")
 
+    # 전국 확대: 성공한 지오코딩의 시군구코드를 지역코드 테이블에 자동 등록
+    # (배치 수집 CLI·백테스트 등 지역명 기반 도구가 새 지역을 바로 쓸 수 있게)
+    if result.region_2depth and result.sigungu_cd:
+        try:
+            from cache_db import add_region_code
+            add_region_code(result.region_2depth, result.sigungu_cd[:5],
+                            sido=result.region_1depth, sigungu=result.region_2depth,
+                            overwrite=False)
+        except Exception:
+            pass
+
     _s(state, "geocoding_result", result.model_dump())
     _s(state, "error", "")
     return state

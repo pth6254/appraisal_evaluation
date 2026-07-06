@@ -67,6 +67,29 @@ export const api = {
   recommendation: (params: RecommendationRequest) =>
     req("/recommendation", { method: "POST", body: JSON.stringify(params) }),
 
+  /** 실거래 기반 단지 추천 (전국) — 금액 단위: 만원 */
+  recommendComplexes: (params: {
+    region: string;
+    budget_min?: number;
+    budget_max?: number;
+    area_m2?: number;
+    months?: number;
+    limit?: number;
+  }) =>
+    req<{
+      region: string;
+      sample_count: number;
+      complex_count: number;
+      region_avg_per_sqm: number;
+      results: {
+        complex_name: string; dong: string; avg_price: number;
+        avg_per_sqm: number; avg_area_m2: number; deal_count: number;
+        build_year: number; last_deal_ym: string; score: number; reasons: string[];
+      }[];
+      report: string;
+      error: string;
+    }>("/recommendation/complexes", { method: "POST", body: JSON.stringify(params) }),
+
   simulation: (params: SimulationRequest) =>
     req("/simulation", { method: "POST", body: JSON.stringify(params) }),
 
