@@ -30,10 +30,20 @@ for _p in [_BACKEND_DIR, _PROJECT_ROOT]:
 from schemas.simulation import (
     AcquisitionCost,
     CashFlowSummary,
+    FinanceCheck,
     LoanSummary,
+    RateSensitivityCell,
     ScenarioResult,
     SimulationInput,
     SimulationResult,
+)
+from tax_rules import (
+    TAX_RULES_AS_OF,
+    calc_annual_holding_tax,
+    calc_capital_gains_tax,
+    check_dsr,
+    check_ltv,
+    estimate_official_price,
 )
 
 
@@ -316,24 +326,34 @@ def calc_scenario(
     rent_fee: int | None,
     rent_deposit: int | None,
     jeonse_opportunity_rate: float = 3.5,
+    owned_homes: int = 1,
+    official_price: int = 0,
+    vacancy_rate: float = 0.0,
+    residence_years: int | None = None,
 ) -> ScenarioResult:
     """
-    단일 성장률 시나리오 수익성 계산.
+    단일 성장률 시나리오 수익성 계산 (세후).
 
-    순손익 = 시세차익 + 총 임대 수입 − 총 이자 − 취득 비용
-    자기자본 수익률 = 순손익 / equity × 100
+    세전 순손익 = 시세차익 + 총 임대 수입 − 총 이자 − 취득 비용
+    세후 순손익 = 세전 − 양도소득세 − 보유세(재산세+종부세) − 매도 중개보수
+    자기자본 수익률 = 세후 순손익 / equity × 100
 
-    전세의 경우 보증금 기회수익률(jeonse_opportunity_rate)로 임대 등가 소득을 산정한다.
+    - 월세는 공실률(vacancy_rate %)을 차감한다.
+    - 전세는 보증금 기회수익률로 등가 임대 소득을 산정한다.
+    - official_price=0 이면 보유세를 계산하지 않는다 (호출측에서 추정치 주입).
+    - residence_years=None: 임대 중이면 0, 아니면 실거주로 간주(보유=거주).
+    - equity ≤ 0 (무자본 갭투자): ROI 정의 불가 → infinite_leverage 플래그.
     """
     expected_price = calc_expected_sale_price(purchase_price, annual_growth_rate, holding_years)
     capital_gain   = expected_price - purchase_price
 
     # 총 임대 수입
+    is_rental = bool(rent_fee or rent_deposit)
     if rent_fee:
-        annual_rent  = rent_fee * 12
+        annual_rent  = round(rent_fee * 12 * (1 - vacancy_rate / 100))
         total_rental = annual_rent * holding_years
     elif rent_deposit:
-        # 전세: 보증금을 시중 금리로 운용했을 때의 등가 임대 소득
+        # 전세: 보증금을 시중 금리로 운용했을 때의 등가 임대 소득 (공실 무관)
         annual_rent  = round(rent_deposit * jeonse_opportunity_rate / 100)
         total_rental = annual_rent * holding_years
     else:
@@ -342,20 +362,43 @@ def calc_scenario(
 
     rental_yield = round(annual_rent / purchase_price * 100, 2) if purchase_price > 0 else 0.0
 
-    net_profit  = capital_gain + total_rental - total_interest - total_acquisition_cost
-    equity_safe = equity if equity > 0 else 1  # 0 나눔 방지
+    # ── 세금·매도비용 (tax_rules) ──
+    sale_brokerage = calc_brokerage_fee(expected_price)
 
-    equity_roi  = round(net_profit / equity_safe * 100, 2)
+    # 보유세: 공시가격도 시나리오 성장률로 상승한다고 가정, 연도별 합산
+    holding_tax_total = 0
+    if official_price > 0:
+        g = annual_growth_rate / 100
+        for y in range(1, holding_years + 1):
+            yearly_official = round(official_price * (1 + g) ** y)
+            holding_tax_total += calc_annual_holding_tax(yearly_official, owned_homes)["total"]
 
-    # 연환산 (CAGR 방식)
-    if holding_years > 0 and equity_safe > 0:
-        total_value = equity_safe + net_profit
-        if total_value > 0:
-            annual_roi = round((math.pow(total_value / equity_safe, 1 / holding_years) - 1) * 100, 2)
-        else:
-            annual_roi = -100.0  # 원금 전액 손실 (CAGR 정의 불가)
+    # 양도세: 필요경비 = 취득비용 + 매도 중개보수
+    if residence_years is None:
+        residence_years = 0 if is_rental else holding_years
+    cgt = calc_capital_gains_tax(
+        purchase_price, expected_price, holding_years,
+        owned_homes=owned_homes,
+        expenses=total_acquisition_cost + sale_brokerage,
+        residence_years=residence_years,
+    )
+
+    pre_tax_profit = capital_gain + total_rental - total_interest - total_acquisition_cost
+    net_profit     = pre_tax_profit - cgt["tax"] - holding_tax_total - sale_brokerage
+
+    # ── 수익률 (무자본 갭투자 왜곡 방지) ──
+    if equity <= 0:
+        equity_roi, annual_roi, infinite = 0.0, 0.0, True
     else:
-        annual_roi = 0.0
+        infinite   = False
+        equity_roi = round(net_profit / equity * 100, 2)
+        total_value = equity + net_profit
+        if holding_years > 0 and total_value > 0:
+            annual_roi = round((math.pow(total_value / equity, 1 / holding_years) - 1) * 100, 2)
+        elif total_value <= 0:
+            annual_roi = -100.0  # 원금 전액 손실 (CAGR 정의 불가)
+        else:
+            annual_roi = 0.0
 
     return ScenarioResult(
         annual_growth_rate  = round(annual_growth_rate, 2),
@@ -366,6 +409,12 @@ def calc_scenario(
         equity_roi          = equity_roi,
         annual_equity_roi   = annual_roi,
         rental_yield        = rental_yield,
+        pre_tax_profit      = pre_tax_profit,
+        capital_gains_tax   = cgt["tax"],
+        holding_tax_total   = holding_tax_total,
+        sale_brokerage_fee  = sale_brokerage,
+        cgt_note            = cgt["note"],
+        infinite_leverage   = infinite,
     )
 
 
@@ -412,6 +461,15 @@ def run_simulation(inp: SimulationInput) -> SimulationResult:
         inp.repayment_type,
     )
 
+    # ── 보유세용 공시가격 (미입력 시 시세 × 현실화율 추정) ──
+    is_housing = not any(kw in (inp.property_type or "") for kw in _COMMERCIAL_TYPES)
+    if inp.official_price:
+        official_price, official_estimated = inp.official_price, False
+    elif is_housing:
+        official_price, official_estimated = estimate_official_price(inp.purchase_price), True
+    else:
+        official_price, official_estimated = 0, False   # 비주거: 보유세 간이 계산 제외
+
     # 시나리오 공통 인자
     _scenario_kwargs = dict(
         purchase_price         = inp.purchase_price,
@@ -419,16 +477,72 @@ def run_simulation(inp: SimulationInput) -> SimulationResult:
         holding_years          = inp.holding_years,
         total_acquisition_cost = acq.total,
         total_interest         = interest_during_holding,
-        rent_fee           = inp.rent_fee,
-        rent_deposit         = inp.rent_deposit,
+        rent_fee               = inp.rent_fee,
+        rent_deposit           = inp.rent_deposit,
+        jeonse_opportunity_rate = inp.jeonse_opportunity_rate,
+        owned_homes            = inp.owned_homes if is_housing else 99,   # 비주거: 양도세 일반과세 경로
+        official_price         = official_price,
+        vacancy_rate           = inp.vacancy_rate,
+        residence_years        = inp.residence_years,
     )
 
     base_rate = inp.expected_annual_growth_rate
     spread    = inp.scenario_spread
-    opp_rate  = inp.jeonse_opportunity_rate
-    scenario_base = calc_scenario(annual_growth_rate=base_rate,          jeonse_opportunity_rate=opp_rate, **_scenario_kwargs)
-    scenario_bull = calc_scenario(annual_growth_rate=base_rate + spread,  jeonse_opportunity_rate=opp_rate, **_scenario_kwargs)
-    scenario_bear = calc_scenario(annual_growth_rate=base_rate - spread,  jeonse_opportunity_rate=opp_rate, **_scenario_kwargs)
+    scenario_base = calc_scenario(annual_growth_rate=base_rate,          **_scenario_kwargs)
+    scenario_bull = calc_scenario(annual_growth_rate=base_rate + spread, **_scenario_kwargs)
+    scenario_bear = calc_scenario(annual_growth_rate=base_rate - spread, **_scenario_kwargs)
+
+    # ── 손익분기 상승률 (세후 순손익 = 0인 연 상승률, 이분탐색) ──
+    def _profit_at(growth: float) -> int:
+        return calc_scenario(annual_growth_rate=growth, **_scenario_kwargs).net_profit
+
+    breakeven: float | None = None
+    lo, hi = -20.0, 50.0
+    if _profit_at(lo) < 0 <= _profit_at(hi):
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            if _profit_at(mid) < 0:
+                lo = mid
+            else:
+                hi = mid
+        breakeven = round(hi, 2)
+
+    # ── 금리 × 성장률 민감도 (3×3, 세후 연환산 ROI) ──
+    sensitivity: list[RateSensitivityCell] = []
+    for g in (base_rate - spread, base_rate, base_rate + spread):
+        for r_delta in (-1.0, 0.0, 1.0):
+            rate = max(0.0, inp.annual_interest_rate + r_delta)
+            interest_r = calc_interest_during_holding(
+                inp.loan_amount, rate, inp.loan_years,
+                inp.holding_years, inp.repayment_type,
+            )
+            cell = calc_scenario(annual_growth_rate=g,
+                                 **{**_scenario_kwargs, "total_interest": interest_r})
+            sensitivity.append(RateSensitivityCell(
+                growth_rate       = round(g, 2),
+                interest_rate     = round(rate, 2),
+                annual_equity_roi = cell.annual_equity_roi,
+                net_profit        = cell.net_profit,
+            ))
+
+    # ── LTV·DSR 검증 ──
+    ltv = check_ltv(inp.purchase_price, inp.loan_amount,
+                    owned_homes=inp.owned_homes, adjusted_area=inp.adjusted_area)
+    fc = FinanceCheck(
+        ltv          = ltv["ltv"],
+        ltv_limit    = ltv["limit"],
+        ltv_exceeded = ltv["exceeded"],
+        ltv_max_loan = ltv["max_loan_amount"],
+    )
+    if inp.annual_income and inp.loan_amount > 0:
+        dsr = check_dsr(inp.loan_amount, inp.annual_interest_rate, inp.loan_years,
+                        inp.annual_income, inp.existing_loan_annual_payment)
+        fc.dsr                = dsr["dsr"]
+        fc.dsr_limit          = dsr["limit"]
+        fc.dsr_exceeded       = dsr["exceeded"]
+        fc.stress_rate        = dsr["stress_rate"]
+        fc.dsr_annual_payment = dsr["annual_payment"]
+        fc.dsr_max_loan       = dsr["max_loan_amount"]
 
     return SimulationResult(
         purchase_price   = inp.purchase_price,
@@ -441,4 +555,10 @@ def run_simulation(inp: SimulationInput) -> SimulationResult:
         scenario_base    = scenario_base,
         scenario_bull    = scenario_bull,
         scenario_bear    = scenario_bear,
+        tax_rules_as_of          = TAX_RULES_AS_OF,
+        official_price_used      = official_price,
+        official_price_estimated = official_estimated,
+        finance_check            = fc,
+        breakeven_growth_rate    = breakeven,
+        rate_sensitivity         = sensitivity,
     )

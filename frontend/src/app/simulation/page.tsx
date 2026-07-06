@@ -42,11 +42,31 @@ export default function SimulationPage() {
   const [mgmtFeeStr, setMgmtFeeStr] = useState("");
   const [ownedHomes, setOwnedHomes] = useState(1);
 
+  // 세금·규제 입력
+  const [annualIncomeStr, setAnnualIncomeStr] = useState("");   // 연소득 (DSR, 선택)
+  const [vacancyRate, setVacancyRate] = useState(5);
+  const [adjustedArea, setAdjustedArea] = useState(false);
+  const [officialPriceStr, setOfficialPriceStr] = useState(""); // 공시가격 (선택)
+
+  const [rateSource, setRateSource] = useState("");             // ECOS 금리 출처
+
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [report, setReport] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState("");
   const [tab, setTab]       = useState(0);
+
+  // 최신 주담대 평균금리 자동 세팅 (한국은행 ECOS)
+  useEffect(() => {
+    api.marketRate()
+      .then(r => {
+        if (r.is_live) {
+          setInterestRate(r.rate);
+          setRateSource(r.source);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // 추천 페이지에서 매물 자동입력
   useEffect(() => {
@@ -83,6 +103,10 @@ export default function SimulationPage() {
         rent_deposit: rentalMode === "전세" && depositStr ? parsePrice(depositStr) : undefined,
         rent_fee: rentalMode === "월세" && rentFeeStr ? parseInt(rentFeeStr) : undefined,
         monthly_management_fee: mgmtFeeStr ? parseInt(mgmtFeeStr) : undefined,
+        official_price: officialPriceStr ? parsePrice(officialPriceStr) : undefined,
+        vacancy_rate: vacancyRate,
+        adjusted_area: adjustedArea,
+        annual_income: annualIncomeStr ? parsePrice(annualIncomeStr) : undefined,
       };
       const res = await api.simulation(params) as { result?: SimulationResult; report?: string; error?: string };
       if (res.error) throw new Error(res.error);
@@ -147,6 +171,12 @@ export default function SimulationPage() {
                 <label className="block text-xs text-slate-500 mb-1">연 이율: {interestRate}%</label>
                 <input type="range" min={0} max={15} step={0.1} value={interestRate}
                   onChange={e => setInterestRate(parseFloat(Number(e.target.value).toFixed(1)))} className="w-full" />
+                {rateSource && <p className="text-[10px] text-blue-500 mt-0.5">📡 {rateSource} 자동 반영</p>}
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">연소득 (선택 — DSR 검증)</label>
+                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="예: 8000만"
+                  value={annualIncomeStr} onChange={e => setAnnualIncomeStr(e.target.value)} />
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">대출 기간: {loanYears}년</label>
@@ -204,11 +234,33 @@ export default function SimulationPage() {
                     value={rentFeeStr} onChange={e => setRentFeeStr(e.target.value)} />
                 </div>
               )}
+              {rentalMode === "월세" && (
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">공실률: {vacancyRate}%</label>
+                  <input type="range" min={0} max={30} value={vacancyRate}
+                    onChange={e => setVacancyRate(Number(e.target.value))} className="w-full" />
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-slate-500 mb-1">월 관리비 (원)</label>
                 <input type="number" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="예: 200000"
                   value={mgmtFeeStr} onChange={e => setMgmtFeeStr(e.target.value)} />
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-5">
+            <h2 className="font-semibold mb-4 text-slate-700">세금 산정 (선택)</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">공시가격 (보유세 산정 — 미입력 시 시세로 추정)</label>
+                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="예: 5억"
+                  value={officialPriceStr} onChange={e => setOfficialPriceStr(e.target.value)} />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={adjustedArea} onChange={e => setAdjustedArea(e.target.checked)} />
+                조정대상지역 (LTV 강화 적용)
+              </label>
             </div>
           </div>
 
@@ -232,6 +284,34 @@ export default function SimulationPage() {
 
           {tab === 0 && (
             <div className="space-y-4">
+              {/* LTV·DSR 규제 검증 배너 */}
+              {result.finance_check && result.loan_amount > 0 && (
+                <div className={`rounded-xl p-4 text-sm border ${
+                  result.finance_check.ltv_exceeded || result.finance_check.dsr_exceeded
+                    ? "bg-red-50 border-red-300 text-red-800"
+                    : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                }`}>
+                  <div className="font-semibold mb-1">
+                    {result.finance_check.ltv_exceeded || result.finance_check.dsr_exceeded
+                      ? "⛔ 대출 규제 한도 초과 — 이 조건의 대출은 실행이 어렵습니다"
+                      : "✅ 대출 규제 검증 통과"}
+                  </div>
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                    <span>
+                      LTV {(result.finance_check.ltv * 100).toFixed(1)}% / 한도 {(result.finance_check.ltv_limit * 100).toFixed(0)}%
+                      {result.finance_check.ltv_exceeded && ` (최대 ${fmt(result.finance_check.ltv_max_loan)})`}
+                    </span>
+                    {result.finance_check.dsr != null && (
+                      <span>
+                        DSR {(result.finance_check.dsr * 100).toFixed(1)}% / 한도 40%
+                        (스트레스 금리 {result.finance_check.stress_rate}%)
+                        {result.finance_check.dsr_exceeded && ` — 최대 ${fmt(result.finance_check.dsr_max_loan)}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* 핵심 지표 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
@@ -305,9 +385,13 @@ export default function SimulationPage() {
                         ["연 상승률",      (s: ScenarioResult) => `${s.annual_growth_rate.toFixed(1)}%`],
                         ["예상 매도가",    (s: ScenarioResult) => fmt(s.expected_sale_price)],
                         ["시세 차익",      (s: ScenarioResult) => `${signLabel(s.capital_gain)} ${fmt(Math.abs(s.capital_gain))}`],
-                        ["순손익",         (s: ScenarioResult) => `${signLabel(s.net_profit)} ${fmt(Math.abs(s.net_profit))}`],
-                        ["자기자본 수익률",(s: ScenarioResult) => fmtPct(s.equity_roi)],
-                        ["연환산 수익률",  (s: ScenarioResult) => fmtPct(s.annual_equity_roi)],
+                        ["세전 순손익",    (s: ScenarioResult) => `${signLabel(s.pre_tax_profit)} ${fmt(Math.abs(s.pre_tax_profit))}`],
+                        ["양도소득세",     (s: ScenarioResult) => s.capital_gains_tax ? `−${fmt(s.capital_gains_tax)}` : "0원 (비과세)"],
+                        ["보유세 합계",    (s: ScenarioResult) => `−${fmt(s.holding_tax_total)}`],
+                        ["매도 중개보수",  (s: ScenarioResult) => `−${fmt(s.sale_brokerage_fee)}`],
+                        ["세후 순손익",    (s: ScenarioResult) => `${signLabel(s.net_profit)} ${fmt(Math.abs(s.net_profit))}`],
+                        ["자기자본 수익률",(s: ScenarioResult) => s.infinite_leverage ? "무한 레버리지" : fmtPct(s.equity_roi)],
+                        ["연환산 수익률",  (s: ScenarioResult) => s.infinite_leverage ? "—" : fmtPct(s.annual_equity_roi)],
                       ] as [string, (s: ScenarioResult) => string][]
                     ).map(([label, getter]) => (
                       <tr key={label}>
@@ -321,13 +405,85 @@ export default function SimulationPage() {
                 </table>
               </div>
 
-              {/* 투자 판단 */}
-              <div className={`rounded-xl p-4 font-semibold text-center ${verdictStyle(result.scenario_base.annual_equity_roi)}`}>
-                {result.scenario_base.annual_equity_roi >= 10 && "✅ 우수한 투자 수익률 (연 10% 이상)"}
-                {result.scenario_base.annual_equity_roi >= 5 && result.scenario_base.annual_equity_roi < 10 && "🟡 양호한 투자 수익률 (연 5~10%)"}
-                {result.scenario_base.annual_equity_roi >= 0 && result.scenario_base.annual_equity_roi < 5 && "🟠 낮은 수익률 (연 0~5%)"}
-                {result.scenario_base.annual_equity_roi < 0 && "🔴 마이너스 수익률 — 투자 재검토 필요"}
+              {/* 세금 근거 + 손익분기 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl shadow p-5 text-sm">
+                  <h3 className="font-semibold mb-2">세금 산정 근거</h3>
+                  <p className="text-xs text-slate-500 mb-1">{result.scenario_base.cgt_note}</p>
+                  <p className="text-xs text-slate-400">
+                    보유세 공시가격: {fmt(result.official_price_used)}
+                    {result.official_price_estimated && " (시세×현실화율 추정)"}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">세법 기준일: {result.tax_rules_as_of} · 간이 계산</p>
+                </div>
+                {result.breakeven_growth_rate != null && (
+                  <div className="bg-white rounded-xl shadow p-5 text-sm">
+                    <h3 className="font-semibold mb-2">손익분기 상승률</h3>
+                    <p className="text-2xl font-bold text-blue-700">연 {result.breakeven_growth_rate}%</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      모든 비용·세금 회수에 필요한 최소 연 상승률
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {/* 금리 × 상승률 민감도 */}
+              {result.rate_sensitivity.length > 0 && (() => {
+                const rates   = [...new Set(result.rate_sensitivity.map(c => c.interest_rate))].sort((a, b) => a - b);
+                const growths = [...new Set(result.rate_sensitivity.map(c => c.growth_rate))].sort((a, b) => a - b);
+                const cell = (g: number, r: number) =>
+                  result.rate_sensitivity.find(c => c.growth_rate === g && c.interest_rate === r);
+                const roiColor = (v: number) =>
+                  v >= 10 ? "bg-green-100 text-green-800" :
+                  v >= 5  ? "bg-green-50 text-green-700" :
+                  v >= 0  ? "bg-yellow-50 text-yellow-700" : "bg-red-50 text-red-600";
+                return (
+                  <div className="bg-white rounded-xl shadow overflow-hidden">
+                    <h3 className="font-semibold p-4 pb-2">금리 × 상승률 민감도 <span className="text-xs font-normal text-slate-400">(세후 연환산 수익률)</span></h3>
+                    <table className="w-full text-sm mb-2">
+                      <thead>
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs text-slate-500">상승률 \ 금리</th>
+                          {rates.map(r => <th key={r} className="px-4 py-2 text-center text-xs text-slate-500">{r}%</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {growths.map(g => (
+                          <tr key={g}>
+                            <td className="px-4 py-2 text-xs text-slate-500">연 {g >= 0 ? "+" : ""}{g.toFixed(1)}%</td>
+                            {rates.map(r => {
+                              const c = cell(g, r);
+                              return (
+                                <td key={r} className="px-2 py-1.5 text-center">
+                                  {c ? (
+                                    <span className={`inline-block w-full rounded px-2 py-1 text-xs font-medium ${roiColor(c.annual_equity_roi)}`}>
+                                      {fmtPct(c.annual_equity_roi)}
+                                    </span>
+                                  ) : "—"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+
+              {/* 투자 판단 */}
+              {result.scenario_base.infinite_leverage ? (
+                <div className="rounded-xl p-4 font-semibold text-center bg-purple-100 text-purple-700">
+                  ♾️ 무한 레버리지 (실투자금 ≤ 0) — 수익률 정의 불가 · 역전세 시 보증금 반환 리스크 주의
+                </div>
+              ) : (
+                <div className={`rounded-xl p-4 font-semibold text-center ${verdictStyle(result.scenario_base.annual_equity_roi)}`}>
+                  {result.scenario_base.annual_equity_roi >= 10 && "✅ 우수한 투자 수익률 (세후 연 10% 이상)"}
+                  {result.scenario_base.annual_equity_roi >= 5 && result.scenario_base.annual_equity_roi < 10 && "🟡 양호한 투자 수익률 (세후 연 5~10%)"}
+                  {result.scenario_base.annual_equity_roi >= 0 && result.scenario_base.annual_equity_roi < 5 && "🟠 낮은 수익률 (세후 연 0~5%)"}
+                  {result.scenario_base.annual_equity_roi < 0 && "🔴 마이너스 수익률 — 투자 재검토 필요"}
+                </div>
+              )}
             </div>
           )}
 

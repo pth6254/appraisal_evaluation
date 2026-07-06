@@ -219,7 +219,8 @@ property_concierge/
 | `POST` | `/api/auth/logout` | 로그아웃 |
 | `POST` | `/api/recommendation` | 샘플 매물 추천 실행 |
 | `POST` | `/api/recommendation/complexes` | **실거래 기반 단지 추천 (전국)** |
-| `POST` | `/api/simulation` | 투자 시뮬레이션 실행 |
+| `POST` | `/api/simulation` | 투자 시뮬레이션 실행 (세후·DSR·민감도 포함) |
+| `GET` | `/api/simulation/market-rate` | 최신 주담대 평균금리 (한국은행 ECOS) |
 | `POST` | `/api/comparison` | 매물 비교 실행 |
 | `GET` | `/api/history` | 시세추정 이력 목록 (사용자별) |
 | `GET` | `/api/history/{id}` | 저장된 리포트 1건 (영속 리포트 데이터 소스) |
@@ -278,6 +279,7 @@ PropertyQuery (지역·예산·면적·유형)
 | `KAKAO_REST_API_KEY` | 지오코딩 + 주변시설 | [developers.kakao.com](https://developers.kakao.com) |
 | `MOLIT_API_KEY` | 국토부 실거래가 | [data.go.kr](https://www.data.go.kr) |
 | `RBONE_API_KEY` (또는 `REB_API_KEY`) | 부동산원 R-ONE 월간지수 — 시점수정 정밀화 (선택) | [reb.or.kr/r-one](https://www.reb.or.kr/r-one/portal/openapi/openApiIntroPage.do) |
+| `ECOS_API_KEY` | 한국은행 금리 — 시뮬레이션 금리 자동 세팅 (선택, 없으면 sample 키 시도) | [ecos.bok.or.kr](https://ecos.bok.or.kr) |
 | `TAVILY_API_KEY` | 웹 시세 검색 (선택) | [tavily.com](https://tavily.com) |
 | `VWORLD_API_KEY` | 토지 용도지역 (선택) | [vworld.kr](https://www.vworld.kr) |
 | `GOOGLE_CLIENT_ID/SECRET` | Google OAuth (선택) | [console.cloud.google.com](https://console.cloud.google.com) |
@@ -410,27 +412,33 @@ python backend/tools/backtest_avm.py --regions 서초구 --target-months 3
 
 ## 투자 시뮬레이션 모델
 
-외부 API 호출 없는 순수 계산 엔진 (`simulation_tool.py`).
+순수 계산 엔진 (`simulation_tool.py`) + 법령 규칙 테이블 (`tax_rules.py`, 기준일 명시) + 한국은행 금리 (`bok_rates.py`).
 
 ```
 SimulationResult
 ├── acquisition_cost   취득세 + 중개보수 + 기타 비용
-├── required_cash      매수가 − 대출 + 취득비용
-├── equity             실투자금 = 필요 현금 − 전세 보증금
-├── loan               월 상환액 / 총 이자 (원리금균등·원금균등·만기일시)
-├── cash_flow          월 임대수입 − 월 상환 − 관리비
-└── scenario_base/bull/bear   성장률 ±spread 3개 시나리오 수익률
+├── required_cash / equity / loan / cash_flow
+├── scenario_base/bull/bear   성장률 ±spread — 세후 순손익
+│     └── 세전 순손익 − 양도소득세 − 보유세(재산세+종부세) − 매도 중개보수
+├── finance_check      LTV·스트레스 DSR 검증 (연소득 입력 시)
+├── breakeven_growth_rate   세후 손익분기 연 상승률 (이분탐색)
+└── rate_sensitivity   금리(±1%p) × 상승률(±spread) 3×3 민감도
 ```
 
-### 취득세 간이 세율 (취득세 + 지방교육세)
+### 세금·규제 규칙 (`tax_rules.py` — 세법 기준일 명시, 골든 테스트로 개정 감지)
 
-| 매수가 구간 | 1주택 | 다주택 | 비주거 |
-|------------|-------|--------|--------|
-| 6억 이하 | 1.1% | 중과 | 4.4% |
-| 6억~9억 | 2.2% | 중과 | 4.4% |
-| 9억 초과 | 3.3% | 중과 | 4.4% |
+| 항목 | 규칙 | 데이터 |
+|------|------|--------|
+| 양도소득세 | 1주택 12억 비과세·고가 안분·장특공(최대 80%)·단기 70/60%·누진 6~45%·지방세 10% | 법령 테이블 |
+| 보유세 | 재산세(공정시장가액비율·1주택 특례세율) + 종부세(공제 12억/9억) — 연도별 합산 | 공시가격 (입력 or 시세×현실화율 추정) |
+| 취득세 | 1주택 1.1~3.3% / 2주택 8% / 3주택+ 12% / 비주거 4.4% | 법령 테이블 |
+| DSR | 스트레스 금리(+1.5%p) 원리금균등 환산, 한도 40%, 가능 대출액 역산 | 연소득 (사용자 입력) |
+| LTV | 무주택·1주택 70% / 다주택 60% / 조정지역 50%·30% | 규정 테이블 |
+| 공실률 | 월세 수입 × (1 − 공실률), 기본 5% | 사용자 입력 |
+| 금리 기본값 | 예금은행 주담대 가중평균금리 (월별, 24h 캐시) | **한국은행 ECOS** (`ECOS_API_KEY`, 없으면 4.0% 폴백) |
 
-> ⚠️ 간이 계산 — 실제 세율은 취득 시점·조정대상지역 여부에 따라 달라진다.
+> ⚠️ 간이 계산 — 감면 특례·1세대 판정 등 개별 사정 미반영. 실제 세액은 세무사 상담 필요.
+> 무자본 갭투자(실투자금 ≤ 0)는 수익률 대신 "무한 레버리지"로 표시하고 역전세 리스크를 경고한다.
 
 ---
 

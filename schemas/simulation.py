@@ -46,6 +46,16 @@ class SimulationInput(BaseModel):
     property_type: Optional[str] = Field("아파트", description="매물 유형 (아파트·오피스텔·상가·토지 등)")
     owned_homes: int = Field(1, ge=1, description="현재 보유 주택 수 (취득 전 기준, 주거용 취득세 중과 산정용)")
 
+    # 세금 산정 (양도세·보유세)
+    official_price: Optional[int] = Field(None, ge=0, description="공시가격 (원, 보유세 산정용). None이면 시세×현실화율로 추정")
+    residence_years: Optional[int] = Field(None, ge=0, description="거주 연수 (1주택 장특공 거주분). None이면 임대 여부로 자동 판단")
+    vacancy_rate: float = Field(5.0, ge=0.0, le=50.0, description="월세 공실률 (%, 기본 5%)")
+    adjusted_area: bool = Field(False, description="조정대상지역 여부 (LTV·취득세 중과)")
+
+    # DSR 검증 (선택)
+    annual_income: Optional[int] = Field(None, ge=0, description="연소득 (원). 입력 시 DSR 검증 수행")
+    existing_loan_annual_payment: int = Field(0, ge=0, description="기존 대출 연 원리금 상환액 (원)")
+
     # 시나리오 설정
     scenario_spread: float = Field(5.0, ge=1.0, le=20.0, description="강세/약세 시나리오 편차 (%p, 기본 ±5%p)")
     jeonse_opportunity_rate: float = Field(3.5, ge=0.0, le=20.0, description="전세 보증금 기회수익률 (%, 기본 3.5% — 정기예금 기준)")
@@ -89,15 +99,46 @@ class CashFlowSummary(BaseModel):
 
 
 class ScenarioResult(BaseModel):
-    """단일 시나리오 수익성 결과"""
+    """단일 시나리오 수익성 결과 (net_profit은 세후)"""
     annual_growth_rate: float       # 적용된 연간 상승률 (%)
     expected_sale_price: int        # 보유 기간 후 예상 매도가 (원)
     capital_gain: int               # 시세 차익 = 매도가 − 매수가 (원)
-    total_rental_income: int        # 보유 기간 총 임대 수입 (원)
-    net_profit: int                 # 순손익 (원)
-    equity_roi: float               # 자기자본 수익률 (%)
-    annual_equity_roi: float        # 연환산 자기자본 수익률 (%)
+    total_rental_income: int        # 보유 기간 총 임대 수입 (공실률 반영, 원)
+    net_profit: int                 # 세후 순손익 (원)
+    equity_roi: float               # 자기자본 수익률 (%, 세후)
+    annual_equity_roi: float        # 연환산 자기자본 수익률 (%, 세후)
     rental_yield: float             # 연 임대 수익률 = 연 임대수입 / 매수가 × 100 (%)
+
+    # 세금·매도비용 내역 (tax_rules.py 기준)
+    pre_tax_profit: int = 0         # 세전 순손익 (원)
+    capital_gains_tax: int = 0      # 양도소득세 (지방소득세 포함, 원)
+    holding_tax_total: int = 0      # 보유 기간 재산세+종부세 합계 (원)
+    sale_brokerage_fee: int = 0     # 매도 중개보수 (원)
+    cgt_note: str = ""              # 양도세 적용 근거 (비과세·장특공 등)
+    infinite_leverage: bool = False # 실투자금 ≤ 0 (무자본 갭투자) — ROI 정의 불가
+
+
+class FinanceCheck(BaseModel):
+    """LTV·DSR 규제 검증 (tax_rules.py 규정 테이블 기준)"""
+    ltv: float                      # 신청 LTV 비율
+    ltv_limit: float                # 규제 한도
+    ltv_exceeded: bool
+    ltv_max_loan: int               # LTV 한도 내 최대 대출액 (원)
+
+    dsr: Optional[float] = None     # 연소득 입력 시에만
+    dsr_limit: float = 0.40
+    dsr_exceeded: bool = False
+    stress_rate: Optional[float] = None       # 스트레스 금리 (%)
+    dsr_annual_payment: Optional[int] = None  # 스트레스 기준 연 상환액 (원)
+    dsr_max_loan: Optional[int] = None        # DSR 한도 내 최대 대출액 (원)
+
+
+class RateSensitivityCell(BaseModel):
+    """성장률 × 금리 민감도 셀"""
+    growth_rate: float
+    interest_rate: float
+    annual_equity_roi: float
+    net_profit: int
 
 
 # ─────────────────────────────────────────
@@ -126,3 +167,11 @@ class SimulationResult(BaseModel):
     scenario_base: ScenarioResult   # 입력 growth_rate 그대로
     scenario_bull: ScenarioResult   # growth_rate + 5%p
     scenario_bear: ScenarioResult   # growth_rate − 5%p
+
+    # 세금·규제·민감도 (tax_rules.py)
+    tax_rules_as_of: str = ""                       # 세법·규정 기준일
+    official_price_used: int = 0                    # 보유세 산정에 쓴 공시가격 (원)
+    official_price_estimated: bool = False          # True면 시세×현실화율 추정치
+    finance_check: Optional[FinanceCheck] = None    # LTV·DSR 검증
+    breakeven_growth_rate: Optional[float] = None   # 세후 손익분기 연 상승률 (%)
+    rate_sensitivity: list[RateSensitivityCell] = []  # 성장률×금리 3×3

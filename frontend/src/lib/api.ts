@@ -93,6 +93,12 @@ export const api = {
   simulation: (params: SimulationRequest) =>
     req("/simulation", { method: "POST", body: JSON.stringify(params) }),
 
+  /** 최신 주담대 평균금리 (한국은행 ECOS) */
+  marketRate: () =>
+    req<{ rate: number; ym: string; source: string; is_live: boolean }>(
+      "/simulation/market-rate"
+    ),
+
   comparison: (listings: object[], recommendationResults?: object[]) =>
     req("/comparison", {
       method: "POST",

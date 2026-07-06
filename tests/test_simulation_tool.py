@@ -375,11 +375,28 @@ class TestCalcScenario:
         expected = round(3_000_000 * 12 / 1_000_000_000 * 100, 2)
         assert s.rental_yield == expected
 
-    def test_net_profit_formula(self):
+    def test_pre_tax_profit_formula(self):
         kw = self._base_kwargs()
         s  = calc_scenario(**kw)
         expected = s.capital_gain + 0 - kw["total_interest"] - kw["total_acquisition_cost"]
-        assert s.net_profit == expected
+        assert s.pre_tax_profit == expected
+
+    def test_net_profit_is_after_tax(self):
+        """세후 순손익 = 세전 − 양도세 − 보유세 − 매도 중개보수."""
+        kw = self._base_kwargs()
+        s  = calc_scenario(**kw)
+        assert s.net_profit == (s.pre_tax_profit - s.capital_gains_tax
+                                - s.holding_tax_total - s.sale_brokerage_fee)
+
+    def test_vacancy_reduces_rental(self):
+        s_full = calc_scenario(**self._base_kwargs(rent_fee=2_000_000, vacancy_rate=0.0))
+        s_vac  = calc_scenario(**self._base_kwargs(rent_fee=2_000_000, vacancy_rate=10.0))
+        assert s_vac.total_rental_income == round(2_000_000 * 12 * 0.9) * 3
+        assert s_vac.total_rental_income < s_full.total_rental_income
+
+    def test_infinite_leverage_flag(self):
+        s = calc_scenario(**self._base_kwargs(equity=0))
+        assert s.infinite_leverage and s.equity_roi == 0.0
 
     def test_equity_roi_sign_matches_net_profit(self):
         s_pos = calc_scenario(**self._base_kwargs(annual_growth_rate=10.0))

@@ -81,10 +81,36 @@ export interface ScenarioResult {
   expected_sale_price: number;
   capital_gain: number;
   total_rental_income: number;
-  net_profit: number;
+  net_profit: number;              // 세후
   equity_roi: number;
   annual_equity_roi: number;
   rental_yield: number;
+  pre_tax_profit: number;
+  capital_gains_tax: number;
+  holding_tax_total: number;
+  sale_brokerage_fee: number;
+  cgt_note: string;
+  infinite_leverage: boolean;
+}
+
+export interface FinanceCheck {
+  ltv: number;
+  ltv_limit: number;
+  ltv_exceeded: boolean;
+  ltv_max_loan: number;
+  dsr?: number;
+  dsr_limit: number;
+  dsr_exceeded: boolean;
+  stress_rate?: number;
+  dsr_annual_payment?: number;
+  dsr_max_loan?: number;
+}
+
+export interface RateSensitivityCell {
+  growth_rate: number;
+  interest_rate: number;
+  annual_equity_roi: number;
+  net_profit: number;
 }
 
 export interface SimulationResult {
@@ -98,6 +124,12 @@ export interface SimulationResult {
   scenario_base: ScenarioResult;
   scenario_bull: ScenarioResult;
   scenario_bear: ScenarioResult;
+  tax_rules_as_of: string;
+  official_price_used: number;
+  official_price_estimated: boolean;
+  finance_check?: FinanceCheck;
+  breakeven_growth_rate?: number;
+  rate_sensitivity: RateSensitivityCell[];
 }
 
 export interface PropertyComparisonRow {
@@ -150,4 +182,10 @@ export interface SimulationRequest {
   monthly_management_fee?: number;
   property_type: string;
   owned_homes: number;
+  official_price?: number;
+  residence_years?: number;
+  vacancy_rate?: number;
+  adjusted_area?: boolean;
+  annual_income?: number;
+  existing_loan_annual_payment?: number;
 }

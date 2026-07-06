@@ -25,11 +25,26 @@ class SimulationRequest(BaseModel):
     monthly_management_fee: Optional[int] = None
     property_type: str = "아파트"
     owned_homes: int = Field(1, ge=1)
+    # 세금·규제 (선택)
+    official_price: Optional[int] = None            # 공시가격 (원)
+    residence_years: Optional[int] = None           # 거주 연수
+    vacancy_rate: float = Field(5.0, ge=0.0, le=50.0)
+    adjusted_area: bool = False                     # 조정대상지역
+    annual_income: Optional[int] = None             # 연소득 (원, DSR)
+    existing_loan_annual_payment: int = Field(0, ge=0)
 
 
 class SimulationFromListingRequest(BaseModel):
     listing_id: str
     overrides: Optional[dict] = None
+
+
+@router.get("/simulation/market-rate")
+async def get_market_rate():
+    """최신 주담대 평균금리 (한국은행 ECOS, 24h 캐시). 미연결 시 기본값."""
+    import asyncio as _asyncio
+    from backend.bok_rates import get_mortgage_rate
+    return await _asyncio.to_thread(get_mortgage_rate)
 
 
 @router.post("/simulation")
@@ -52,6 +67,12 @@ async def run_simulation_endpoint(req: SimulationRequest):
         monthly_management_fee      = req.monthly_management_fee,
         property_type               = req.property_type,
         owned_homes                 = req.owned_homes,
+        official_price              = req.official_price,
+        residence_years             = req.residence_years,
+        vacancy_rate                = req.vacancy_rate,
+        adjusted_area               = req.adjusted_area,
+        annual_income               = req.annual_income,
+        existing_loan_annual_payment = req.existing_loan_annual_payment,
     )
 
     logger.info("시뮬레이션 요청 — 매수가 %s원, 대출비율 %.0f%%", req.purchase_price, req.loan_ratio * 100)

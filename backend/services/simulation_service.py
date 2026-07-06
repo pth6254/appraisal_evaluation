@@ -296,12 +296,67 @@ def generate_simulation_report(
     lines.append(_row("시세 차익",      lambda s: f"{_sign_label(s.capital_gain)} {_fmt_won(abs(s.capital_gain))}"))
     if sm.total_rental_income:
         lines.append(_row("총 임대 수입",  lambda s: _fmt_won(s.total_rental_income)))
-    lines.append(_row("순손익",         lambda s: f"{_sign_label(s.net_profit)} {_fmt_won(abs(s.net_profit))}"))
-    lines.append(_row("자기자본 수익률", lambda s: _fmt_pct(s.equity_roi)))
-    lines.append(_row("연환산 수익률",  lambda s: _fmt_pct(s.annual_equity_roi)))
+    lines.append(_row("세전 순손익",    lambda s: f"{_sign_label(s.pre_tax_profit)} {_fmt_won(abs(s.pre_tax_profit))}"))
+    lines.append(_row("양도소득세",     lambda s: f"−{_fmt_won(s.capital_gains_tax)}"))
+    lines.append(_row("보유세 합계",    lambda s: f"−{_fmt_won(s.holding_tax_total)}"))
+    lines.append(_row("매도 중개보수",  lambda s: f"−{_fmt_won(s.sale_brokerage_fee)}"))
+    lines.append(_row("**세후 순손익**", lambda s: f"**{_sign_label(s.net_profit)} {_fmt_won(abs(s.net_profit))}**"))
+    lines.append(_row("자기자본 수익률", lambda s: "무한 레버리지" if s.infinite_leverage else _fmt_pct(s.equity_roi)))
+    lines.append(_row("연환산 수익률",  lambda s: "—" if s.infinite_leverage else _fmt_pct(s.annual_equity_roi)))
     if sm.rental_yield:
         lines.append(_row("임대 수익률",   lambda s: _fmt_pct_plain(s.rental_yield)))
     lines.append("")
+
+    # ── 세금 상세 ─────────────────────────────────────────────────────────
+    lines.append("## 세금 상세 (기본 시나리오)")
+    lines.append("")
+    lines.append(f"> 세법 기준일: {result.tax_rules_as_of} · {sm.cgt_note}")
+    if result.official_price_used:
+        est = " (시세×현실화율 추정)" if result.official_price_estimated else ""
+        lines.append(f"> 보유세 산정 공시가격: {_fmt_won(result.official_price_used)}{est}")
+    lines.append("")
+
+    # ── 대출 규제 검증 ────────────────────────────────────────────────────
+    fc = result.finance_check
+    if fc and result.loan_amount > 0:
+        lines.append("## 대출 규제 검증 (LTV·DSR)")
+        lines.append("")
+        lines.append("| 항목 | 값 | 한도 | 판정 |")
+        lines.append("|------|-----|------|------|")
+        ltv_verdict = "❌ 초과" if fc.ltv_exceeded else "✅ 충족"
+        lines.append(f"| LTV | {fc.ltv:.1%} | {fc.ltv_limit:.0%} | {ltv_verdict}"
+                     f" (한도 내 최대 {_fmt_won(fc.ltv_max_loan)}) |")
+        if fc.dsr is not None:
+            dsr_verdict = "❌ 초과" if fc.dsr_exceeded else "✅ 충족"
+            lines.append(f"| DSR (스트레스 {fc.stress_rate}%) | {fc.dsr:.1%} | {fc.dsr_limit:.0%} | {dsr_verdict}"
+                         f" (한도 내 최대 {_fmt_won(fc.dsr_max_loan or 0)}) |")
+        lines.append("")
+        if fc.ltv_exceeded or fc.dsr_exceeded:
+            lines.append("> ⚠️ **규제 한도 초과 — 이 조건의 대출은 실행이 어렵습니다.** 대출액을 줄이거나 조건을 조정하세요.")
+            lines.append("")
+
+    # ── 손익분기·민감도 ───────────────────────────────────────────────────
+    if result.breakeven_growth_rate is not None:
+        lines.append(f"## 손익분기 상승률: 연 {result.breakeven_growth_rate}%")
+        lines.append("")
+        lines.append(f"> 모든 비용·세금을 회수하려면 연 {result.breakeven_growth_rate}% 이상 상승해야 합니다.")
+        lines.append("")
+
+    if result.rate_sensitivity:
+        lines.append("## 금리 × 상승률 민감도 (세후 연환산 수익률)")
+        lines.append("")
+        rates   = sorted({c.interest_rate for c in result.rate_sensitivity})
+        growths = sorted({c.growth_rate for c in result.rate_sensitivity})
+        lines.append("| 상승률 \\ 금리 | " + " | ".join(f"{r}%" for r in rates) + " |")
+        lines.append("|" + "---|" * (len(rates) + 1))
+        cell_map = {(c.growth_rate, c.interest_rate): c for c in result.rate_sensitivity}
+        for g in growths:
+            row = [f"연 {g:+.1f}%"]
+            for r in rates:
+                c = cell_map.get((g, r))
+                row.append(_fmt_pct(c.annual_equity_roi) if c else "—")
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
 
     # ── 투자 판단 요약 ────────────────────────────────────────────────────
     lines.append("## 투자 판단 요약")
