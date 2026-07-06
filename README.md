@@ -276,6 +276,7 @@ PropertyQuery (지역·예산·면적·유형)
 |--------|------|--------|
 | `KAKAO_REST_API_KEY` | 지오코딩 + 주변시설 | [developers.kakao.com](https://developers.kakao.com) |
 | `MOLIT_API_KEY` | 국토부 실거래가 | [data.go.kr](https://www.data.go.kr) |
+| `RBONE_API_KEY` (또는 `REB_API_KEY`) | 부동산원 R-ONE 월간지수 — 시점수정 정밀화 (선택) | [reb.or.kr/r-one](https://www.reb.or.kr/r-one/portal/openapi/openApiIntroPage.do) |
 | `TAVILY_API_KEY` | 웹 시세 검색 (선택) | [tavily.com](https://tavily.com) |
 | `VWORLD_API_KEY` | 토지 용도지역 (선택) | [vworld.kr](https://www.vworld.kr) |
 | `GOOGLE_CLIENT_ID/SECRET` | Google OAuth (선택) | [console.cloud.google.com](https://console.cloud.google.com) |
@@ -353,11 +354,26 @@ state = run_comparison(listings=[...])
 | 출력물 | 산출 방식 |
 |--------|----------|
 | 추정 시장가치 | 인근 실거래 평균 ㎡당 단가 × 면적 (±10% 범위) |
-| 시점수정 | 유형별 월간 변동률 근사치로 거래 시점 보정 (`_TIME_ADJ_MONTHLY_RATE`) |
+| 시점수정 | **부동산원 월간 매매가격지수** (`RBONE_API_KEY` 설정 시, 시군구 단위) → 미공표·미지원 시 유형별 근사 변동률 폴백 |
 | 실거래 폴백 | 실거래 없을 시 공시가격 ÷ 현실화율 역산 (주거용) |
 | 고/저평가 판단 | (추정가 − 인근 평균) / 인근 평균 × 100 |
 | 투자 수익률 | 추정가 × 유형별 Cap Rate |
-| 신뢰도 | 비교사례 수·데이터 신선도 기반 (0.10 ~ 0.85) |
+| 신뢰도 | **다요인 모델 + 백테스트 보정** (`confidence.py`) — 매칭수준·표본수·산포(CV)·신선도·시점수정 방식 기반점에, 백테스트 실측 적중률(`data/avm_calibration.json`)을 버킷별로 블렌딩. 정의: "유사 조건에서 추정치가 실거래가 ±10% 이내에 들 확률" |
+| AI 분석 의견 | LLM 생성 + **수치 가드레일** (`opinion_guard.py`) — 컨텍스트로 주입한 수치 외의 숫자가 든 문장은 자동 삭제, 위반 시 1회 재시도 후 결정론적 폴백. 출력은 프로바이더 무관 OpinionOutput 스키마로 강제 |
+
+### 시점수정 상세 (부동산원 지수 기반)
+
+`backend/reb_index.py` — R-ONE OpenAPI `SttsApiTblData` 사용, 통계표 `A_2024_00045` (월간 아파트 매매가격지수, 시군구 단위).
+
+```
+시점수정 계수 = 기준시점 월 지수 / 거래 월 지수
+```
+
+- **지역 매칭**: 시군구 정확 매칭 (동명이구는 시도로 판별) → 시도 → 전국 순 폴백
+- **공표 시차 처리**: 지수는 익월 중순 공표 — 기준시점 월이 미공표면 최근 공표월까지 지수로 보정하고, 잔여 월수는 근사 변동률로 이어서 보정
+- **캐싱**: 월별 전 지역 지수를 `cache.db`에 캐시 (완결 월 30일 / 최근 월 24시간)
+- **동작 확인**: `python backend/reb_index.py 서초구` — 키 상태·지수 조회·계수 산출 진단
+- 통계표 교체: env `REB_STATBL_RESIDENTIAL` (주거용), `REB_STATBL_LAND` (토지)
 
 ### 비교사례 매칭 전략 (단계적 확장)
 
@@ -367,6 +383,21 @@ state = run_comparison(listings=[...])
 3) 구 전체 (3 → 6개월)
 4) 공시가격 역산 폴백 (주거용 한정)
 ```
+
+### 백테스트 (AVM 정확도 실측)
+
+`backend/tools/backtest_avm.py` — 대상 월 거래를 이전 데이터만으로 추정(홀드아웃)해
+실거래가와 비교하고, 버킷(매칭수준×표본수)별 적중률을 신뢰도 보정테이블로 저장한다.
+
+```bash
+python backend/tools/ingest_transactions.py --regions 서초구 --months 12 --yes
+python backend/tools/backtest_avm.py --regions 서초구 --target-months 3
+# → data/avm_calibration.json 생성 → confidence.py 가 자동 반영
+```
+
+서초구 434건 실측 예시: 동일단지 매칭은 ±10% 적중률 69~84%로 양호하지만,
+동일동/구 매칭은 8~33%에 불과 — 휴리스틱만으로는 과대평가되던 신뢰도가
+실측 기반으로 하향 보정된다.
 
 ### 유형별 Cap Rate
 
@@ -437,6 +468,6 @@ pytest tests/test_comparison_service.py   # 비교
 ## 알려진 제약
 
 - **작업 큐**는 인프로세스 메모리 기반 — 멀티 워커(uvicorn `--workers N`) 배포 시 Redis 등 외부 저장소로 교체 필요 (현재 docker-compose는 단일 워커)
-- **시점수정 계수**는 한국부동산원 장기 평균 근사치 — 정밀도를 높이려면 부동산원 월간지수 API 연동 필요
+- **시점수정**은 주거용·토지만 부동산원 지수 적용 — 상업·업무·산업용은 적합한 월간 시군구 지수가 없어 근사 변동률 사용. 주거용은 아파트 지수를 연립·단독에도 대표 적용
 - **매물 추천**은 샘플 CSV 기반 — 실서비스 전환 시 매물 데이터 소싱 필요
 - SQLite WAL 모드는 WSL `/mnt/c` 등 일부 파일시스템에서 미지원 — 자동으로 기본 저널 모드로 폴백함

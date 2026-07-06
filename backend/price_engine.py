@@ -57,8 +57,8 @@ def _empty_price_data(reason: str = "") -> dict:
 # ─────────────────────────────────────────
 
 # 부동산 유형별 월간 평균 가격변동률 (한국부동산원 장기 평균 근사치)
-# 실무에서는 한국부동산원 월간지수를 직접 사용해야 정확하나,
-# API 미연동 시 아래 기본값으로 근사 적용
+# REB_API_KEY 설정 시 부동산원 월간지수(reb_index.py)를 우선 사용하고,
+# 키 미설정·지수 미공표 시 아래 근사치로 폴백한다.
 _TIME_ADJ_MONTHLY_RATE: dict[str, float] = {
     "주거용": 0.003,   # 0.30%/월
     "상업용": 0.001,   # 0.10%/월
@@ -95,16 +95,33 @@ def _apply_time_adjustment(
     samples: list[dict],
     category: str,
     as_of: str,
+    region: str = "",
 ) -> tuple[list[dict], float]:
     """
     실거래 samples 각각에 시점수정 계수를 적용해 price를 보정.
 
+    계수 산출 우선순위:
+      1) 부동산원 월간지수 (REB_API_KEY 설정 시, reb_index.py)
+         — 지수 미공표 잔여 월수는 근사 변동률로 이어서 보정
+      2) 유형별 근사 월간 변동률 (폴백)
+
     반환:
-      samples  : price가 보정된 사본 (original_price 필드 추가)
-      monthly_rate: 적용된 월간 변동률
+      samples  : price가 보정된 사본 (original_price / time_adj_source 필드 추가)
+      monthly_rate: 폴백에 사용된 월간 변동률
     """
     rate = _TIME_ADJ_MONTHLY_RATE.get(category, _TIME_ADJ_DEFAULT_RATE)
+
+    # 부동산원 지수 사용 가능 여부
+    try:
+        import reb_index
+        use_reb = reb_index.is_enabled()
+    except Exception:
+        use_reb = False
+
+    as_of_ym = as_of[:6] if as_of and len(as_of) >= 6 else datetime.now().strftime("%Y%m")
+
     adjusted = []
+    reb_hits = 0
     for d in samples:
         s = dict(d)
         deal_ym = ""
@@ -115,14 +132,34 @@ def _apply_time_adjustment(
                 deal_ym = ""
 
         months = _months_between(deal_ym, as_of) if deal_ym else 0
-        factor = _time_adj_factor(months, rate)
+
+        factor = None
+        source = "approx"
+        if use_reb and deal_ym and months > 0:
+            r = reb_index.get_adj_factor(category, region, deal_ym, as_of_ym)
+            if r:
+                factor, desc = r
+                # 지수 공표 시차로 기준시점까지 못 미친 구간은 근사율로 이어서 보정
+                reached = reb_index.reached_ym(desc)
+                remain  = _months_between(reached, as_of) if reached else 0
+                if remain > 0:
+                    factor = round(factor * _time_adj_factor(remain, rate), 6)
+                source = "reb_index"
+                reb_hits += 1
+
+        if factor is None:
+            factor = _time_adj_factor(months, rate)
 
         s["original_price"]   = s["price"]
         s["time_adj_months"]  = months
         s["time_adj_factor"]  = factor
+        s["time_adj_source"]  = source
         if factor != 1.0 and s["price"] > 0:
             s["price"] = round(s["price"] * factor)
         adjusted.append(s)
+
+    if reb_hits:
+        print(f"[molit] 시점수정: 부동산원 지수 적용 {reb_hits}/{len(adjusted)}건 (기준 지역: {region or '전국'})")
     return adjusted, rate
 
 
@@ -631,8 +668,8 @@ def fetch_real_transaction_prices(
 
     apt_name_matched = all_parsed[0].get("apt_name", "") if apt_clean else ""
 
-    # ── 시점수정 적용 ─────────────────────────────────────────────────────
-    all_parsed, time_adj_rate = _apply_time_adjustment(all_parsed, category, as_of)
+    # ── 시점수정 적용 (부동산원 지수 우선, 근사율 폴백) ──────────────────
+    all_parsed, time_adj_rate = _apply_time_adjustment(all_parsed, category, as_of, region_2depth)
 
     prices = [d["price"] for d in all_parsed if d["price"] > 0]
     areas  = [d["area_sqm"] for d in all_parsed if d["area_sqm"] > 0]

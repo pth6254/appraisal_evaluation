@@ -43,13 +43,25 @@ class TestUnitConversion:
 # ─────────────────────────────────────────
 
 class TestCalcConfidence:
+    """confidence.compute_confidence 위임 후 기대값 (다요인 모델).
+
+    표본(samples)·매칭수준 미제공 시 기본 기반점 0.60에서
+    표본 수 가감만 적용된다. 보정테이블은 fixture로 비활성화.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_calibration(self, monkeypatch):
+        import confidence
+        monkeypatch.setattr(confidence, "CALIBRATION_PATH", "/nonexistent/calib.json")
+        monkeypatch.setattr(confidence, "_calibration_cache", None)
+
     @pytest.mark.parametrize("count,expected_range", [
-        (0,  (0.09, 0.11)),
-        (1,  (0.29, 0.31)),
-        (3,  (0.44, 0.46)),
-        (7,  (0.64, 0.66)),
-        (12, (0.79, 0.81)),
-        (25, (0.89, 0.91)),
+        (0,  (0.09, 0.11)),   # 데이터 없음 → 바닥
+        (1,  (0.41, 0.43)),   # 0.60 − 0.18
+        (3,  (0.51, 0.53)),   # 0.60 − 0.08
+        (7,  (0.59, 0.61)),   # 0.60
+        (12, (0.62, 0.64)),   # 0.60 + 0.03
+        (25, (0.64, 0.66)),   # 0.60 + 0.05
     ])
     def test_count_based_confidence(self, count, expected_range):
         data = {"avg": 50000, "count": count}
@@ -64,6 +76,28 @@ class TestCalcConfidence:
     def test_error_returns_010(self):
         data = {"avg": 0, "count": 0, "error": "API 오류"}
         assert _calc_confidence(data) == 0.10
+
+    def test_same_complex_samples_raise_confidence(self):
+        """동일 단지 표본 + 낮은 산포 → 기본값보다 높은 신뢰도."""
+        samples = [
+            {"apt_name": "래미안", "apt_name_matched": "래미안", "per_sqm": 5000, "dong": "반포동"},
+            {"apt_name": "래미안", "apt_name_matched": "래미안", "per_sqm": 5100, "dong": "반포동"},
+            {"apt_name": "래미안", "apt_name_matched": "래미안", "per_sqm": 4950, "dong": "반포동"},
+            {"apt_name": "래미안", "apt_name_matched": "래미안", "per_sqm": 5050, "dong": "반포동"},
+            {"apt_name": "래미안", "apt_name_matched": "래미안", "per_sqm": 5020, "dong": "반포동"},
+        ]
+        data = {"avg": 50000, "count": 5, "samples": samples}
+        assert _calc_confidence(data) >= 0.80
+
+    def test_high_dispersion_lowers_confidence(self):
+        """같은 조건에서 산포가 크면 신뢰도가 낮아진다."""
+        tight = [{"apt_name": "A", "apt_name_matched": "", "per_sqm": v, "dong": "d"}
+                 for v in (5000, 5050, 4950, 5020, 5010)]
+        wide  = [{"apt_name": "A", "apt_name_matched": "", "per_sqm": v, "dong": "d"}
+                 for v in (3000, 7000, 4500, 8000, 2500)]
+        c_tight = _calc_confidence({"avg": 50000, "count": 5, "samples": tight})
+        c_wide  = _calc_confidence({"avg": 50000, "count": 5, "samples": wide})
+        assert c_wide < c_tight
 
 
 # ─────────────────────────────────────────

@@ -140,11 +140,13 @@ def _is_fresh(fetched_at: float, deal_ym: str) -> bool:
 #  조회 / 적재
 # ─────────────────────────────────────────
 
-def get_month(endpoint: str, category: str, lawd_cd: str, deal_ym: str) -> list[dict] | None:
+def get_month(endpoint: str, category: str, lawd_cd: str, deal_ym: str,
+              ignore_ttl: bool = False) -> list[dict] | None:
     """
     적재된 월 데이터 반환.
     미적재 또는 TTL 만료 시 None (→ 호출측이 API 폴백).
     적재됐지만 거래 0건인 월은 빈 리스트 [] 반환 (유효한 결과).
+    ignore_ttl=True: 백테스트 등 과거 데이터 분석용 — 만료돼도 반환.
     """
     init_store()
     key = (endpoint, category, lawd_cd, deal_ym)
@@ -155,7 +157,7 @@ def get_month(endpoint: str, category: str, lawd_cd: str, deal_ym: str) -> list[
                    WHERE endpoint=? AND category=? AND lawd_cd=? AND deal_ym=?""",
                 key,
             ).fetchone()
-            if not log or not _is_fresh(log["fetched_at"], deal_ym):
+            if not log or (not ignore_ttl and not _is_fresh(log["fetched_at"], deal_ym)):
                 return None
 
             rows = con.execute(

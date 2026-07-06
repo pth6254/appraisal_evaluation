@@ -28,6 +28,7 @@ class ValuationResult(BaseModel):
     comparable_avg: int          = Field(default=0)
     comparable_count: int        = Field(default=0)
     comparables: list[dict]      = Field(default_factory=list)
+    used_months: int             = Field(default=0)   # 비교사례 조회에 사용된 개월 수
 
     cap_rate: float              = Field(default=0.0)
     annual_income: int           = Field(default=0)

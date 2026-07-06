@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m py_compile backend/cache_db.py api/auth_db.py api/history_db.py)"
+      "Bash(python -m py_compile backend/cache_db.py api/auth_db.py api/history_db.py)",
+      "WebFetch(domain:www.reb.or.kr)",
+      "Bash(curl -s \"https://www.reb.or.kr/r-one/openapi/SttsApiTblData.do?STATBL_ID=A_2024_00045&DTACYCLE_CD=MM&WRTTIME_IDTFR_ID=202605&Type=json&pIndex=1&pSize=3\")",
+      "WebSearch",
+      "Bash(curl -s \"https://www.reb.or.kr/r-one/openapi/SttsApiTbl.do?Type=json&pIndex=1&pSize=100\")",
+      "Bash(python -c ' *)",
+      "Bash(curl -s \"https://www.reb.or.kr/r-one/openapi/SttsApiTbl.do?Type=json&pIndex=1&pSize=5\")",
+      "Bash(curl -s \"https://www.reb.or.kr/r-one/openapi/SttsApiTblInfo.do?Type=json&pIndex=1&pSize=5\")"
     ]
   }
 }

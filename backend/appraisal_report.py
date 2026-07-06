@@ -63,17 +63,17 @@ def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":
     value_max  = result.get("value_max", 0) or 0
     comp_count = result.get("comparable_count", 0) or 0
     months     = result.get("used_months", 0) or 0
+    samples    = result.get("comparables") or []
 
-    # 신뢰도 간이 산출
-    if comp_count >= 5:   confidence = 0.85
-    elif comp_count >= 2: confidence = 0.65
-    elif comp_count >= 1: confidence = 0.45
-    else:                 confidence = 0.25
-
-    if months > 12:
-        confidence = max(confidence - 0.20, 0.10)
-    elif months > 6:
-        confidence = max(confidence - 0.10, 0.10)
+    # 신뢰도 — 다요인 산출 (매칭수준·표본수·산포·신선도·시점수정) + 백테스트 보정
+    from confidence import compute_confidence
+    conf = compute_confidence(
+        count       = comp_count,
+        samples     = samples or None,
+        used_months = months,
+        source      = result.get("source", "") or "",
+    )
+    confidence = conf["score"]
 
     # 공시가격 대비 비율
     official_land_price = result.get("official_land_price", 0) or 0
@@ -99,6 +99,16 @@ def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":
 
     appraisal_date_str = _dt.now().strftime("%Y년 %m월 %d일") + " (현재)"
 
+    # 비교사례 목록 — 요인보정 포함 변환 (서비스 로직 재사용)
+    comparables_out = []
+    if samples:
+        try:
+            from services.price_analysis_service import _to_comparables
+            apt_matched = samples[0].get("apt_name_matched", "") or ""
+            comparables_out = _to_comparables({"samples": samples}, apt_matched)
+        except Exception as e:
+            logger.warning("비교사례 변환 실패: %s", e)
+
     return AppraisalResult(
         estimated_price      = estimated * manwon if estimated else None,
         low_price            = value_min * manwon if value_min else None,
@@ -111,6 +121,7 @@ def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":
         build_year           = result.get("build_year") or None,
         exclusive_area_m2    = exclusive_area if exclusive_area > 0 else None,
         valuation_breakdown  = breakdown,
+        comparables          = comparables_out,
         legal_restrictions   = result.get("legal_restrictions", []) or [],
         development_plans    = result.get("development_plans", []) or [],
         warnings             = [],

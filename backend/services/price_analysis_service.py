@@ -131,42 +131,25 @@ def _to_comparables(
 
 def _calc_confidence(price_data: dict) -> float:
     """
-    실거래 건수·출처·데이터 신선도를 기반으로 신뢰도 산출.
+    신뢰도 산출 — confidence.compute_confidence 위임.
 
-    기준:
-      건수 20+       → 0.90
-      건수 10~19     → 0.80
-      건수 5~9       → 0.65
-      건수 2~4       → 0.45
-      건수 1         → 0.30
-      건수 0 or 오류 → 0.10
-    폴백 출처(공시가격·수익환원법·원가법) 사용 시 최대 0.40으로 제한.
-    데이터 노후 패널티: used_months > 12 → −0.15, > 6 → −0.07
+    다요인 모델: 매칭 수준(동일단지~폴백) 기반점 + 표본 수·산포(CV)·
+    신선도·시점수정 방식 가감. 백테스트 보정테이블
+    (data/avm_calibration.json)이 있으면 버킷별 실측 적중률과 블렌딩.
+    폴백 출처(공시가격·수익환원법·원가법)는 최대 0.40으로 제한.
     """
+    from confidence import compute_confidence
+
     if price_data.get("error") or price_data.get("avg", 0) == 0:
         return 0.10
 
-    count  = price_data.get("count", 0)
-    source = price_data.get("source", "")
-
-    if count >= 20:   base = 0.90
-    elif count >= 10: base = 0.80
-    elif count >= 5:  base = 0.65
-    elif count >= 2:  base = 0.45
-    elif count == 1:  base = 0.30
-    else:             base = 0.10
-
-    fallback_keywords = ["공시가격", "수익환원법", "원가법", "공시지가"]
-    if any(kw in source for kw in fallback_keywords):
-        base = min(base, 0.40)
-
-    months = price_data.get("used_months", 0) or 0
-    if months > 12:
-        base = max(base - 0.15, 0.10)
-    elif months > 6:
-        base = max(base - 0.07, 0.10)
-
-    return round(base, 2)
+    r = compute_confidence(
+        count       = price_data.get("count", 0),
+        samples     = price_data.get("samples") or None,
+        used_months = price_data.get("used_months", 0) or 0,
+        source      = price_data.get("source", "") or "",
+    )
+    return r["score"]
 
 
 # ─────────────────────────────────────────
