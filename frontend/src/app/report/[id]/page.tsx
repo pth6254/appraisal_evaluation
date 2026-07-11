@@ -38,7 +38,7 @@ export default function SavedReportPage() {
           <h2 className="font-semibold text-red-700 mb-2">리포트를 불러올 수 없습니다</h2>
           <p className="text-sm text-red-600">{error || "저장된 결과가 없습니다."}</p>
         </div>
-        <Link href="/dashboard" className="mt-4 inline-block text-sm text-blue-600 hover:underline">
+        <Link href="/dashboard" className="mt-4 inline-block text-sm text-primary hover:underline">
           ← 이력 대시보드
         </Link>
       </div>

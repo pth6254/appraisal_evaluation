@@ -116,6 +116,46 @@ export const api = {
 
   deleteAllHistory: () => req("/history", { method: "DELETE" }),
 
+  /** 등기부등본·건축물대장 PDF 권리관계 위험 점검 (PDF는 base64) */
+  rightsAnalyze: (params: {
+    registry_pdf_b64?: string;
+    building_pdf_b64?: string;
+    my_deposit?: number;
+    market_price?: number;
+  }) =>
+    req<{
+      error: string;
+      disclaimer: string;
+      risk_score: number;
+      risk_grade: "safe" | "caution" | "danger";
+      risk_label: string;
+      reasons: string[];
+      registry?: {
+        error: string; address: string; owner: string; has_summary: boolean;
+        critical: { keyword: string; description: string }[];
+        warnings: { keyword: string; description: string }[];
+        mortgage_total: number; mortgage_count: number;
+        senior_deposits: number; senior_count: number;
+      };
+      building?: { error: string; violation: boolean; main_use: string; approval_date: string };
+      deposit_safety?: {
+        available: boolean; senior_total: number; total_burden: number;
+        burden_ratio: number; grade: string; label: string;
+        expected_auction: number; expected_recovery: number; recovery_shortfall: number;
+        small_tenant: boolean;
+        small_tenant_rule: { region: string; limit: number; priority_amount: number };
+      };
+    }>("/rights/analyze", { method: "POST", body: JSON.stringify(params) }),
+
+  /** 부동산 법률·세금 AI 정보 안내 챗봇 */
+  chat: (message: string, history: { role: string; content: string }[] = []) =>
+    req<{
+      answer: string;
+      sources: { title: string; source: string }[];
+      tool_used: string | null;
+      disclaimer: string;
+    }>("/chat", { method: "POST", body: JSON.stringify({ message, history }) }),
+
   addressSearch: (query: string, type: "keyword" | "address" = "keyword") =>
     req<{ documents: object[]; meta: object }>(
       `/address/search?query=${encodeURIComponent(query)}&type=${type}`

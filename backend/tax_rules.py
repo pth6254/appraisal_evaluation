@@ -231,6 +231,107 @@ def estimate_official_price(market_price: int) -> int:
 
 
 # ═══════════════════════════════════════════
+#  2.5 상속세 · 증여세 (상속세 및 증여세법)
+# ═══════════════════════════════════════════
+
+# 상속·증여 공통 누진세율 — 상증세법 §26
+ESTATE_GIFT_BRACKETS = [
+    (100_000_000,    0.10, 0),
+    (500_000_000,    0.20, 10_000_000),
+    (1_000_000_000,  0.30, 60_000_000),
+    (3_000_000_000,  0.40, 160_000_000),
+    (INF,            0.50, 460_000_000),
+]
+
+# 증여재산공제 (10년 합산 기준) — 상증세법 §53
+GIFT_DEDUCTIONS = {
+    "배우자":       600_000_000,
+    "직계존속":     50_000_000,    # 부모→성인 자녀
+    "직계존속미성년": 20_000_000,  # 부모→미성년 자녀
+    "직계비속":     50_000_000,    # 자녀→부모
+    "기타친족":     10_000_000,
+    "타인":         0,
+}
+GIFT_MARRIAGE_EXTRA = 100_000_000   # 혼인·출산 증여공제 (직계존속, 2024~)
+
+INHERITANCE_LUMP_DEDUCTION      = 500_000_000   # 일괄공제 5억
+INHERITANCE_SPOUSE_MIN          = 500_000_000   # 배우자공제 최소 5억
+INHERITANCE_SPOUSE_MAX          = 3_000_000_000 # 배우자공제 최대 30억
+VOLUNTARY_REPORT_CREDIT         = 0.03          # 신고세액공제 3%
+
+
+def calc_gift_tax(
+    gift_value: int,
+    relation: str = "직계존속",       # 배우자/직계존속/직계존속미성년/직계비속/기타친족/타인
+    prior_gifts_10yr: int = 0,        # 동일인 10년 내 기존 증여액 (합산 과세)
+    marriage_deduction: bool = False, # 혼인·출산 증여공제 적용
+) -> dict:
+    """
+    증여세 간이 계산 (신고세액공제 3% 반영).
+
+    10년 합산: (기존 증여 + 이번 증여)를 합산해 세액 산출 후
+    기존 증여분 기납부세액을 공제하는 방식의 간이 근사.
+    """
+    deduction = GIFT_DEDUCTIONS.get(relation, 0)
+    if marriage_deduction and relation.startswith("직계존속"):
+        deduction += GIFT_MARRIAGE_EXTRA
+
+    def _tax_on(total_gift: int) -> int:
+        taxable = max(0, total_gift - deduction)
+        return _progressive_tax(taxable, ESTATE_GIFT_BRACKETS)
+
+    total_tax = _tax_on(prior_gifts_10yr + gift_value)
+    prior_tax = _tax_on(prior_gifts_10yr) if prior_gifts_10yr > 0 else 0
+    gross     = max(0, total_tax - prior_tax)
+    credit    = round(gross * VOLUNTARY_REPORT_CREDIT)
+
+    return {
+        "tax":            gross - credit,
+        "gross_tax":      gross,
+        "report_credit":  credit,
+        "deduction":      deduction,
+        "taxable":        max(0, prior_gifts_10yr + gift_value - deduction),
+        "note": f"{relation} 공제 {deduction:,}원"
+                + (f" · 10년 합산 {prior_gifts_10yr:,}원 반영" if prior_gifts_10yr else "")
+                + " · 신고세액공제 3%",
+    }
+
+
+def calc_inheritance_tax(
+    estate_value: int,
+    has_spouse: bool = True,
+    spouse_share: int = 0,      # 배우자 실제 상속액 (0이면 최소공제 5억)
+    debts: int = 0,             # 채무·공과금·장례비
+) -> dict:
+    """
+    상속세 간이 계산 (일괄공제 + 배우자공제 + 신고세액공제 3%).
+
+    간이 가정: 일괄공제 5억 적용 (기초공제+인적공제 대신),
+    배우자공제 = clamp(실제 상속액, 5억, 30억).
+    """
+    deduction = INHERITANCE_LUMP_DEDUCTION
+    spouse_ded = 0
+    if has_spouse:
+        spouse_ded = min(max(spouse_share, INHERITANCE_SPOUSE_MIN), INHERITANCE_SPOUSE_MAX)
+    deduction += spouse_ded
+
+    taxable = max(0, estate_value - debts - deduction)
+    gross   = _progressive_tax(taxable, ESTATE_GIFT_BRACKETS)
+    credit  = round(gross * VOLUNTARY_REPORT_CREDIT)
+
+    return {
+        "tax":           gross - credit,
+        "gross_tax":     gross,
+        "report_credit": credit,
+        "deduction":     deduction,
+        "spouse_deduction": spouse_ded,
+        "taxable":       taxable,
+        "note": f"일괄공제 5억" + (f" + 배우자공제 {spouse_ded:,}원" if spouse_ded else "")
+                + " · 신고세액공제 3%",
+    }
+
+
+# ═══════════════════════════════════════════
 #  3. DSR / LTV (금융위 총량규제)
 # ═══════════════════════════════════════════
 

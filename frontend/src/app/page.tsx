@@ -1,68 +1,83 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { HistoryItem } from "@/lib/types";
+import {
+  Search, Tag, MapPin, TrendingUp, Columns2, ShieldCheck,
+  MessageSquareText, ArrowRight, type LucideIcon,
+} from "lucide-react";
 
-const FEATURES = [
+type StageItem = { href: string; icon: LucideIcon; title: string; desc: string; cta: string };
+type Stage = { n: number; step: string; title: string; desc: string; items: StageItem[] };
+
+const STAGES: Stage[] = [
   {
-    href: "/appraisal",
-    icon: "🏠",
-    title: "AI 시세추정",
-    desc: "AI가 실거래가 기반으로 시세를 추정합니다",
-    border: "border-blue-200",
-    bg: "bg-blue-50 hover:bg-blue-100",
-    label: "text-blue-700",
+    n: 1, step: "매물 탐색", title: "좋은 물건 찾기",
+    desc: "실거래 데이터 기반으로 조건에 맞는 단지를 찾아드립니다.",
+    items: [
+      {
+        href: "/recommendation", icon: MapPin, title: "매물 추천",
+        desc: "예산·지역·평형 조건에 맞는 최적의 단지를 추천합니다.", cta: "시작하기",
+      },
+    ],
   },
   {
-    href: "/recommendation",
-    icon: "✨",
-    title: "매물 추천",
-    desc: "조건에 맞는 최적의 매물을 찾아드립니다",
-    border: "border-violet-200",
-    bg: "bg-violet-50 hover:bg-violet-100",
-    label: "text-violet-700",
+    n: 2, step: "가치 분석", title: "제값인지 확인하기",
+    desc: "시세·수익성·후보 간 비교로 가격의 근거를 만듭니다.",
+    items: [
+      {
+        href: "/appraisal", icon: Tag, title: "AI 시세추정",
+        desc: "실거래가 기반으로 적정 시세와 고·저평가 여부를 판단합니다.", cta: "시작하기",
+      },
+      {
+        href: "/simulation", icon: TrendingUp, title: "투자 시뮬레이션",
+        desc: "대출·세금을 반영해 수익성을 시나리오별로 검토합니다.", cta: "시작하기",
+      },
+      {
+        href: "/comparison", icon: Columns2, title: "매물 비교",
+        desc: "후보 여러 곳을 점수 기준으로 한눈에 비교합니다.", cta: "시작하기",
+      },
+    ],
   },
   {
-    href: "/simulation",
-    icon: "📈",
-    title: "투자 시뮬레이션",
-    desc: "수익성을 다양한 시나리오로 미리 검토합니다",
-    border: "border-emerald-200",
-    bg: "bg-emerald-50 hover:bg-emerald-100",
-    label: "text-emerald-700",
+    n: 3, step: "안전 점검", title: "계약 전 위험 거르기",
+    desc: "등기부등본으로 깡통전세·가압류 위험을 점검합니다.",
+    items: [
+      {
+        href: "/rights", icon: ShieldCheck, title: "권리관계 위험 점검",
+        desc: "등기부등본 PDF를 올리면 근저당·가압류 위험을 분석합니다.", cta: "시작하기",
+      },
+    ],
   },
   {
-    href: "/comparison",
-    icon: "⚖️",
-    title: "매물 비교",
-    desc: "여러 매물을 점수 기준으로 한눈에 비교합니다",
-    border: "border-orange-200",
-    bg: "bg-orange-50 hover:bg-orange-100",
-    label: "text-orange-700",
-  },
-  {
-    href: "/dashboard",
-    icon: "📋",
-    title: "이력 대시보드",
-    desc: "과거 시세추정 이력과 통계를 확인합니다",
-    border: "border-slate-200",
-    bg: "bg-slate-50 hover:bg-slate-100",
-    label: "text-slate-700",
+    n: 4, step: "법률·세금", title: "궁금한 건 바로 묻기",
+    desc: "임대차·세금·상속·증여 질문에 법령 기반으로 답합니다.",
+    items: [
+      {
+        href: "/chat", icon: MessageSquareText, title: "법률·세금 AI 상담",
+        desc: "증여세·양도세는 세법 계산기가 자동 실행됩니다.", cta: "질문하기",
+      },
+    ],
   },
 ];
 
+const JOURNEY_CHIPS = ["① 매물 탐색", "② 가치 분석", "③ 안전 점검", "④ 법률·세금 상담"];
+
 const VERDICT_STYLE: Record<string, string> = {
-  저평가: "bg-green-100 text-green-700",
-  고평가: "bg-red-100 text-red-700",
-  적정가: "bg-blue-100 text-blue-700",
+  저평가: "bg-emerald-50 text-emerald-700",
+  고평가: "bg-rose-50 text-rose-700",
+  적정가: "bg-sky-50 text-sky-700",
 };
 
 export default function HomePage() {
+  const router = useRouter();
   const { user } = useAuth();
   const [recent, setRecent] = useState<HistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [heroQuery, setHeroQuery] = useState("");
 
   useEffect(() => {
     api.history(5, 0, "")
@@ -72,10 +87,7 @@ export default function HomePage() {
   }, []);
 
   const today = new Date().toLocaleDateString("ko-KR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "long",
+    year: "numeric", month: "long", day: "numeric", weekday: "long",
   });
 
   const displayName =
@@ -83,131 +95,187 @@ export default function HomePage() {
     (user?.email ? user.email.split("@")[0] : null) ||
     "회원";
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-7">
+  const startFromHero = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = heroQuery.trim();
+    if (q) sessionStorage.setItem("heroQuery", q);
+    router.push("/appraisal");
+  };
 
-      {/* ── 환영 배너 ── */}
-      <div className="rounded-2xl bg-gradient-to-br from-slate-800 via-slate-800 to-blue-900 px-8 py-7 text-white shadow-lg">
-        <p className="text-xs text-blue-300 mb-2 tracking-wide">{today}</p>
-        <h1 className="text-2xl font-bold mb-1">
-          안녕하세요, {displayName}님 👋
+  return (
+    <div className="mx-auto max-w-5xl space-y-8">
+
+      {/* ── 페이지 헤드 ── */}
+      <div>
+        <p className="text-xs text-ink-faint">{today}</p>
+        <h1 className="mt-0.5 text-xl font-extrabold tracking-tight text-ink">
+          안녕하세요, <span className="text-primary">{displayName}</span>님.
+          오늘은 무엇을 도와드릴까요?
         </h1>
-        <p className="text-sm text-slate-300">
-          AI 기반 부동산 시세추정 서비스입니다. 아래 서비스를 바로 시작해 보세요.
-        </p>
       </div>
 
-      {/* ── 주요 서비스 카드 ── */}
-      <section>
-        <h2 className="text-xs font-bold text-slate-400 tracking-widest uppercase mb-3">
-          주요 서비스
+      {/* ── 컨시어지 데스크 (히어로) ── */}
+      <section className="rounded-2xl bg-gradient-to-br from-brand to-brand-ink px-6 py-7 text-white shadow-lg md:px-8">
+        <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-accent">
+          Concierge Desk
+        </p>
+        <h2 className="text-[22px] font-extrabold tracking-tight md:text-2xl">
+          어떤 부동산이 궁금하세요?
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {FEATURES.map(({ href, icon, title, desc, border, bg, label }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`group flex flex-col gap-3 rounded-xl border-2 p-5 transition-colors ${border} ${bg}`}
-            >
-              <span className="text-2xl leading-none">{icon}</span>
-              <div className="flex-1">
-                <p className={`font-semibold text-sm ${label}`}>{title}</p>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">{desc}</p>
-              </div>
-              <span className={`text-xs font-semibold ${label} group-hover:underline`}>
-                시작하기 →
+        <p className="mt-1 mb-4 text-[13.5px] text-white/60">
+          주소나 단지명을 입력하면 시세 분석부터 시작해 드립니다.
+        </p>
+        <form
+          onSubmit={startFromHero}
+          className="flex max-w-xl items-center gap-2 rounded-xl bg-white p-1.5 pl-4"
+        >
+          <Search size={18} className="shrink-0 text-ink-muted" />
+          <input
+            type="text"
+            value={heroQuery}
+            onChange={e => setHeroQuery(e.target.value)}
+            placeholder="예) 마포구 아현동 마포래미안푸르지오 84㎡"
+            aria-label="주소 또는 단지명 검색"
+            className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
+          />
+          <button
+            type="submit"
+            className="shrink-0 rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary-strong"
+          >
+            시세 알아보기
+          </button>
+        </form>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5" aria-hidden="true">
+          {JOURNEY_CHIPS.map((chip, i) => (
+            <span key={chip} className="flex items-center gap-1.5">
+              <span className="rounded-full border border-white/15 px-2.5 py-0.5 text-[11.5px] text-white/60">
+                {chip}
               </span>
-            </Link>
+              {i < JOURNEY_CHIPS.length - 1 && (
+                <span className="text-[11px] text-accent">›</span>
+              )}
+            </span>
           ))}
         </div>
       </section>
 
-      {/* ── 최근 시세추정 이력 ── */}
+      {/* ── 여정 기반 서비스 ── */}
+      <div className="space-y-6">
+        {STAGES.map(stage => (
+          <section key={stage.n} className="grid gap-3 md:grid-cols-[200px_1fr] md:gap-5">
+            <div className="pt-1">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-accent">
+                <span className="grid h-5 w-5 place-items-center rounded-full border-[1.5px] border-accent text-[10.5px] tracking-normal">
+                  {stage.n}
+                </span>
+                {stage.step}
+              </div>
+              <h3 className="mt-1.5 text-base font-extrabold tracking-tight text-ink">
+                {stage.title}
+              </h3>
+              <p className="mt-0.5 text-xs text-ink-muted">{stage.desc}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {stage.items.map(({ href, icon: Icon, title, desc, cta }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="group flex flex-col gap-2.5 rounded-xl border border-line bg-surface p-4 transition-all hover:-translate-y-px hover:border-primary hover:shadow-md"
+                >
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-primary">
+                    <Icon size={17} />
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-ink">{title}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{desc}</p>
+                  </div>
+                  <span className="flex items-center gap-1 text-xs font-bold text-primary">
+                    {cta}
+                    <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {/* ── 최근 활동 ── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-bold text-slate-400 tracking-widest uppercase">
-            최근 시세추정 이력
-          </h2>
+        <div className="mb-3 flex items-baseline justify-between">
+          <h3 className="text-[15px] font-extrabold tracking-tight text-ink">최근 활동</h3>
           {recent.length > 0 && (
-            <Link href="/dashboard" className="text-xs text-blue-600 hover:underline">
+            <Link href="/dashboard" className="text-xs font-semibold text-primary hover:underline">
               전체 보기 →
             </Link>
           )}
         </div>
 
         {loadingHistory ? (
-          <div className="bg-white rounded-xl shadow p-6 text-center text-sm text-slate-400">
-            불러오는 중...
+          <div className="space-y-px overflow-hidden rounded-xl border border-line bg-surface">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="flex animate-pulse items-center gap-4 px-5 py-4">
+                <div className="h-5 w-16 rounded-full bg-line" />
+                <div className="h-4 flex-1 rounded bg-line" />
+                <div className="h-4 w-24 rounded bg-line" />
+              </div>
+            ))}
           </div>
         ) : recent.length === 0 ? (
-          <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-10 text-center">
-            <p className="text-slate-400 text-sm mb-5">아직 시세추정 이력이 없습니다.</p>
+          <div className="rounded-xl border-2 border-dashed border-line bg-surface p-10 text-center">
+            <p className="mb-5 text-sm text-ink-faint">아직 이용 기록이 없습니다.</p>
             <Link
               href="/appraisal"
-              className="inline-block px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+              className="inline-block rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-strong"
             >
               첫 시세추정 시작하기 →
             </Link>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>
-                  {["물건 정보", "유형", "추정가", "판정", "등급", "일시"].map(h => (
-                    <th
-                      key={h}
-                      className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500"
+          <div className="overflow-hidden rounded-xl border border-line bg-surface">
+            {recent.map(it => (
+              <div
+                key={it.id}
+                className="flex items-center gap-3 border-b border-line px-5 py-3.5 last:border-b-0 hover:bg-canvas"
+              >
+                <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-primary">
+                  시세추정
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13.5px] font-semibold text-ink">{it.query}</p>
+                  <p className="mt-px text-xs text-ink-muted">
+                    {it.category || "—"}
+                    {it.investment_grade ? ` · 등급 ${it.investment_grade}` : ""}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span className="text-[13px] font-bold tabular-nums text-ink">
+                    {it.estimated_value
+                      ? Math.round(it.estimated_value / 10_000).toLocaleString("ko-KR") + "만원"
+                      : ""}
+                  </span>
+                  {it.valuation_verdict && (
+                    <span
+                      className={`ml-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                        VERDICT_STYLE[it.valuation_verdict] || "bg-canvas text-ink-muted"
+                      }`}
                     >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {recent.map(it => (
-                  <tr key={it.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 max-w-[200px] truncate text-slate-800">
-                      {it.query}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">
-                      {it.category || "—"}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      {it.estimated_value
-                        ? Math.round(it.estimated_value / 10_000).toLocaleString("ko-KR") + "만원"
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {it.valuation_verdict ? (
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            VERDICT_STYLE[it.valuation_verdict] || "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          {it.valuation_verdict}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 font-medium">
-                      {it.investment_grade || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-400">
-                      {it.created?.slice(0, 10) || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      {it.valuation_verdict}
+                    </span>
+                  )}
+                </div>
+                <span className="hidden w-[70px] shrink-0 text-right text-xs tabular-nums text-ink-faint sm:block">
+                  {it.created?.slice(0, 10) || "—"}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </section>
 
       {/* ── 하단 안내 ── */}
-      <p className="text-center text-xs text-slate-400 pb-4">
-        ⚠️ 본 시스템은 AI 기반 참고용 분석 도구입니다. 실제 투자 결정 시 전문가 자문을 받으세요.
+      <p className="pb-4 text-center text-[11.5px] text-ink-faint">
+        본 서비스는 AI 기반 참고용 분석 도구입니다. 실제 계약·투자 결정 시 전문가 자문을 받으세요.
       </p>
     </div>
   );

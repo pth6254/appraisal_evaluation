@@ -63,7 +63,7 @@ export default function ComparisonPage() {
         <h2 className="text-xl font-semibold mb-2">비교 바구니가 비어있습니다</h2>
         <p className="text-slate-400 text-sm mb-6">매물 추천에서 비교 바구니에 매물을 담아주세요.</p>
         <button onClick={() => router.push("/recommendation")}
-          className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">
+          className="px-6 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-strong">
           매물 추천으로 이동
         </button>
       </div>
@@ -76,7 +76,7 @@ export default function ComparisonPage() {
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold">⚖️ 매물 비교</h1>
+          <h1 className="text-2xl font-bold">매물 비교</h1>
           <p className="text-slate-500 text-sm mt-1">{basket.length}개 매물 비교 분석</p>
         </div>
         <div className="flex gap-2">
@@ -84,7 +84,7 @@ export default function ComparisonPage() {
             🗑️ 바구니 초기화
           </button>
           <button onClick={handleCompare} disabled={loading || basket.length < 2}
-            className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">
+            className="px-5 py-2 text-sm bg-primary text-white rounded-lg font-semibold hover:bg-primary-strong disabled:opacity-50">
             {loading ? "분석 중..." : "📊 비교 분석 실행"}
           </button>
         </div>
@@ -98,7 +98,7 @@ export default function ComparisonPage() {
         <div className="flex flex-wrap gap-3">
           {basket.map((b, i) => (
             <div key={b.listing.listing_id} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 text-sm">
-              <span className="text-xs text-blue-600 font-bold">{i + 1}</span>
+              <span className="text-xs text-primary font-bold">{i + 1}</span>
               <div>
                 <div className="font-medium">{b.listing.complex_name || b.listing.address}</div>
                 <div className="text-xs text-slate-400">{(b.listing.asking_price / 100000000).toFixed(1)}억 · 점수 {b.total_score?.toFixed(1) || "—"}</div>
@@ -114,7 +114,7 @@ export default function ComparisonPage() {
         <>
           {/* 우승 카드 */}
           {winner && (
-            <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl p-5 mb-5">
+            <div className="bg-gradient-to-r from-primary to-primary-strong text-white rounded-xl p-5 mb-5">
               <div className="text-sm opacity-80 mb-1">🏆 최우선 추천 매물</div>
               <h2 className="text-xl font-bold">{winner.listing.complex_name || winner.listing.address}</h2>
               <div className="text-sm opacity-90 mt-1">{winner.listing.address}</div>
@@ -141,7 +141,7 @@ export default function ComparisonPage() {
                   <tr>
                     <th className="px-4 py-3 text-left text-slate-600 font-semibold">항목</th>
                     {result.rows.map(r => (
-                      <th key={r.listing.listing_id} className={`px-4 py-3 text-left font-semibold ${r.is_winner ? "text-blue-600" : "text-slate-600"}`}>
+                      <th key={r.listing.listing_id} className={`px-4 py-3 text-left font-semibold ${r.is_winner ? "text-primary" : "text-slate-600"}`}>
                         {r.is_winner && "🏆 "}
                         {r.listing.complex_name || r.listing.address}
                       </th>
@@ -161,7 +161,7 @@ export default function ComparisonPage() {
                     <tr key={label} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 text-slate-500 font-medium">{label}</td>
                       {result.rows.map(r => (
-                        <td key={r.listing.listing_id} className={`px-4 py-2.5 ${r.is_winner ? "font-semibold text-blue-700" : ""}`}>
+                        <td key={r.listing.listing_id} className={`px-4 py-2.5 ${r.is_winner ? "font-semibold text-primary-strong" : ""}`}>
                           {get(r)}
                         </td>
                       ))}
@@ -176,15 +176,15 @@ export default function ComparisonPage() {
           {tab === 1 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {result.rows.map(r => (
-                <div key={r.listing.listing_id} className={`bg-white rounded-xl shadow p-5 ${r.is_winner ? "ring-2 ring-blue-400" : ""}`}>
+                <div key={r.listing.listing_id} className={`bg-white rounded-xl shadow p-5 ${r.is_winner ? "ring-2 ring-primary/60" : ""}`}>
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      {r.is_winner && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-bold mb-1 inline-block">🏆 추천</span>}
+                      {r.is_winner && <span className="text-xs text-primary bg-emerald-50 px-2 py-0.5 rounded-full font-bold mb-1 inline-block">추천</span>}
                       <h3 className="font-bold">{r.listing.complex_name || r.listing.address}</h3>
                       <p className="text-xs text-slate-400">{r.listing.address}</p>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-blue-700">{fmt(r.listing.asking_price)}</div>
+                      <div className="font-bold text-primary-strong">{fmt(r.listing.asking_price)}</div>
                       {r.total_score && <div className="text-xs text-slate-500">점수 {r.total_score.toFixed(1)}</div>}
                     </div>
                   </div>
@@ -195,7 +195,7 @@ export default function ComparisonPage() {
                     <div className="mb-3">{r.warnings.map((w, i) => <span key={i} className="inline-block text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded mr-1 mb-1">⚠️ {w}</span>)}</div>
                   )}
                   <button onClick={() => simFromListing(r.listing)}
-                    className="w-full py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100">
+                    className="w-full py-1.5 text-xs bg-emerald-50 text-primary-strong border border-emerald-200 rounded-lg hover:bg-emerald-100">
                     📈 이 매물로 시뮬레이션
                   </button>
                 </div>

@@ -1,20 +1,28 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import { AuthProvider } from "@/lib/auth";
 
+const pretendard = localFont({
+  src: "./fonts/PretendardVariable.woff2",
+  display: "swap",
+  weight: "45 920",
+  fallback: ["Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "sans-serif"],
+});
+
 export const metadata: Metadata = {
-  title: "부동산 AI 시세추정",
-  description: "LangGraph 기반 부동산 시세추정 · 추천 · 시뮬레이션",
+  title: "부동산 컨시어지",
+  description: "매물 탐색부터 시세 분석, 권리 점검, 법률·세금 상담까지 한 곳에서",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" className="h-full">
-      <body className="h-full">
+      <body className={`${pretendard.className} h-full`}>
         <AuthProvider>
           <Navbar />
-          <main className="ml-[220px] min-h-screen p-6">{children}</main>
+          <main className="min-h-screen p-4 md:ml-[236px] md:p-6">{children}</main>
         </AuthProvider>
       </body>
     </html>

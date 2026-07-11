@@ -129,7 +129,7 @@ export default function SimulationPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-1">📈 투자 시뮬레이션</h1>
+      <h1 className="text-2xl font-bold mb-1">투자 시뮬레이션</h1>
       <p className="text-slate-500 text-sm mb-5">부동산 투자 조건을 입력하면 수익성을 계산합니다.</p>
       <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-5">
         ⚠️ 이 시뮬레이션은 간이 계산입니다. 실제 세율·대출 조건은 다를 수 있습니다.
@@ -171,7 +171,7 @@ export default function SimulationPage() {
                 <label className="block text-xs text-slate-500 mb-1">연 이율: {interestRate}%</label>
                 <input type="range" min={0} max={15} step={0.1} value={interestRate}
                   onChange={e => setInterestRate(parseFloat(Number(e.target.value).toFixed(1)))} className="w-full" />
-                {rateSource && <p className="text-[10px] text-blue-500 mt-0.5">📡 {rateSource} 자동 반영</p>}
+                {rateSource && <p className="text-[10px] text-primary mt-0.5">{rateSource} 자동 반영</p>}
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">연소득 (선택 — DSR 검증)</label>
@@ -215,7 +215,7 @@ export default function SimulationPage() {
               <div className="flex gap-2">
                 {RENTAL_MODES.map(m => (
                   <button key={m} onClick={() => setRentalMode(m)}
-                    className={`flex-1 py-1.5 text-sm rounded-lg border ${rentalMode === m ? "bg-blue-600 text-white border-blue-600" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
+                    className={`flex-1 py-1.5 text-sm rounded-lg border ${rentalMode === m ? "bg-primary text-white border-primary" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
                     {m}
                   </button>
                 ))}
@@ -266,7 +266,7 @@ export default function SimulationPage() {
 
           {error && <p className="text-red-500 text-sm">⚠️ {error}</p>}
           <button onClick={handleSubmit} disabled={loading}
-            className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
+            className="w-full py-3 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-strong disabled:opacity-50">
             {loading ? "계산 중..." : "💰 시뮬레이션 계산"}
           </button>
         </div>
@@ -322,7 +322,7 @@ export default function SimulationPage() {
                 ].map(({ label, value }) => (
                   <div key={label} className="bg-white rounded-xl shadow p-4">
                     <div className="text-xs text-slate-400">{label}</div>
-                    <div className="font-bold mt-1 text-blue-700">{value}</div>
+                    <div className="font-bold mt-1 text-primary-strong">{value}</div>
                   </div>
                 ))}
               </div>
@@ -419,7 +419,7 @@ export default function SimulationPage() {
                 {result.breakeven_growth_rate != null && (
                   <div className="bg-white rounded-xl shadow p-5 text-sm">
                     <h3 className="font-semibold mb-2">손익분기 상승률</h3>
-                    <p className="text-2xl font-bold text-blue-700">연 {result.breakeven_growth_rate}%</p>
+                    <p className="text-2xl font-bold text-primary-strong">연 {result.breakeven_growth_rate}%</p>
                     <p className="text-xs text-slate-400 mt-1">
                       모든 비용·세금 회수에 필요한 최소 연 상승률
                     </p>

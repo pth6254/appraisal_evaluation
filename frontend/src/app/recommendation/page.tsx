@@ -150,7 +150,7 @@ export default function RecommendationPage() {
       <div className="flex items-start gap-6">
         {/* 메인 */}
         <div className="flex-1">
-          <h1 className="text-2xl font-bold mb-1">✨ 매물 추천</h1>
+          <h1 className="text-2xl font-bold mb-1">매물 추천</h1>
           <p className="text-slate-500 text-sm mb-4">조건을 입력하면 AI가 최적 매물·단지를 추천합니다.</p>
 
           {/* 모드 토글 */}
@@ -161,7 +161,7 @@ export default function RecommendationPage() {
             ] as const).map(({ key, label }) => (
               <button key={key} onClick={() => setMode(key)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  mode === key ? "bg-white shadow text-blue-700" : "text-slate-500 hover:text-slate-700"
+                  mode === key ? "bg-white shadow text-primary-strong" : "text-slate-500 hover:text-slate-700"
                 }`}>
                 {label}
               </button>
@@ -213,7 +213,7 @@ export default function RecommendationPage() {
                   </div>
                 </div>
                 <button onClick={handleComplexSubmit} disabled={cxLoading}
-                  className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
+                  className="w-full py-2.5 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-strong disabled:opacity-50">
                   {cxLoading ? "실거래 데이터 분석 중... (최초 조회 시 수십 초)" : "🔍 단지 추천받기"}
                 </button>
                 {cxError && <p className="text-red-500 text-sm mt-2">⚠️ {cxError}</p>}
@@ -306,10 +306,10 @@ export default function RecommendationPage() {
               <div className="flex items-center gap-2">
                 <label className="text-xs text-slate-500">추천 수</label>
                 <input type="range" min={1} max={10} value={limit} onChange={e => setLimit(Number(e.target.value))} className="w-24" />
-                <span className="text-sm font-medium text-blue-700">{limit}개</span>
+                <span className="text-sm font-medium text-primary-strong">{limit}개</span>
               </div>
               <button onClick={handleSubmit} disabled={loading}
-                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
+                className="flex-1 py-2.5 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-strong disabled:opacity-50">
                 {loading ? "추천 분석 중..." : "🔍 매물 추천받기"}
               </button>
             </div>
@@ -331,10 +331,10 @@ export default function RecommendationPage() {
               {tab === 0 && (
                 <div className="space-y-4">
                   {results.map((r, i) => (
-                    <div key={r.listing.listing_id} className="bg-white rounded-xl shadow p-5 border-l-4 border-blue-500">
+                    <div key={r.listing.listing_id} className="bg-white rounded-xl shadow p-5 border-l-4 border-primary">
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full">{i + 1}위</span>
+                          <span className="text-xs text-primary font-bold bg-emerald-50 px-2 py-0.5 rounded-full">{i + 1}위</span>
                           <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-medium ${
                             r.total_score >= 7 ? "bg-green-100 text-green-700" :
                             r.total_score >= 5 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
@@ -343,7 +343,7 @@ export default function RecommendationPage() {
                           <p className="text-xs text-slate-400">{r.listing.address}</p>
                         </div>
                         <div className="text-right">
-                          <div className="font-bold text-blue-700">{fmt(r.listing.asking_price)}</div>
+                          <div className="font-bold text-primary-strong">{fmt(r.listing.asking_price)}</div>
                           {r.listing.area_m2 && <div className="text-xs text-slate-400">{r.listing.area_m2.toFixed(1)}㎡</div>}
                         </div>
                       </div>
@@ -383,7 +383,7 @@ export default function RecommendationPage() {
 
                       <div className="flex gap-2">
                         <button onClick={() => simFromListing(r)}
-                          className="flex-1 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100">
+                          className="flex-1 py-1.5 text-xs bg-emerald-50 text-primary-strong border border-emerald-200 rounded-lg hover:bg-emerald-100">
                           📈 시뮬레이션
                         </button>
                         <button onClick={() => addToBasket(r)}
@@ -421,7 +421,7 @@ export default function RecommendationPage() {
                 ))}
               </div>
               <button onClick={goCompare}
-                className="w-full py-2 bg-blue-600 text-white text-xs rounded-lg font-semibold hover:bg-blue-700">
+                className="w-full py-2 bg-primary text-white text-xs rounded-lg font-semibold hover:bg-primary-strong">
                 비교 분석 시작
               </button>
               <button onClick={() => { setBasket([]); sessionStorage.removeItem("comparisonBasket"); }}

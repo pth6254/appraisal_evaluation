@@ -28,7 +28,7 @@ export default function ReportPage() {
         <p className="text-slate-500 mb-4">시세추정 결과가 없습니다.</p>
         <Link
           href="/appraisal"
-          className="inline-block px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+          className="inline-block px-6 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-strong"
         >
           AI 시세추정 시작하기
         </Link>
@@ -43,7 +43,7 @@ export default function ReportPage() {
           <h2 className="font-semibold text-red-700 mb-2">시세추정 실패</h2>
           <p className="text-sm text-red-600">{String(result.error)}</p>
         </div>
-        <Link href="/appraisal" className="mt-4 inline-block text-sm text-blue-600 hover:underline">
+        <Link href="/appraisal" className="mt-4 inline-block text-sm text-primary hover:underline">
           ← 다시 시도
         </Link>
       </div>

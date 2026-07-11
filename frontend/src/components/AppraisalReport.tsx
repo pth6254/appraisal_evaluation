@@ -317,7 +317,7 @@ export default function AppraisalReport({
 
       {/* ── 상단 툴바 (인쇄 시 숨김) ── */}
       <div className="no-print max-w-[880px] mx-auto mb-4 flex justify-between items-center">
-        <Link href="/appraisal" className="text-sm text-blue-700 hover:underline font-medium">
+        <Link href="/appraisal" className="text-sm text-primary-strong hover:underline font-medium">
           ← 새 시세추정
         </Link>
         <button

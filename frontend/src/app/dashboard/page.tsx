@@ -7,7 +7,7 @@ import type { HistoryItem } from "@/lib/types";
 
 const PAGE_SIZE = 20;
 const VERDICT_COLOR: Record<string, string> = {
-  저평가: "text-green-600", 고평가: "text-red-600", 적정가: "text-blue-600",
+  저평가: "text-green-600", 고평가: "text-red-600", 적정가: "text-sky-600",
 };
 
 export default function DashboardPage() {
@@ -54,7 +54,7 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">📋 이력 대시보드</h1>
+      <h1 className="text-2xl font-bold mb-6">이력 대시보드</h1>
 
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -104,13 +104,13 @@ export default function DashboardPage() {
       {/* 검색 */}
       <div className="flex gap-2 mb-4">
         <input
-          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
           placeholder="키워드 검색..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={e => e.key === "Enter" && doSearch()}
         />
-        <button onClick={doSearch} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">검색</button>
+        <button onClick={doSearch} className="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-strong">검색</button>
         {keyword && (
           <button onClick={() => { setSearch(""); setKeyword(""); load(0, ""); }}
             className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700">초기화</button>
@@ -134,7 +134,7 @@ export default function DashboardPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {items.map(it => (
-                <tr key={it.id} className="hover:bg-blue-50 cursor-pointer" onClick={() => setSelected(selected?.id === it.id ? null : it)}>
+                <tr key={it.id} className="hover:bg-emerald-50 cursor-pointer" onClick={() => setSelected(selected?.id === it.id ? null : it)}>
                   <td className="px-4 py-3 text-slate-400">{it.id}</td>
                   <td className="px-4 py-3 max-w-[220px] truncate">{it.query}</td>
                   <td className="px-4 py-3">{it.category || "—"}</td>
@@ -150,7 +150,7 @@ export default function DashboardPage() {
                     <Link
                       href={`/report/${it.id}`}
                       onClick={e => e.stopPropagation()}
-                      className="text-blue-500 hover:text-blue-700 text-xs mr-3"
+                      className="text-primary hover:text-primary-strong text-xs mr-3"
                     >
                       리포트
                     </Link>

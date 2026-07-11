@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -50,6 +50,15 @@ export default function AppraisalPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
   const [progressStep, setProgressStep] = useState(""); // 파이프라인 현재 노드명
+
+  // 홈 컨시어지 데스크에서 넘어온 검색어를 주소 검색창에 프리필
+  useEffect(() => {
+    const q = sessionStorage.getItem("heroQuery");
+    if (q) {
+      setSearchQuery(q);
+      sessionStorage.removeItem("heroQuery");
+    }
+  }, []);
 
   const handleAddressSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -152,19 +161,19 @@ export default function AppraisalPage() {
           return (
             <div key={s} className="flex items-center gap-1 flex-1">
               <div className={`flex items-center gap-2 flex-1 py-2 px-3 rounded-lg text-sm transition-colors ${
-                active ? "bg-blue-600 text-white font-semibold" :
-                done   ? "bg-blue-100 text-blue-700" :
+                active ? "bg-primary text-white font-semibold" :
+                done   ? "bg-emerald-100 text-primary-strong" :
                          "bg-slate-100 text-slate-400"
               }`}>
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                  active ? "bg-white text-blue-600" :
-                  done   ? "bg-blue-400 text-white" :
+                  active ? "bg-white text-primary" :
+                  done   ? "bg-primary/60 text-white" :
                            "bg-slate-300 text-slate-500"
                 }`}>{s}</span>
                 <span className="truncate">{label}</span>
               </div>
               {s < STEPS.length && (
-                <div className={`w-3 h-0.5 shrink-0 ${done ? "bg-blue-400" : "bg-slate-200"}`} />
+                <div className={`w-3 h-0.5 shrink-0 ${done ? "bg-primary/60" : "bg-slate-200"}`} />
               )}
             </div>
           );
@@ -180,9 +189,9 @@ export default function AppraisalPage() {
               <button
                 key={pt.detail}
                 onClick={() => { setSelectedType(pt); setStep(2); }}
-                className="p-4 rounded-xl border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-left transition-colors group"
+                className="p-4 rounded-xl border-2 border-slate-200 hover:border-primary hover:bg-emerald-50 text-left transition-colors group"
               >
-                <div className="font-semibold text-sm text-slate-800 group-hover:text-blue-700">{pt.label}</div>
+                <div className="font-semibold text-sm text-slate-800 group-hover:text-primary-strong">{pt.label}</div>
                 <div className="text-xs text-slate-400 mt-0.5">{pt.category}</div>
               </button>
             ))}
@@ -204,7 +213,7 @@ export default function AppraisalPage() {
 
           <div className="flex gap-2 mb-3">
             <input
-              className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
               placeholder="예: 래미안원베일리, 서초구 반포동..."
               value={searchQuery}
               onChange={e => { setSearchQuery(e.target.value); setManualInput(false); }}
@@ -214,7 +223,7 @@ export default function AppraisalPage() {
             <button
               onClick={handleAddressSearch}
               disabled={searching}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-strong disabled:opacity-50 transition-colors"
             >
               {searching ? "검색 중..." : "검색"}
             </button>
@@ -226,7 +235,7 @@ export default function AppraisalPage() {
               {searchResults.map((doc, i) => (
                 <li
                   key={i}
-                  className="px-4 py-3 text-sm cursor-pointer hover:bg-blue-50 transition-colors"
+                  className="px-4 py-3 text-sm cursor-pointer hover:bg-emerald-50 transition-colors"
                   onClick={() => selectAddress(doc)}
                 >
                   <div className="font-medium text-slate-800">{doc.place_name || doc.address_name}</div>
@@ -240,9 +249,9 @@ export default function AppraisalPage() {
 
           {/* 선택된 주소 표시 */}
           {selectedAddress && !searchResults.length && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between mb-4">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 flex items-center justify-between mb-4">
               <div>
-                <div className="text-xs text-blue-500 font-medium mb-0.5">선택된 주소</div>
+                <div className="text-xs text-primary font-medium mb-0.5">선택된 주소</div>
                 <div className="text-sm font-medium text-slate-800">{selectedAddress}</div>
                 {buildingName && <div className="text-xs text-slate-500">{buildingName}</div>}
               </div>
@@ -259,13 +268,13 @@ export default function AppraisalPage() {
               {!manualInput ? (
                 <button
                   onClick={() => setManualInput(true)}
-                  className="text-xs text-blue-500 hover:underline"
+                  className="text-xs text-primary hover:underline"
                 >
                   주소를 직접 입력하기
                 </button>
               ) : (
                 <input
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                   placeholder="예: 서울시 서초구 반포동 1번지"
                   autoFocus
                   onChange={e => setSelectedAddress(e.target.value)}
@@ -277,7 +286,7 @@ export default function AppraisalPage() {
           <button
             onClick={() => setStep(3)}
             disabled={!selectedAddress}
-            className="mt-5 w-full py-2.5 bg-blue-600 text-white rounded-xl font-medium text-sm hover:bg-blue-700 disabled:opacity-40 transition-colors"
+            className="mt-5 w-full py-2.5 bg-primary text-white rounded-xl font-medium text-sm hover:bg-primary-strong disabled:opacity-40 transition-colors"
           >
             다음 단계 →
           </button>
@@ -315,7 +324,7 @@ export default function AppraisalPage() {
                     동 <span className="text-slate-400 font-normal text-xs">(선택)</span>
                   </label>
                   <input
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     placeholder="예: 101동"
                     value={dongNo}
                     onChange={e => setDongNo(e.target.value)}
@@ -328,7 +337,7 @@ export default function AppraisalPage() {
                     호수 <span className="text-slate-400 font-normal text-xs">(선택)</span>
                   </label>
                   <input
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     placeholder="예: 201호"
                     value={hoNo}
                     onChange={e => setHoNo(e.target.value)}
@@ -348,7 +357,7 @@ export default function AppraisalPage() {
                   onClick={() => setTransactionType(t)}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
                     transactionType === t
-                      ? "bg-blue-600 text-white border-blue-600"
+                      ? "bg-primary text-white border-primary"
                       : "border-slate-300 text-slate-600 hover:bg-slate-50"
                   }`}
                 >
@@ -366,7 +375,7 @@ export default function AppraisalPage() {
                 onClick={() => setAppraisalDateType("current")}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   appraisalDateType === "current"
-                    ? "bg-blue-600 text-white border-blue-600"
+                    ? "bg-primary text-white border-primary"
                     : "border-slate-300 text-slate-600 hover:bg-slate-50"
                 }`}
               >
@@ -376,7 +385,7 @@ export default function AppraisalPage() {
                 onClick={() => setAppraisalDateType("custom")}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   appraisalDateType === "custom"
-                    ? "bg-blue-600 text-white border-blue-600"
+                    ? "bg-primary text-white border-primary"
                     : "border-slate-300 text-slate-600 hover:bg-slate-50"
                 }`}
               >
@@ -386,7 +395,7 @@ export default function AppraisalPage() {
             {appraisalDateType === "custom" && (
               <input
                 type="date"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                 value={customDate}
                 max={new Date().toISOString().split("T")[0]}
                 onChange={e => setCustomDate(e.target.value)}
@@ -406,7 +415,7 @@ export default function AppraisalPage() {
                   onClick={() => setAppraisalPurpose(p)}
                   className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
                     appraisalPurpose === p
-                      ? "bg-blue-600 text-white border-blue-600"
+                      ? "bg-primary text-white border-primary"
                       : "border-slate-300 text-slate-600 hover:bg-slate-50"
                   }`}
                 >
@@ -421,7 +430,7 @@ export default function AppraisalPage() {
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="w-full py-3 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-strong disabled:opacity-50 transition-colors"
           >
             {loading ? "AI 시세추정 실행 중... (30초~2분 소요)" : "시세추정 시작"}
           </button>
@@ -443,8 +452,8 @@ export default function AppraisalPage() {
         });
 
         return (
-          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm">
-            <div className="font-semibold text-blue-700 mb-3">AI 시세추정 진행 중...</div>
+          <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm">
+            <div className="font-semibold text-primary-strong mb-3">AI 시세추정 진행 중...</div>
             <div className="space-y-2">
               {PIPELINE.map((p, i) => {
                 const done   = progressStep !== "" && i < currentIdx;
@@ -452,15 +461,15 @@ export default function AppraisalPage() {
                 return (
                   <div key={p.label} className="flex items-center gap-2.5">
                     <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                      done   ? "bg-blue-600 text-white" :
-                      active ? "bg-white border-2 border-blue-600 text-blue-600 animate-pulse" :
+                      done   ? "bg-primary text-white" :
+                      active ? "bg-white border-2 border-primary text-primary animate-pulse" :
                                "bg-slate-200 text-slate-400"
                     }`}>
                       {done ? "✓" : i + 1}
                     </span>
                     <span className={
-                      done   ? "text-blue-700" :
-                      active ? "text-blue-700 font-semibold" :
+                      done   ? "text-primary-strong" :
+                      active ? "text-primary-strong font-semibold" :
                                "text-slate-400"
                     }>
                       {p.label}{active && "..."}
@@ -469,7 +478,7 @@ export default function AppraisalPage() {
                 );
               })}
             </div>
-            <p className="text-xs text-blue-400 mt-3">보통 30초~2분 정도 소요됩니다. 페이지를 벗어나도 결과는 이력에 저장됩니다.</p>
+            <p className="text-xs text-primary/60 mt-3">보통 30초~2분 정도 소요됩니다. 페이지를 벗어나도 결과는 이력에 저장됩니다.</p>
           </div>
         );
       })()}
