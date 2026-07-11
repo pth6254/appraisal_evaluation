@@ -1,4 +1,4 @@
-import type { RecommendationRequest, SimulationRequest } from "./types";
+import type { ActivityItem, RecommendationRequest, SimulationRequest } from "./types";
 
 const BASE = "/api";
 
@@ -104,6 +104,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ listings, recommendation_results: recommendationResults }),
     }),
+
+  /** 시세추정·권리점검·상담을 합친 최근 활동 피드 */
+  activity: (limit = 8) =>
+    req<{ items: ActivityItem[] }>(`/activity?limit=${limit}`),
 
   history: (limit = 20, offset = 0, keyword = "") =>
     req<{ total: number; items: object[] }>(

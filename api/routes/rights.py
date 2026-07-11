@@ -41,7 +41,10 @@ def _decode(b64: Optional[str], name: str) -> bytes | None:
 
 
 @router.post("/rights/analyze")
-async def analyze_rights_endpoint(req: RightsAnalyzeRequest):
+async def analyze_rights_endpoint(
+    req: RightsAnalyzeRequest,
+    user: Optional[dict] = Depends(get_optional_user),
+):
     from backend.services.rights_analysis_service import analyze_rights
 
     registry = _decode(req.registry_pdf_b64, "등기부등본")
@@ -51,6 +54,25 @@ async def analyze_rights_endpoint(req: RightsAnalyzeRequest):
 
     logger.info("권리 점검 요청 — 등기부 %s / 대장 %s / 보증금 %s",
                 bool(registry), bool(building), req.my_deposit or "-")
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         analyze_rights, registry, building, req.my_deposit, req.market_price,
     )
+
+    # 홈 '최근 활동' 피드용 기록 (실패해도 분석 결과 반환에는 영향 없음)
+    if isinstance(result, dict) and not result.get("error"):
+        try:
+            reg = result.get("registry") or {}
+            activity_db.save(
+                "rights",
+                reg.get("address") or "등기부등본 권리 분석",
+                summary=result.get("risk_label", ""),
+                meta={
+                    "risk_grade": result.get("risk_grade"),
+                    "risk_score": result.get("risk_score"),
+                },
+                user_id=user["id"] if user else None,
+            )
+        except Exception:
+            logger.warning("권리 점검 활동 기록 실패", exc_info=True)
+
+    return result

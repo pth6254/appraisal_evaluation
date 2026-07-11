@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+
+from api import activity_db
+from api.deps import get_optional_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -22,12 +26,29 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(
+    req: ChatRequest,
+    user: Optional[dict] = Depends(get_optional_user),
+):
     from backend.services.chat_service import answer_question
 
     logger.info("챗봇 질문 — %s", req.message[:80])
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         answer_question,
         req.message,
         [m.model_dump() for m in req.history],
     )
+
+    # 홈 '최근 활동' 피드용 기록 (실패해도 답변 반환에는 영향 없음)
+    try:
+        activity_db.save(
+            "chat",
+            req.message[:120],
+            summary=result.get("tool_used") or "",
+            meta={"tool_used": result.get("tool_used")},
+            user_id=user["id"] if user else None,
+        )
+    except Exception:
+        logger.warning("상담 활동 기록 실패", exc_info=True)
+
+    return result

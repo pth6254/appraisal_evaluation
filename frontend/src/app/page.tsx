@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import type { HistoryItem } from "@/lib/types";
+import type { ActivityItem } from "@/lib/types";
 import {
   Search, Tag, MapPin, TrendingUp, Columns2, ShieldCheck,
   MessageSquareText, ArrowRight, type LucideIcon,
@@ -72,16 +72,28 @@ const VERDICT_STYLE: Record<string, string> = {
   적정가: "bg-sky-50 text-sky-700",
 };
 
+const TYPE_BADGE: Record<ActivityItem["type"], { label: string; cls: string; href: string }> = {
+  appraisal: { label: "시세추정", cls: "bg-emerald-50 text-primary",  href: "/report" },
+  rights:    { label: "권리점검", cls: "bg-amber-50 text-amber-700",  href: "/rights" },
+  chat:      { label: "상담",     cls: "bg-sky-50 text-sky-700",      href: "/chat" },
+};
+
+const RISK_PILL: Record<string, string> = {
+  safe:    "bg-emerald-50 text-emerald-700",
+  caution: "bg-amber-50 text-amber-700",
+  danger:  "bg-rose-50 text-rose-700",
+};
+
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const [recent, setRecent] = useState<HistoryItem[]>([]);
+  const [recent, setRecent] = useState<ActivityItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [heroQuery, setHeroQuery] = useState("");
 
   useEffect(() => {
-    api.history(5, 0, "")
-      .then(res => setRecent(res.items as HistoryItem[]))
+    api.activity(6)
+      .then(res => setRecent(res.items))
       .catch(() => {})
       .finally(() => setLoadingHistory(false));
   }, []);
@@ -233,42 +245,62 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-line bg-surface">
-            {recent.map(it => (
-              <div
-                key={it.id}
-                className="flex items-center gap-3 border-b border-line px-5 py-3.5 last:border-b-0 hover:bg-canvas"
-              >
-                <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-primary">
-                  시세추정
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13.5px] font-semibold text-ink">{it.query}</p>
-                  <p className="mt-px text-xs text-ink-muted">
-                    {it.category || "—"}
-                    {it.investment_grade ? ` · 등급 ${it.investment_grade}` : ""}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <span className="text-[13px] font-bold tabular-nums text-ink">
-                    {it.estimated_value
-                      ? Math.round(it.estimated_value / 10_000).toLocaleString("ko-KR") + "만원"
-                      : ""}
+            {recent.map(it => {
+              const badge = TYPE_BADGE[it.type] || TYPE_BADGE.appraisal;
+              const href = it.type === "appraisal" ? `/report/${it.id}` : badge.href;
+              return (
+                <Link
+                  key={`${it.type}-${it.id}`}
+                  href={href}
+                  className="flex items-center gap-3 border-b border-line px-5 py-3.5 last:border-b-0 hover:bg-canvas"
+                >
+                  <span className={`w-[64px] shrink-0 rounded-full px-2 py-1 text-center text-[11px] font-bold ${badge.cls}`}>
+                    {badge.label}
                   </span>
-                  {it.valuation_verdict && (
-                    <span
-                      className={`ml-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                        VERDICT_STYLE[it.valuation_verdict] || "bg-canvas text-ink-muted"
-                      }`}
-                    >
-                      {it.valuation_verdict}
-                    </span>
-                  )}
-                </div>
-                <span className="hidden w-[70px] shrink-0 text-right text-xs tabular-nums text-ink-faint sm:block">
-                  {it.created?.slice(0, 10) || "—"}
-                </span>
-              </div>
-            ))}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13.5px] font-semibold text-ink">
+                      {it.type === "chat" ? `"${it.title}"` : it.title}
+                    </p>
+                    <p className="mt-px truncate text-xs text-ink-muted">
+                      {it.type === "appraisal"
+                        ? [it.subtitle, it.investment_grade && `등급 ${it.investment_grade}`]
+                            .filter(Boolean).join(" · ") || "—"
+                        : it.type === "chat"
+                        ? (it.tool_used ? `${it.tool_used} 실행` : "법령 기반 답변")
+                        : "등기부등본 분석"}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    {it.type === "appraisal" && it.estimated_value ? (
+                      <span className="text-[13px] font-bold tabular-nums text-ink">
+                        {Math.round(it.estimated_value / 10_000).toLocaleString("ko-KR")}만원
+                      </span>
+                    ) : null}
+                    {it.type === "appraisal" && it.valuation_verdict && (
+                      <span
+                        className={`ml-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                          VERDICT_STYLE[it.valuation_verdict] || "bg-canvas text-ink-muted"
+                        }`}
+                      >
+                        {it.valuation_verdict}
+                      </span>
+                    )}
+                    {it.type === "rights" && it.subtitle && (
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                          RISK_PILL[it.risk_grade || ""] || "bg-canvas text-ink-muted"
+                        }`}
+                      >
+                        {it.subtitle}
+                      </span>
+                    )}
+                  </div>
+                  <span className="hidden w-[70px] shrink-0 text-right text-xs tabular-nums text-ink-faint sm:block">
+                    {it.created?.slice(0, 10) || "—"}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>

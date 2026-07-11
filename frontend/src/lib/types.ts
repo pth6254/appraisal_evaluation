@@ -158,6 +158,24 @@ export interface HistoryItem {
   cap_rate?: number;
 }
 
+/** 홈 '최근 활동' 통합 피드 항목 (시세추정 + 권리점검 + 상담) */
+export interface ActivityItem {
+  type: "appraisal" | "rights" | "chat";
+  id: number;
+  title: string;
+  subtitle: string;
+  created: string;
+  // appraisal
+  estimated_value?: number;
+  valuation_verdict?: string;
+  investment_grade?: string;
+  // rights
+  risk_grade?: "safe" | "caution" | "danger";
+  risk_score?: number;
+  // chat
+  tool_used?: string | null;
+}
+
 // Request types
 export interface RecommendationRequest {
   region?: string;
