@@ -100,6 +100,14 @@ export default function RegisterPage() {
             로그인
           </Link>
         </p>
+
+        <p className="mt-4 text-center text-xs text-slate-400">
+          가입 시{" "}
+          <Link href="/terms" className="underline hover:text-slate-600">이용약관</Link>
+          {" "}및{" "}
+          <Link href="/privacy" className="underline hover:text-slate-600">개인정보처리방침</Link>
+          에 동의한 것으로 간주됩니다.
+        </p>
       </div>
     </div>
   );

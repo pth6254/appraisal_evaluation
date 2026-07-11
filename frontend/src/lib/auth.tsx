@@ -16,6 +16,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
+  withdraw: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -71,8 +72,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }, [router]);
 
+  const withdraw = useCallback(async () => {
+    const res = await fetch("/api/auth/me", { method: "DELETE", credentials: "include" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "탈퇴 실패" }));
+      throw new Error(err.detail ?? "탈퇴 실패");
+    }
+    setUser(null);
+    router.push("/login");
+  }, [router]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, withdraw }}>
       {children}
     </AuthContext.Provider>
   );

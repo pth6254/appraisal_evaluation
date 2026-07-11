@@ -93,3 +93,10 @@ def get_by_id(user_id: int) -> Optional[dict]:
     with _conn() as con:
         row = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
         return dict(row) if row else None
+
+
+def delete_user(user_id: int) -> None:
+    """회원 탈퇴 — 계정 행 삭제 (이력·활동 삭제는 호출 측에서 함께 수행)"""
+    with _conn() as con:
+        con.execute("DELETE FROM users WHERE id=?", (user_id,))
+        con.commit()

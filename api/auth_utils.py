@@ -9,7 +9,14 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-change-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+if not SECRET_KEY:
+    if os.getenv("APP_ENV", "development") == "production":
+        raise RuntimeError(
+            "JWT_SECRET_KEY 환경변수가 설정되지 않았습니다. "
+            "운영 환경(APP_ENV=production)에서는 필수입니다."
+        )
+    SECRET_KEY = "dev-secret-change-in-production"  # 개발 환경 전용
 ALGORITHM = "HS256"
 EXPIRE_DAYS = 7
 

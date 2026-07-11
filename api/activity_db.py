@@ -67,6 +67,27 @@ def save(type_: str, title: str, summary: str = "",
         return cur.lastrowid
 
 
+def count_today(type_: str, user_id) -> int:
+    """오늘(로컬 기준) 해당 유형 활동 수 — 일일 사용량 상한 검사용"""
+    if user_id is None:
+        return 0
+    with _conn() as con:
+        return con.execute(
+            "SELECT COUNT(*) FROM activity "
+            "WHERE type=? AND user_id=? AND date(created) = date('now','localtime')",
+            (type_, user_id),
+        ).fetchone()[0]
+
+
+def delete_all(user_id) -> None:
+    """사용자 활동 전체 삭제 (회원 탈퇴 시)"""
+    if user_id is None:
+        return
+    with _conn() as con:
+        con.execute("DELETE FROM activity WHERE user_id=?", (user_id,))
+        con.commit()
+
+
 def load_recent(limit: int = 10, user_id=None) -> list[dict]:
     with _conn() as con:
         if user_id is not None:

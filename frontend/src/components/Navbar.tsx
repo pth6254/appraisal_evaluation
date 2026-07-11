@@ -95,7 +95,17 @@ function NavList({ path, onNavigate }: { path: string; onNavigate?: () => void }
 }
 
 function UserFooter() {
-  const { user, logout } = useAuth();
+  const { user, logout, withdraw } = useAuth();
+
+  const handleWithdraw = async () => {
+    if (!window.confirm("회원 탈퇴 시 계정과 모든 이용 기록(시세추정 이력·활동)이 즉시 삭제되며 복구할 수 없습니다.\n정말 탈퇴하시겠습니까?")) return;
+    try {
+      await withdraw();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "탈퇴에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    }
+  };
+
   return (
     <div className="space-y-2 border-t border-white/10 px-5 py-4">
       {user && (
@@ -104,14 +114,26 @@ function UserFooter() {
             {user.name || user.email}
           </div>
           <div className="truncate text-xs text-white/40">{user.email}</div>
-          <button
-            onClick={logout}
-            className="rounded-md border border-white/20 px-2.5 py-1 text-[11.5px] text-white/60 transition-colors hover:border-white/40 hover:text-white"
-          >
-            로그아웃
-          </button>
+          <div className="flex gap-1.5">
+            <button
+              onClick={logout}
+              className="rounded-md border border-white/20 px-2.5 py-1 text-[11.5px] text-white/60 transition-colors hover:border-white/40 hover:text-white"
+            >
+              로그아웃
+            </button>
+            <button
+              onClick={handleWithdraw}
+              className="rounded-md px-2 py-1 text-[11.5px] text-white/30 transition-colors hover:text-rose-300"
+            >
+              회원 탈퇴
+            </button>
+          </div>
         </>
       )}
+      <div className="flex gap-2 text-[11px]">
+        <Link href="/privacy" className="text-white/40 hover:text-white/70 hover:underline">개인정보처리방침</Link>
+        <Link href="/terms" className="text-white/40 hover:text-white/70 hover:underline">이용약관</Link>
+      </div>
       <div className="text-[11px] text-white/30">샘플 데이터 기반 · 참고용</div>
     </div>
   );

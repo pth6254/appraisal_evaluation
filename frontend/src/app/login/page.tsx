@@ -89,6 +89,11 @@ export default function LoginPage() {
             회원가입
           </Link>
         </p>
+
+        <p className="mt-4 flex justify-center gap-3 text-xs text-slate-400">
+          <Link href="/privacy" className="hover:underline">개인정보처리방침</Link>
+          <Link href="/terms" className="hover:underline">이용약관</Link>
+        </p>
       </div>
     </div>
   );

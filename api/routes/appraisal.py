@@ -5,11 +5,12 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api import history_db, jobs
 from api.deps import get_optional_user
+from api.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["appraisal"])
@@ -40,7 +41,8 @@ def _save_history(req: AppraisalRequest, user: Optional[dict]):
 # ─────────────────────────────────────────
 
 @router.post("/appraisal")
-async def run_appraisal_endpoint(req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
+@limiter.limit("5/minute")
+async def run_appraisal_endpoint(request: Request, req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
     from backend.router import run_appraisal
 
     logger.info("시세추정 요청(동기) — %s / %s / 기준시점: %s / 목적: %s",
@@ -69,7 +71,8 @@ async def run_appraisal_endpoint(req: AppraisalRequest, user: Optional[dict] = D
 # ─────────────────────────────────────────
 
 @router.post("/appraisal/jobs")
-async def create_appraisal_job(req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
+@limiter.limit("5/minute")
+async def create_appraisal_job(request: Request, req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
     """작업 생성 → 즉시 job_id 반환. 진행 상태는 GET /appraisal/jobs/{id} 폴링."""
     from backend.router import run_appraisal
 

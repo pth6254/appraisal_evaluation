@@ -1,4 +1,9 @@
-"""POST /api/rights/analyze — 등기부등본·건축물대장 PDF 권리관계 위험 점검"""
+"""POST /api/rights/analyze — 등기부등본·건축물대장 PDF 권리관계 위험 점검
+
+개인정보 처리 원칙:
+  - 업로드된 PDF는 메모리에서만 처리되며 디스크·DB에 저장하지 않는다 (분석 후 즉시 파기).
+  - 활동 피드에는 등기부상 상세 주소 대신 마스킹된 주소만 기록한다.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -6,16 +11,19 @@ import base64
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api import activity_db
 from api.deps import get_optional_user
+from api.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["rights"])
 
 MAX_PDF_BYTES = 10 * 1024 * 1024   # 10MB
+
+PRIVACY_NOTICE = "업로드된 문서는 분석 후 즉시 파기되며 서버에 저장되지 않습니다."
 
 
 class RightsAnalyzeRequest(BaseModel):
@@ -40,8 +48,18 @@ def _decode(b64: Optional[str], name: str) -> bytes | None:
     return raw
 
 
+def _mask_address(address: str) -> str:
+    """상세 주소 마스킹 — 행정구역(시·구·동)까지만 남기고 번지·건물·호수는 제거"""
+    tokens = address.split()
+    if len(tokens) <= 3:
+        return address
+    return " ".join(tokens[:3]) + " ***"
+
+
 @router.post("/rights/analyze")
+@limiter.limit("5/minute")
 async def analyze_rights_endpoint(
+    request: Request,
     req: RightsAnalyzeRequest,
     user: Optional[dict] = Depends(get_optional_user),
 ):
@@ -59,12 +77,14 @@ async def analyze_rights_endpoint(
     )
 
     # 홈 '최근 활동' 피드용 기록 (실패해도 분석 결과 반환에는 영향 없음)
+    # 개인정보 최소화: 상세 주소는 마스킹해서 저장
     if isinstance(result, dict) and not result.get("error"):
         try:
             reg = result.get("registry") or {}
+            title = _mask_address(reg["address"]) if reg.get("address") else "등기부등본 권리 분석"
             activity_db.save(
                 "rights",
-                reg.get("address") or "등기부등본 권리 분석",
+                title,
                 summary=result.get("risk_label", ""),
                 meta={
                     "risk_grade": result.get("risk_grade"),
@@ -75,4 +95,6 @@ async def analyze_rights_endpoint(
         except Exception:
             logger.warning("권리 점검 활동 기록 실패", exc_info=True)
 
+    if isinstance(result, dict):
+        result["privacy_notice"] = PRIVACY_NOTICE
     return result

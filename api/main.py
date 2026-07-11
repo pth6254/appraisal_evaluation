@@ -21,10 +21,14 @@ for _p in [_PROJECT_ROOT, _BACKEND_DIR, _API_DIR]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 from api.routes import activity, appraisal, address, auth, chat, comparison, history, recommendation, rights, simulation
 from api import auth_db as _adb
 from api import history_db as _hdb
 from api import activity_db as _actdb
+from api.rate_limit import limiter
 from backend.cache_db import init_cache_db as _init_cache
 
 logging.basicConfig(
@@ -51,6 +55,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

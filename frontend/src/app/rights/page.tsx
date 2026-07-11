@@ -68,8 +68,12 @@ export default function RightsPage() {
       <p className="text-slate-500 text-sm mb-2">
         등기부등본·건축물대장 PDF를 업로드하면 가압류·근저당·깡통전세 등 위험 신호를 점검합니다.
       </p>
-      <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-5">
+      <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-2">
         참고용 자동 점검이며 법률사무(권리분석)가 아닙니다. 계약 전 반드시 공인중개사·법무사 확인을 거치세요.
+      </p>
+      <p className="text-xs text-ink-muted bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg mb-5">
+        업로드한 PDF는 메모리에서만 분석되고 즉시 파기되며, 서버에 저장되지 않습니다.
+        분석 기록에는 상세 주소 대신 마스킹된 주소만 남습니다.
       </p>
 
       {/* 입력 */}
@@ -104,7 +108,7 @@ export default function RightsPage() {
         </div>
         <button onClick={handleSubmit} disabled={loading}
           className="w-full py-2.5 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-strong disabled:opacity-50">
-          {loading ? "분석 중..." : "🔍 위험 점검 시작"}
+          {loading ? "분석 중..." : "위험 점검 시작"}
         </button>
         {error && <p className="text-red-500 text-sm">{error}</p>}
       </div>
