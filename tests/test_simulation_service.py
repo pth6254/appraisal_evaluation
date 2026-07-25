@@ -33,30 +33,30 @@ from services.simulation_service import (
 # ─────────────────────────────────────────
 
 class TestFmtWon:
+    """리포트 금액 표기는 4개 서비스 모두 '원 단위 + 천단위 구분' 으로 통일돼 있다."""
+
     def test_none_returns_dash(self):
         assert _fmt_won(None) == "—"
 
     def test_zero(self):
-        assert _fmt_won(0) == "0만원"
+        assert _fmt_won(0) == "0원"
 
-    def test_man_only(self):
-        assert _fmt_won(50_000_000) == "5,000만원"
+    def test_man_scale(self):
+        assert _fmt_won(50_000_000) == "50,000,000원"
 
-    def test_eok_only(self):
-        assert _fmt_won(1_0000_0000) == "1억원"
+    def test_eok_scale(self):
+        assert _fmt_won(1_0000_0000) == "100,000,000원"
 
     def test_eok_and_man(self):
-        assert _fmt_won(1_5000_0000) == "1억 5,000만원"
+        assert _fmt_won(1_5000_0000) == "150,000,000원"
 
     def test_large(self):
-        result = _fmt_won(10_5000_0000)
-        assert "10억" in result
-        assert "5,000만원" in result
+        assert _fmt_won(10_5000_0000) == "1,050,000,000원"
 
     def test_negative(self):
         result = _fmt_won(-1_0000_0000)
         assert result.startswith("-")
-        assert "1억원" in result
+        assert result == "-100,000,000원"
 
     def test_negative_small(self):
         result = _fmt_won(-5_000_0000)

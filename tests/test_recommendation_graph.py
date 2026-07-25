@@ -344,7 +344,7 @@ class TestGraphEndToEnd:
 
     def test_run_appraisal_with_mock(self):
         """run_appraisal=True 경로도 그래프 통과 확인"""
-        mock_appraisal = AppraisalResult(judgement="적정", confidence=0.8)
+        mock_appraisal = AppraisalResult(confidence=0.8)
         with patch(
             "services.price_analysis_service.analyze_price",
             return_value=mock_appraisal,

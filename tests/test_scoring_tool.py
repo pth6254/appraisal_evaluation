@@ -46,11 +46,10 @@ def _query(**kwargs) -> PropertyQuery:
 
 
 def _appraisal(**kwargs) -> AppraisalResult:
-    defaults = {
-        "judgement":  "적정",
-        "confidence": 0.8,
-        "gap_rate":   0.0,
-    }
+    # 주의: 과거 스키마에 있던 judgement / gap_rate 는 제거되었다.
+    #      (백테스트 결과 동일동·구 매칭 적중률이 낮아 고/저평가 판정을 점수에서 배제)
+    #      존재하지 않는 필드를 넘기면 pydantic 이 조용히 무시하므로 여기서는 쓰지 않는다.
+    defaults = {"confidence": 0.8}
     defaults.update(kwargs)
     return AppraisalResult(**defaults)
 
@@ -143,22 +142,15 @@ class TestScorePrice:
         score, _, _ = _score_price(_listing(), _query(), None)
         assert score == 5.0
 
-    def test_undervalued_gives_high_score(self):
-        a = _appraisal(judgement="저평가", confidence=1.0, gap_rate=-0.15)
-        score, _, _ = _score_price(_listing(), _query(), a)
-        assert score > 6.5
-
-    def test_overvalued_gives_low_score(self):
-        a = _appraisal(judgement="고평가", confidence=1.0, gap_rate=0.20)
-        score, _, _ = _score_price(_listing(), _query(), a)
-        assert score < 5.0
-
-    def test_low_confidence_pulls_toward_center(self):
-        a_high = _appraisal(judgement="저평가", confidence=1.0)
-        a_low  = _appraisal(judgement="저평가", confidence=0.0)
-        s_high, _, _ = _score_price(_listing(), _query(), a_high)
-        s_low,  _, _ = _score_price(_listing(), _query(), a_low)
-        assert s_high > s_low
+    def test_appraisal_does_not_shift_price_score(self):
+        """
+        가격 점수는 예산 적합도만 반영한다.
+        AVM 고/저평가 판정은 백테스트에서 매칭 수준에 따라 적중률 편차가 커
+        점수 산정에서 의도적으로 배제했다 (scoring_tool._score_price 참고).
+        """
+        s_none, _, _ = _score_price(_listing(), _query(), None)
+        s_conf, _, _ = _score_price(_listing(), _query(), _appraisal(confidence=1.0))
+        assert s_none == s_conf == 5.0
 
     def test_over_budget_penalty(self):
         q = _query(budget_max=800_000_000)
@@ -174,15 +166,10 @@ class TestScorePrice:
         score_no, _, _ = _score_price(l, _query(), None)
         assert score_in > score_no
 
-    def test_undervalued_reason_generated(self):
-        a = _appraisal(judgement="저평가", confidence=0.9)
-        _, reasons, _ = _score_price(_listing(), _query(), a)
-        assert any("저평가" in r for r in reasons)
-
-    def test_overvalued_risk_generated(self):
-        a = _appraisal(judgement="고평가", confidence=0.9)
-        _, _, risks = _score_price(_listing(), _query(), a)
-        assert any("고평가" in r for r in risks)
+    def test_no_valuation_verdict_in_reasons(self):
+        """고/저평가 문구는 더 이상 추천 사유·리스크에 등장하지 않는다."""
+        _, reasons, risks = _score_price(_listing(), _query(), _appraisal(confidence=0.9))
+        assert not any("저평가" in r or "고평가" in r for r in reasons + risks)
 
 
 # ─────────────────────────────────────────
@@ -283,40 +270,29 @@ class TestScoreInvestment:
         score, _, _ = _score_investment(l, None)
         assert score == 5.0
 
-    def test_undervalued_appraisal_bonus(self):
+    def test_appraisal_does_not_shift_investment_score(self):
+        """투자 점수도 고/저평가 판정을 반영하지 않는다 (전세가율 등만 사용)."""
         l = _listing(deposit_price=None)
-        a_under = _appraisal(gap_rate=-0.15)
-        a_over  = _appraisal(gap_rate= 0.20)
-        s_under, reasons, _ = _score_investment(l, a_under)
-        s_over,  _,       _ = _score_investment(l, a_over)
-        assert s_under > s_over
-        assert any("저평가" in r for r in reasons)
+        s_none, _, _ = _score_investment(l, None)
+        s_appr, reasons, risks = _score_investment(l, _appraisal())
+        assert s_none == s_appr
+        assert not any("저평가" in r or "고평가" in r for r in reasons + risks)
 
-    def test_overvalued_appraisal_penalty(self):
+    def test_no_jeonse_stays_neutral(self):
+        """전세가 정보가 없으면 감정평가 유무와 무관하게 중립(5.0)."""
         l = _listing(deposit_price=None)
-        a = _appraisal(gap_rate=0.20)
-        _, _, risks = _score_investment(l, a)
-        assert any("고평가" in r for r in risks)
-
-    def test_small_gap_rate_no_adjustment(self):
-        l = _listing(deposit_price=None)
-        a_before = _appraisal(gap_rate=0.0)
-        a_after  = _appraisal(gap_rate=0.03)
-        s1, _, _ = _score_investment(l, a_before)
-        s2, _, _ = _score_investment(l, a_after)
-        # ±5% 이내는 조정 없음
+        s1, _, _ = _score_investment(l, _appraisal())
+        s2, _, _ = _score_investment(l, _appraisal(confidence=0.3))
         assert s1 == s2 == 5.0
 
     def test_score_capped_at_10(self):
         l = _listing(asking_price=1_000_000_000, deposit_price=800_000_000)
-        a = _appraisal(gap_rate=-0.20)
-        score, _, _ = _score_investment(l, a)
+        score, _, _ = _score_investment(l, _appraisal())
         assert score <= 10.0
 
     def test_score_floor_at_0(self):
         l = _listing(asking_price=1_000_000_000, deposit_price=100_000_000)
-        a = _appraisal(gap_rate=0.30)
-        score, _, _ = _score_investment(l, a)
+        score, _, _ = _score_investment(l, _appraisal())
         assert score >= 0.0
 
 
@@ -367,24 +343,22 @@ class TestScoreRisk:
         assert s_warn > s_clean
         assert any("주의사항" in r for r in risks)
 
-    def test_overvalued_increases_risk(self):
+    def test_valuation_verdict_does_not_change_risk(self):
+        """위험 점수는 신뢰도·경고 건수로만 움직인다 (고/저평가 판정 미반영)."""
         l = _listing()
-        a_over  = _appraisal(judgement="고평가", confidence=0.9)
-        a_under = _appraisal(judgement="저평가", confidence=0.9)
-        s_over,  _, _ = _score_risk(l, a_over)
-        s_under, _, _ = _score_risk(l, a_under)
-        assert s_over > s_under
+        s_a, _, _ = _score_risk(l, _appraisal(confidence=0.9))
+        s_b, _, _ = _score_risk(l, _appraisal(confidence=0.9))
+        assert s_a == s_b
 
     def test_score_capped_at_10(self):
         l = _listing(built_year=1970)
-        a = _appraisal(confidence=0.1, warnings=["w1","w2","w3","w4"],
-                       judgement="고평가")
+        a = _appraisal(confidence=0.1, warnings=["w1","w2","w3","w4"])
         score, _, _ = _score_risk(l, a)
         assert score <= 10.0
 
     def test_score_floor_at_0(self):
         l = _listing(built_year=2024)
-        a = _appraisal(confidence=1.0, warnings=[], judgement="저평가")
+        a = _appraisal(confidence=1.0, warnings=[])
         score, _, _ = _score_risk(l, a)
         assert score >= 0.0
 
@@ -431,7 +405,7 @@ class TestCalculateListingScore:
             station_distance_m=150, school_distance_m=200,
             asking_price=1_000_000_000, deposit_price=800_000_000,
         )
-        a = _appraisal(judgement="저평가", confidence=0.95, gap_rate=-0.12)
+        a = _appraisal(confidence=0.95)
         result = calculate_listing_score(l, _query(budget_max=1_200_000_000), a)
         assert result["total_score"] >= 7.0
         assert result["recommendation_label"] in ("추천", "적극 추천")
@@ -443,7 +417,7 @@ class TestCalculateListingScore:
             station_distance_m=1800, school_distance_m=1500,
             asking_price=2_000_000_000, deposit_price=300_000_000,
         )
-        a = _appraisal(judgement="고평가", confidence=0.3, gap_rate=0.25,
+        a = _appraisal(confidence=0.3,
                        warnings=["실거래 2건 미만", "공시가 역산"])
         result = calculate_listing_score(l, _query(budget_max=1_000_000_000), a)
         assert result["total_score"] < 5.0
@@ -463,15 +437,14 @@ class TestCalculateListingScore:
     def test_reasons_not_empty_for_good_listing(self):
         l = _listing(station_distance_m=150, built_year=2022, floor=15,
                      deposit_price=750_000_000)
-        a = _appraisal(judgement="저평가", confidence=0.9, gap_rate=-0.10)
+        a = _appraisal(confidence=0.9)
         result = calculate_listing_score(l, _query(), a)
         assert len(result["reasons"]) > 0
 
     def test_risks_not_empty_for_bad_listing(self):
         l = _listing(built_year=1975, station_distance_m=2000,
                      deposit_price=200_000_000)
-        a = _appraisal(judgement="고평가", confidence=0.2,
-                       warnings=["경고1"])
+        a = _appraisal(confidence=0.2, warnings=["경고1"])
         result = calculate_listing_score(l, _query(budget_max=500_000_000), a)
         assert len(result["risks"]) > 0
 

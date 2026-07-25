@@ -87,14 +87,18 @@ async def create_appraisal_job(request: Request, req: AppraisalRequest, user: Op
             progress_cb=set_step,
         )
 
-    job_id = jobs.create(runner, on_done=_save_history(req, user))
+    job_id = jobs.create(
+        runner,
+        on_done=_save_history(req, user),
+        owner_id=user["id"] if user else None,
+    )
     return {"job_id": job_id}
 
 
 @router.get("/appraisal/jobs/{job_id}")
-def get_appraisal_job(job_id: str):
-    """작업 상태 조회. done이면 result + history_id 포함."""
-    job = jobs.get(job_id)
+def get_appraisal_job(job_id: str, user: Optional[dict] = Depends(get_optional_user)):
+    """작업 상태 조회. done이면 result + history_id 포함. 로그인 상태로 생성한 작업은 본인만 조회 가능."""
+    job = jobs.get(job_id, requester_id=user["id"] if user else None)
     if job is None:
         raise HTTPException(status_code=404, detail="작업 없음 (만료되었을 수 있음)")
     return job

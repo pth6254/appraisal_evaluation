@@ -308,6 +308,9 @@ PropertyQuery (지역·예산·면적·유형)
 | `VWORLD_API_KEY` | 토지 용도지역 (선택) | [vworld.kr](https://www.vworld.kr) |
 | `GOOGLE_CLIENT_ID/SECRET` | Google OAuth (선택) | [console.cloud.google.com](https://console.cloud.google.com) |
 | `JWT_SECRET_KEY` | 세션 토큰 서명 — **운영(`APP_ENV=production`)에서는 필수, 미설정 시 기동 실패** (개발은 기본값 허용) | 임의 문자열 |
+| `CORS_ORIGINS` | 허용 오리진 (콤마 구분) — **배포 시 실제 도메인으로 교체 필수**, 미설정 시 localhost만 허용 | 예: `https://example.com` |
+
+> 전체 환경변수 목록과 설명은 `.env.example` 참고.
 
 LLM 프로바이더 (`model_factory.py`):
 
@@ -495,7 +498,14 @@ pytest tests/test_transaction_store.py    # 실거래가 로컬 스토어 (TTL·
 pytest tests/test_simulation_service.py   # 시뮬레이션
 pytest tests/test_comparison_service.py   # 비교
 pytest tests/test_rights_and_chat.py      # 권리관계 위험 점검 · 법률·세금 챗봇
+pytest tests/test_access_control.py       # 이력·작업 소유자 격리 (타인 리포트 열람 차단)
 ```
+
+GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 전체 스위트를 실행한다.
+
+> **주의**: `AppraisalResult`는 pydantic 기본 설정상 **모르는 필드를 조용히 무시**한다.
+> 제거된 `judgement`·`gap_rate` 같은 인자를 테스트에서 넘겨도 오류 없이 통과하므로
+> (실제로는 아무것도 검증하지 않는 상태가 된다), 스키마 변경 시 테스트도 함께 갱신할 것.
 
 ---
 

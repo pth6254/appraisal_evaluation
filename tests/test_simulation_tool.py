@@ -455,7 +455,9 @@ class TestRunSimulation:
     def test_with_monthly_rent(self):
         result = run_simulation(_inp(rent_fee=2_000_000))
         assert result.cash_flow.monthly_rental_income == 2_000_000
-        assert result.scenario_base.total_rental_income == 2_000_000 * 12 * 3  # holding=3
+        # 임대수입에는 기본 공실률 5%가 차감된다 (SimulationInput.vacancy_rate 기본값)
+        expected = round(2_000_000 * 12 * 0.95) * 3   # holding=3
+        assert result.scenario_base.total_rental_income == expected
 
     def test_interest_only_repayment(self):
         result = run_simulation(_inp(repayment_type="interest_only"))

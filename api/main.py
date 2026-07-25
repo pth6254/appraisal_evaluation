@@ -59,9 +59,17 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# 허용 오리진 — 배포 도메인은 CORS_ORIGINS 환경변수(콤마 구분)로 지정한다.
+# 자격증명(쿠키)을 주고받으므로 와일드카드는 사용할 수 없다.
+_DEFAULT_ORIGINS = "http://localhost:3000,http://frontend:3000"
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()
+]
+logger.info("CORS 허용 오리진: %s", CORS_ORIGINS)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://frontend:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

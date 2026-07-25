@@ -67,7 +67,17 @@ class TestRightsAnalysis:
         assert res["risk_grade"] == "safe"
 
     def test_building_violation(self):
-        r = ras.parse_building_ledger("건축물대장 ... 위반건축물 ... 주용도: 단독주택\n호수 1")
+        # parse_building_ledger 는 50자 미만 입력을 "텍스트 추출 실패"로 처리하므로
+        # (스캔 이미지 PDF 방어) 실제 대장에 준하는 길이의 텍스트를 넘긴다.
+        text = (
+            "건축물대장 (갑) 위반건축물\n"
+            "대지위치: 서울특별시 마포구 신촌동 123-45\n"
+            "주용도: 단독주택\n"
+            "호수 1\n"
+            "사용승인일: 2005.06.30\n"
+        )
+        r = ras.parse_building_ledger(text)
+        assert not r["error"]
         assert r["violation"]
 
 

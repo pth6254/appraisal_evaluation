@@ -239,11 +239,12 @@ class TestAnalyzePrice:
 
     @patch("services.price_analysis_service.fetch_real_transaction_prices",
            return_value=MOCK_PRICE_DATA)
-    def test_gap_rate_type(self, _mock):
+    def test_price_range_consistent(self, _mock):
+        """gap_rate(호가 대비 괴리율)는 제거됨 — 추정가 범위 정합성으로 대체."""
         result = analyze_price(self._query(asking_price=900_000_000))
-        if result.gap_rate is not None:
-            assert isinstance(result.gap_rate, float)
-            assert -1.0 <= result.gap_rate <= 5.0   # 합리적인 범위
+        if result.estimated_price is not None:
+            assert result.low_price  <= result.estimated_price
+            assert result.high_price >= result.estimated_price
 
     def test_no_region_returns_analysis_fail(self):
         query  = self._query(region=None)

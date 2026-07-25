@@ -54,7 +54,7 @@ class TestComparableTransaction:
 
 class TestAppraisalResult:
     def test_defaults(self):
-        r = AppraisalResult(judgement="적정")
+        r = AppraisalResult()
         assert r.estimated_price is None
         assert r.confidence == 0.0
         assert r.comparables == []
@@ -63,9 +63,9 @@ class TestAppraisalResult:
 
     def test_confidence_bounds(self):
         with pytest.raises(Exception):
-            AppraisalResult(judgement="", confidence=1.5)
+            AppraisalResult(confidence=1.5)
         with pytest.raises(Exception):
-            AppraisalResult(judgement="", confidence=-0.1)
+            AppraisalResult(confidence=-0.1)
 
     def test_full_construction(self):
         r = AppraisalResult(
@@ -73,14 +73,12 @@ class TestAppraisalResult:
             low_price=450_000_000,
             high_price=550_000_000,
             asking_price=520_000_000,
-            gap_rate=0.04,
-            judgement="소폭 고평가",
             confidence=0.75,
             comparables=[ComparableTransaction(deal_price=500_000_000, match_level="same_complex")],
             warnings=["실거래 3건 미만"],
             data_source=["국토부 실거래가"],
         )
-        assert r.gap_rate == 0.04
+        assert r.asking_price == 520_000_000
         assert len(r.comparables) == 1
         assert r.comparables[0].deal_price == 500_000_000
 
@@ -137,15 +135,16 @@ class TestRecommendationResult:
         assert r2.reasons == []
 
     def test_with_appraisal(self):
-        appraisal = AppraisalResult(judgement="저평가", confidence=0.8)
+        appraisal = AppraisalResult(estimated_price=750_000_000, confidence=0.8)
         r = RecommendationResult(
             listing=self._make_listing(),
             appraisal=appraisal,
             total_score=8.5,
             recommendation_label="적극 추천",
-            reasons=["가격 저평가"],
+            reasons=["호가가 희망 예산 범위 내"],
         )
-        assert r.appraisal.judgement == "저평가"
+        assert r.appraisal.estimated_price == 750_000_000
+        assert r.appraisal.confidence == 0.8
         assert r.total_score == 8.5
 
 

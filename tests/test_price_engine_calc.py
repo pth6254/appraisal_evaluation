@@ -14,7 +14,6 @@ from price_engine import (
     calc_cost_approach,
     calc_estimated_value,
     calc_investment_return,
-    calc_valuation_verdict,
 )
 
 
@@ -98,47 +97,9 @@ class TestCalcEstimatedValue:
         assert result["estimated_value"] == 0
 
 
-# ─────────────────────────────────────────
-#  calc_valuation_verdict
-# ─────────────────────────────────────────
-
-class TestCalcValuationVerdict:
-    def _price_data(self, avg=50000, count=10):
-        return {"avg": avg, "count": count, "samples": []}
-
-    def test_low_evaluation(self):
-        # 호가가 평균 대비 15% 낮으면 저평가
-        r = calc_valuation_verdict(50000, self._price_data(avg=60000), asking_price=50000)
-        assert r["valuation_verdict"] == "저평가"
-        assert r["deviation_pct"] < -10
-
-    def test_appropriate(self):
-        r = calc_valuation_verdict(50000, self._price_data(avg=50000), asking_price=50000)
-        assert r["valuation_verdict"] == "적정"
-        assert r["deviation_pct"] == 0.0
-
-    def test_slightly_high(self):
-        # 호가가 평균 대비 10% 높으면 소폭 고평가
-        r = calc_valuation_verdict(55000, self._price_data(avg=50000), asking_price=55000)
-        assert r["valuation_verdict"] == "소폭 고평가"
-
-    def test_overvalued(self):
-        r = calc_valuation_verdict(70000, self._price_data(avg=50000), asking_price=70000)
-        assert r["valuation_verdict"] == "고평가"
-
-    def test_no_asking_uses_estimated(self):
-        # asking_price 없으면 estimated_value 기준
-        r = calc_valuation_verdict(55000, self._price_data(avg=50000))
-        assert r["deviation_pct"] == pytest.approx(10.0, abs=0.1)
-
-    def test_zero_comparable_avg(self):
-        r = calc_valuation_verdict(50000, self._price_data(avg=0))
-        assert r["deviation_pct"] == 0.0
-
-    def test_comparable_fields(self):
-        r = calc_valuation_verdict(50000, self._price_data(avg=50000, count=15))
-        assert r["comparable_avg"] == 50000
-        assert r["comparable_count"] == 15
+# calc_valuation_verdict(고/저평가 판정)은 price_engine 에서 제거되었다.
+# 백테스트 결과 동일동·구 매칭 구간의 적중률이 낮아 판정 자체를 노출하지 않기로 했다.
+# 관련 테스트는 삭제 — 신뢰도 산정은 test_confidence.py 가 담당한다.
 
 
 # ─────────────────────────────────────────

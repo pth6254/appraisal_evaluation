@@ -27,7 +27,8 @@ def get_history(
 
 @router.get("/history/{record_id}")
 def get_history_one(record_id: int, user: dict = Depends(get_current_user)):
-    row = history_db.load_one(record_id)
+    # 소유자 검증 — 타인의 레코드는 404로 응답해 존재 여부도 노출하지 않는다
+    row = history_db.load_one(record_id, user_id=user["id"])
     if not row:
         raise HTTPException(status_code=404, detail="이력 없음")
     return row

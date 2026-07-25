@@ -111,11 +111,24 @@ def load_all(limit: int = 100, offset: int = 0, user_id=None) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-def load_one(record_id: int) -> Optional[dict]:
+def load_one(record_id: int, user_id=None) -> Optional[dict]:
+    """
+    이력 1건 조회.
+
+    user_id를 넘기면 해당 사용자의 레코드만 반환한다(소유자 검증).
+    id가 순차 정수이므로 필터 없이 조회하면 타인의 리포트가 노출된다 —
+    사용자 요청 경로에서는 반드시 user_id를 함께 넘길 것.
+    """
     with _conn() as con:
-        row = con.execute(
-            "SELECT query, result FROM history WHERE id=?", (record_id,)
-        ).fetchone()
+        if user_id is not None:
+            row = con.execute(
+                "SELECT query, result FROM history WHERE id=? AND user_id=?",
+                (record_id, user_id),
+            ).fetchone()
+        else:
+            row = con.execute(
+                "SELECT query, result FROM history WHERE id=?", (record_id,)
+            ).fetchone()
     if not row:
         return None
     d = json.loads(row["result"])

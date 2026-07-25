@@ -44,15 +44,18 @@ def _cleanup_locked():
 
 
 def create(runner: Callable[[Callable[[str], None]], dict],
-           on_done: Optional[Callable[[dict], Any]] = None) -> str:
+           on_done: Optional[Callable[[dict], Any]] = None,
+           owner_id: Optional[int] = None) -> str:
     """
     작업 생성 및 백그라운드 실행.
 
     Args:
-        runner : fn(set_step) -> result dict. set_step(str)으로 진행 단계 보고.
-                 result에 "error" 키가 있으면 실패로 처리.
-        on_done: 성공 시 result를 받아 부가 처리(이력 저장 등) 후
-                 job에 병합할 dict를 반환하는 콜백 (예: {"history_id": 3}).
+        runner  : fn(set_step) -> result dict. set_step(str)으로 진행 단계 보고.
+                  result에 "error" 키가 있으면 실패로 처리.
+        on_done : 성공 시 result를 받아 부가 처리(이력 저장 등) 후
+                  job에 병합할 dict를 반환하는 콜백 (예: {"history_id": 3}).
+        owner_id: 작업을 생성한 사용자 id. 지정하면 get()에서 소유자만 조회 가능.
+                  None(비로그인)이면 추측 불가한 job_id 자체가 접근 토큰이 된다.
     Returns:
         job_id
     """
@@ -66,6 +69,7 @@ def create(runner: Callable[[Callable[[str], None]], dict],
         "result":      None,
         "error":       "",
         "extra":       {},
+        "owner_id":    owner_id,
     }
     with _LOCK:
         _cleanup_locked()
@@ -112,11 +116,19 @@ def create(runner: Callable[[Callable[[str], None]], dict],
     return job_id
 
 
-def get(job_id: str, include_result: bool = True) -> Optional[dict]:
-    """작업 상태 조회. 없으면 None."""
+def get(job_id: str, include_result: bool = True,
+        requester_id: Optional[int] = None) -> Optional[dict]:
+    """
+    작업 상태 조회. 없거나 접근 권한이 없으면 None.
+
+    소유자가 지정된 작업(owner_id is not None)은 동일 사용자만 조회할 수 있다.
+    권한 없음도 None으로 반환해 job 존재 여부를 노출하지 않는다.
+    """
     with _LOCK:
         job = _JOBS.get(job_id)
         if job is None:
+            return None
+        if job.get("owner_id") is not None and job["owner_id"] != requester_id:
             return None
         out = {
             "job_id": job["id"],

@@ -60,7 +60,9 @@ def _listing(**kwargs) -> PropertyListing:
 
 
 def _appraisal(**kwargs) -> AppraisalResult:
-    defaults = {"judgement": "적정", "confidence": 0.8, "gap_rate": 0.0}
+    # judgement / gap_rate 는 스키마에서 제거됨. pydantic 이 미지의 필드를 조용히
+    # 무시하므로, 넘겨도 오류 없이 테스트가 헛돌게 된다 — 실제 필드만 쓸 것.
+    defaults = {"confidence": 0.8}
     defaults.update(kwargs)
     return AppraisalResult(**defaults)
 
@@ -70,21 +72,22 @@ def _appraisal(**kwargs) -> AppraisalResult:
 # ─────────────────────────────────────────
 
 class TestFmtPrice:
+    """리포트 금액 표기는 4개 서비스 모두 '원 단위 + 천단위 구분' 으로 통일돼 있다."""
+
     def test_none_returns_dash(self):
         assert _fmt_price(None) == "—"
 
-    def test_eok_only(self):
-        assert _fmt_price(1_000_000_000) == "10억원"
+    def test_eok_scale(self):
+        assert _fmt_price(1_000_000_000) == "1,000,000,000원"
 
     def test_eok_and_man(self):
-        assert _fmt_price(1_050_000_000) == "10억 5,000만원"
+        assert _fmt_price(1_050_000_000) == "1,050,000,000원"
 
-    def test_man_only(self):
-        assert _fmt_price(50_000_000) == "5,000만원"
+    def test_man_scale(self):
+        assert _fmt_price(50_000_000) == "50,000,000원"
 
     def test_large_value(self):
-        result = _fmt_price(4_200_000_000)
-        assert "42억" in result
+        assert _fmt_price(4_200_000_000) == "4,200,000,000원"
 
 
 # ─────────────────────────────────────────
@@ -142,7 +145,10 @@ class TestAppraiseListing:
         """매물 region이 base_query.region보다 우선되어야 한다."""
         captured = {}
 
-        def fake_analyze(q: PropertyQuery) -> AppraisalResult:
+        # _appraise_listing 은 analyze_price(query, as_of=...) 형태로 호출한다.
+        # 시그니처가 안 맞으면 TypeError 가 내부 except 에 삼켜져 조용히 None 이 되므로
+        # 여기서 **kwargs 를 받아 호출 누락을 확실히 잡는다.
+        def fake_analyze(q: PropertyQuery, **kwargs) -> AppraisalResult:
             captured["region"] = q.region
             return _appraisal()
 
@@ -155,7 +161,10 @@ class TestAppraiseListing:
     def test_uses_base_query_region_as_fallback(self):
         captured = {}
 
-        def fake_analyze(q: PropertyQuery) -> AppraisalResult:
+        # _appraise_listing 은 analyze_price(query, as_of=...) 형태로 호출한다.
+        # 시그니처가 안 맞으면 TypeError 가 내부 except 에 삼켜져 조용히 None 이 되므로
+        # 여기서 **kwargs 를 받아 호출 누락을 확실히 잡는다.
+        def fake_analyze(q: PropertyQuery, **kwargs) -> AppraisalResult:
             captured["region"] = q.region
             return _appraisal()
 
@@ -191,7 +200,7 @@ class TestBuildResult:
         assert r.listing.listing_id == "UNIQUE123"
 
     def test_appraisal_preserved(self):
-        a = _appraisal(judgement="저평가", confidence=0.9)
+        a = _appraisal(confidence=0.9)
         r = _build_result(_listing(), _query(), a)
         assert r.appraisal is a
 
@@ -271,7 +280,7 @@ class TestRecommendListings:
 
     def test_run_appraisal_with_mock(self):
         """analyze_price를 mock으로 대체해 appraisal 통합 경로 검증."""
-        mock_appraisal = _appraisal(judgement="적정", confidence=0.8)
+        mock_appraisal = _appraisal(confidence=0.8)
         with patch(
             "services.price_analysis_service.analyze_price",
             return_value=mock_appraisal,
@@ -342,7 +351,7 @@ class TestFormatRecommendationReport:
         q = _query(budget_max=1_000_000_000)
         results = recommend_listings(q, limit=3, run_appraisal=False)
         report = format_recommendation_report(results, q)
-        assert "10억" in report
+        assert "1,000,000,000원" in report
 
     def test_shows_score_for_each_result(self):
         results = self._make_results(3)
@@ -382,11 +391,7 @@ class TestFormatRecommendationReport:
             assert name in report
 
     def test_appraisal_section_shown_when_available(self):
-        mock_appraisal = _appraisal(
-            judgement="저평가",
-            confidence=0.9,
-            estimated_price=900_000_000,
-        )
+        mock_appraisal = _appraisal(confidence=0.9, estimated_price=900_000_000)
         with patch(
             "services.price_analysis_service.analyze_price",
             return_value=mock_appraisal,
@@ -396,4 +401,5 @@ class TestFormatRecommendationReport:
             )
         report = format_recommendation_report(results, _query(region="마포구"))
         assert "감정평가" in report
-        assert "저평가" in report
+        # 고/저평가 판정은 제거됨 — 추정가가 리포트에 노출되는지로 확인한다
+        assert "900,000,000원" in report
