@@ -59,11 +59,12 @@ pydantic==2.13.4
 pydantic-settings==2.14.1
 pydantic_core==2.46.4
 
-# ── 데이터베이스 (pgvector / SQLite) ──────────────────────────
+# ── 데이터베이스 (PostgreSQL / pgvector / Redis) ───────────────
 greenlet==3.5.1
 pgvector==0.4.2
 psycopg2-binary==2.9.12
 SQLAlchemy==2.0.50
+redis==5.2.1
 
 # ── Ollama ───────────────────────────────────────────────────
 ollama==0.6.2

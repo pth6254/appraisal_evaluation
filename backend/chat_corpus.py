@@ -1,34 +1,32 @@
 """
-chat_corpus.py — 부동산 법률·세금 상담 챗봇 RAG 코퍼스
+chat_corpus.py — 부동산 법률·세금 상담 챗봇 RAG 코퍼스 (PostgreSQL, SQLAlchemy)
 
 구성:
   - 시드 코퍼스: 주택임대차보호법·전세사기 분쟁 유형·세금·상속증여 등
     핵심 지식 청크 (설치 즉시 동작)
   - 확장: tools/build_law_corpus.py 로 국가법령정보센터 법령·판례 추가 수집
-  - 저장: data/chat_corpus.db (SQLite) — 청크 + 임베딩(json)
+  - 저장: chat_chunks 테이블 (PostgreSQL) — 청크 + 임베딩(JSON 배열)
   - 검색: 임베딩 코사인 유사도 (Ollama 등 model_factory 임베딩),
           임베딩 불가 환경에서는 키워드 매칭 폴백
 
 법적 포지셔닝: 코퍼스는 "일반 정보"이며 개별 사안 판단(법률사무)이 아니다.
+
+이전에는 SQLite 파일(data/chat_corpus.db)이었다. 실거래 벡터 검색용
+pgvector(real_estate_docs, backend/rag_pipeline.py)와는 별개 테이블이다 —
+법률 코퍼스 청크는 22건 수준으로 작고 코사인 유사도를 파이썬에서 계산해도
+충분히 빨라, ivfflat 인덱스가 필요한 pgvector 전용 컬럼 타입까지는 쓰지 않았다.
 """
 
 from __future__ import annotations
 
-import json
 import math
-import os
 import re
-import sqlite3
-import threading
-from contextlib import contextmanager
 
-_BACKEND_DIR  = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+from sqlalchemy import func, select
 
-DB_PATH = os.getenv("CHAT_CORPUS_DB_PATH",
-                    os.path.join(_PROJECT_ROOT, "data", "chat_corpus.db"))
+from db.base import init_db, session_scope
+from db.models import ChatChunk
 
-_DB_LOCK = threading.Lock()
 _INITIALIZED = False
 
 
@@ -140,37 +138,11 @@ SEED_CHUNKS: list[dict] = [
 #  저장소
 # ─────────────────────────────────────────
 
-@contextmanager
-def _conn():
-    with _DB_LOCK:
-        con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
-        con.row_factory = sqlite3.Row
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            pass
-        con.execute("PRAGMA busy_timeout=5000")
-        try:
-            yield con
-        finally:
-            con.close()
-
-
 def _init():
     global _INITIALIZED
     if _INITIALIZED:
         return
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    with _conn() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS chunks (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                title     TEXT NOT NULL,
-                source    TEXT DEFAULT '',
-                text      TEXT NOT NULL,
-                embedding TEXT DEFAULT NULL
-            )""")
-        con.commit()
+    init_db()
     _INITIALIZED = True
 
 
@@ -188,21 +160,21 @@ def add_chunks(chunks: list[dict]):
     """청크 추가 (임베딩 가능하면 함께 저장)."""
     _init()
     vecs = _try_embed([c["text"] for c in chunks])
-    with _conn() as con:
-        for i, c in enumerate(chunks):
-            con.execute(
-                "INSERT INTO chunks (title, source, text, embedding) VALUES (?,?,?,?)",
-                (c["title"], c.get("source", ""), c["text"],
-                 json.dumps(vecs[i]) if vecs else None),
+    with session_scope() as session:
+        session.add_all([
+            ChatChunk(
+                title=c["title"], source=c.get("source", ""), text=c["text"],
+                embedding=vecs[i] if vecs else None,
             )
-        con.commit()
+            for i, c in enumerate(chunks)
+        ])
 
 
 def ensure_corpus():
     """비어 있으면 시드 코퍼스 적재."""
     _init()
-    with _conn() as con:
-        count = con.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    with session_scope() as session:
+        count = session.scalar(select(func.count()).select_from(ChatChunk))
     if count == 0:
         add_chunks(SEED_CHUNKS)
         print(f"[chat_corpus] 시드 코퍼스 {len(SEED_CHUNKS)}청크 적재")
@@ -230,24 +202,24 @@ def _keyword_score(query: str, text: str) -> float:
 def search(query: str, k: int = 4) -> list[dict]:
     """관련 청크 상위 k개. [{title, source, text, score}]"""
     ensure_corpus()
-    with _conn() as con:
-        rows = [dict(r) for r in con.execute(
-            "SELECT title, source, text, embedding FROM chunks").fetchall()]
+    with session_scope() as session:
+        rows = list(session.scalars(select(ChatChunk)))
+
     if not rows:
         return []
 
     q_vec = None
-    if any(r["embedding"] for r in rows):
+    if any(r.embedding for r in rows):
         vecs = _try_embed([query])
         q_vec = vecs[0] if vecs else None
 
     scored = []
     for r in rows:
-        if q_vec is not None and r["embedding"]:
-            score = _cosine(q_vec, json.loads(r["embedding"]))
+        if q_vec is not None and r.embedding:
+            score = _cosine(q_vec, r.embedding)
         else:
-            score = _keyword_score(query, r["title"] + " " + r["text"])
-        scored.append({**{key: r[key] for key in ("title", "source", "text")},
+            score = _keyword_score(query, r.title + " " + r.text)
+        scored.append({"title": r.title, "source": r.source, "text": r.text,
                        "score": round(score, 4)})
     scored.sort(key=lambda x: x["score"], reverse=True)
     return [s for s in scored[:k] if s["score"] > 0]

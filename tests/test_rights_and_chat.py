@@ -4,7 +4,11 @@ test_rights_and_chat.py — 권리 점검·상속증여세·챗봇 단위 테스
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:password@localhost:5432/real_estate_db")
 
 import services.rights_analysis_service as ras
 from tax_rules import calc_gift_tax, calc_inheritance_tax
@@ -123,9 +127,20 @@ class _FakeLLM:
 
 class TestChatService:
     @pytest.fixture(autouse=True)
-    def _corpus_tmp(self, tmp_path, monkeypatch):
+    def _corpus_tmp(self, monkeypatch):
+        """
+        chat_chunks 테이블을 비운 상태로 격리.
+
+        이전에는 DB_PATH(SQLite 파일 경로)를 tmp_path로 monkeypatch해 테스트마다
+        별개 파일을 썼다. Postgres 전환 후에는 테이블만 비우고, ensure_corpus()가
+        다시 시드 코퍼스를 채우게 한다.
+        """
         import chat_corpus
-        monkeypatch.setattr(chat_corpus, "DB_PATH", str(tmp_path / "corpus.db"))
+
+        from db.models import ChatChunk
+        from tests.conftest import truncate_tables
+
+        truncate_tables(ChatChunk)
         monkeypatch.setattr(chat_corpus, "_INITIALIZED", False)
         monkeypatch.setattr(chat_corpus, "_try_embed", lambda texts: None)  # 키워드 폴백
 

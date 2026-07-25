@@ -4,9 +4,12 @@ test_transaction_store.py — 실거래가 로컬 스토어 단위 테스트
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
+
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:password@localhost:5432/real_estate_db")
 
 import transaction_store
 from price_engine import _endpoint_name
@@ -21,10 +24,17 @@ KEY = ("RTMSDataSvcAptTrade", "주거용", "11650", "202606")
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
-    """테스트 전용 임시 DB로 스토어 격리."""
-    monkeypatch.setattr(transaction_store, "DB_PATH", str(tmp_path / "tx_test.db"))
-    monkeypatch.setattr(transaction_store, "_INITIALIZED", False)
+def store():
+    """
+    transactions/ingest_log 테이블을 비운 상태로 스토어 격리.
+
+    이전에는 DB_PATH(SQLite 파일 경로)를 tmp_path로 monkeypatch해 테스트마다
+    별개 파일을 썼다. Postgres 전환 후에는 관련 테이블만 비운다.
+    """
+    from db.models import IngestLog, Transaction
+    from tests.conftest import truncate_tables
+
+    truncate_tables(Transaction, IngestLog)
     transaction_store.init_store()
     return transaction_store
 
@@ -66,14 +76,17 @@ def test_key_isolation(store):
 
 
 def test_stale_entry_returns_none(store):
+    from sqlalchemy import update
+
+    from db.base import session_scope
+    from db.models import IngestLog
+
     store.put_month(*KEY, [SAMPLE])
     # fetched_at을 TTL 최대치(30일) 이전으로 강제 → 만료 판정
-    with store._conn() as con:
-        con.execute(
-            "UPDATE ingest_log SET fetched_at = ?",
-            (time.time() - transaction_store.TTL_COMPLETE_MONTH - 1,),
+    with session_scope() as session:
+        session.execute(
+            update(IngestLog).values(fetched_at=time.time() - transaction_store.TTL_COMPLETE_MONTH - 1)
         )
-        con.commit()
     assert store.get_month(*KEY) is None
 
 

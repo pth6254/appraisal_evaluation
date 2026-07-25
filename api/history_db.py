@@ -1,69 +1,27 @@
 """
-history_db.py — 감정평가 이력 저장소 (api/ 전용 복사본)
+history_db.py — 시세추정 이력 저장소 (PostgreSQL, SQLAlchemy)
 
-DB 위치: data/history.db (프로젝트 루트 기준)
+이전에는 SQLite 파일(data/history.db)의 history 테이블이었다. result는
+텍스트 컬럼에 json.dumps 해서 넣었지만, 이제는 Postgres JSON 컬럼이라
+SQLAlchemy가 dict ↔ JSON 왕복을 대신한다.
 """
 from __future__ import annotations
 
-import json
-import sqlite3
-import threading
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
+from sqlalchemy import delete, func, select
 
-_API_DIR      = Path(__file__).parent
-_PROJECT_ROOT = _API_DIR.parent
-DB = _PROJECT_ROOT / "data" / "history.db"
-
-# WAL은 WSL /mnt/c (9p) 등 일부 파일시스템에서 "database is locked"를
-# 유발할 수 있어 실패 시 기본 저널로 폴백하고, 접근을 락으로 직렬화한다.
-_DB_LOCK = threading.Lock()
-
-
-@contextmanager
-def _conn():
-    with _DB_LOCK:
-        con = sqlite3.connect(str(DB), check_same_thread=False, timeout=10)
-        con.row_factory = sqlite3.Row
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            pass  # WAL 미지원 파일시스템 → 기본(DELETE) 저널 유지
-        con.execute("PRAGMA synchronous=NORMAL")
-        con.execute("PRAGMA busy_timeout=5000")
-        try:
-            yield con
-        finally:
-            con.close()
+from db.base import init_db, session_scope
+from db.models import HistoryRecord
 
 
 def init():
-    DB.parent.mkdir(parents=True, exist_ok=True)
-    with _conn() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS history (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                query     TEXT    NOT NULL,
-                category  TEXT    DEFAULT '',
-                result    TEXT    NOT NULL,
-                created   TEXT    DEFAULT (datetime('now','localtime')),
-                user_id   INTEGER DEFAULT NULL
-            )
-        """)
-        con.execute("CREATE INDEX IF NOT EXISTS idx_history_created ON history (created DESC)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_history_category ON history (category)")
-        con.commit()
-        try:
-            con.execute("ALTER TABLE history ADD COLUMN user_id INTEGER DEFAULT NULL")
-            con.commit()
-        except Exception:
-            pass
+    init_db()
 
 
 def _serialize(obj):
+    """Pydantic 모델·datetime 등을 JSON 컬럼에 그대로 넣을 수 있는 순수 dict/list/str로 변환."""
     if isinstance(obj, BaseModel):
         return _serialize(obj.model_dump())
     if isinstance(obj, dict):
@@ -78,37 +36,30 @@ def _serialize(obj):
 def save(query: str, result: dict, user_id=None) -> int:
     ar       = result.get("analysis_result") or {}
     category = ar.get("agent_name", "") or result.get("category", "")
-    with _conn() as con:
-        cur = con.execute(
-            "INSERT INTO history (query, category, result, user_id) VALUES (?,?,?,?)",
-            (query, category, json.dumps(_serialize(result), ensure_ascii=False), user_id),
+    with session_scope() as session:
+        record = HistoryRecord(
+            query=query, category=category,
+            result=_serialize(result), user_id=user_id,
         )
-        con.commit()
-        return cur.lastrowid
+        session.add(record)
+        session.flush()
+        return record.id
 
 
 def count_all(user_id=None) -> int:
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = select(func.count()).select_from(HistoryRecord)
         if user_id is not None:
-            return con.execute("SELECT COUNT(*) FROM history WHERE user_id=?", (user_id,)).fetchone()[0]
-        return con.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+            stmt = stmt.where(HistoryRecord.user_id == user_id)
+        return session.scalar(stmt)
 
 
 def load_all(limit: int = 100, offset: int = 0, user_id=None) -> list[dict]:
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = select(HistoryRecord).order_by(HistoryRecord.created.desc()).limit(limit).offset(offset)
         if user_id is not None:
-            rows = con.execute(
-                "SELECT id, query, category, result, created "
-                "FROM history WHERE user_id=? ORDER BY created DESC LIMIT ? OFFSET ?",
-                (user_id, limit, offset),
-            ).fetchall()
-        else:
-            rows = con.execute(
-                "SELECT id, query, category, result, created "
-                "FROM history ORDER BY created DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+            stmt = stmt.where(HistoryRecord.user_id == user_id)
+        return [_row_to_dict(r) for r in session.scalars(stmt)]
 
 
 def load_one(record_id: int, user_id=None) -> Optional[dict]:
@@ -119,66 +70,55 @@ def load_one(record_id: int, user_id=None) -> Optional[dict]:
     id가 순차 정수이므로 필터 없이 조회하면 타인의 리포트가 노출된다 —
     사용자 요청 경로에서는 반드시 user_id를 함께 넘길 것.
     """
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = select(HistoryRecord).where(HistoryRecord.id == record_id)
         if user_id is not None:
-            row = con.execute(
-                "SELECT query, result FROM history WHERE id=? AND user_id=?",
-                (record_id, user_id),
-            ).fetchone()
-        else:
-            row = con.execute(
-                "SELECT query, result FROM history WHERE id=?", (record_id,)
-            ).fetchone()
-    if not row:
+            stmt = stmt.where(HistoryRecord.user_id == user_id)
+        record = session.scalar(stmt)
+    if not record:
         return None
-    d = json.loads(row["result"])
-    d["query"] = row["query"]
+    d = dict(record.result)
+    d["query"] = record.query
     return d
 
 
 def search_by_query(keyword: str, limit: int = 50, user_id=None) -> list[dict]:
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = (
+            select(HistoryRecord)
+            .where(HistoryRecord.query.ilike(f"%{keyword}%"))
+            .order_by(HistoryRecord.created.desc())
+            .limit(limit)
+        )
         if user_id is not None:
-            rows = con.execute(
-                "SELECT id, query, category, result, created "
-                "FROM history WHERE query LIKE ? AND user_id=? ORDER BY created DESC LIMIT ?",
-                (f"%{keyword}%", user_id, limit),
-            ).fetchall()
-        else:
-            rows = con.execute(
-                "SELECT id, query, category, result, created "
-                "FROM history WHERE query LIKE ? ORDER BY created DESC LIMIT ?",
-                (f"%{keyword}%", limit),
-            ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+            stmt = stmt.where(HistoryRecord.user_id == user_id)
+        return [_row_to_dict(r) for r in session.scalars(stmt)]
 
 
 def delete_one(record_id: int, user_id=None):
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = delete(HistoryRecord).where(HistoryRecord.id == record_id)
         if user_id is not None:
-            con.execute("DELETE FROM history WHERE id=? AND user_id=?", (record_id, user_id))
-        else:
-            con.execute("DELETE FROM history WHERE id=?", (record_id,))
-        con.commit()
+            stmt = stmt.where(HistoryRecord.user_id == user_id)
+        session.execute(stmt)
 
 
 def delete_all(user_id=None):
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = delete(HistoryRecord)
         if user_id is not None:
-            con.execute("DELETE FROM history WHERE user_id=?", (user_id,))
-        else:
-            con.execute("DELETE FROM history")
-        con.commit()
+            stmt = stmt.where(HistoryRecord.user_id == user_id)
+        session.execute(stmt)
 
 
-def _row_to_dict(r: sqlite3.Row) -> dict:
+def _row_to_dict(r: HistoryRecord) -> dict:
     item = {
-        "id":       r["id"],
-        "query":    r["query"],
-        "category": r["category"],
-        "created":  r["created"],
+        "id":       r.id,
+        "query":    r.query,
+        "category": r.category,
+        "created":  r.created,
     }
-    item.update(json.loads(r["result"]))
+    item.update(r.result)
     ar = item.get("analysis_result") or {}
     for key in (
         "estimated_value", "value_min", "value_max",

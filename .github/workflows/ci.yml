@@ -10,11 +10,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # 앱 테이블·작업 큐·레이트 리밋이 전부 PostgreSQL/Redis 필수로 바뀌어
+    # (SQLite/인프로세스 메모리 폴백 없음) 테스트도 실제 서비스 컨테이너가 필요하다.
+    services:
+      postgres:
+        image: ankane/pgvector:latest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: real_estate_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d real_estate_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       # 테스트는 외부 API·LLM 없이 도는 것만 대상으로 한다.
       DISABLE_RATE_LIMIT: "1"
       APP_ENV: development
       JWT_SECRET_KEY: ci-test-secret-not-used-in-production
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/real_estate_db
+      REDIS_URL: redis://localhost:6379/0
 
     steps:
       - uses: actions/checkout@v4

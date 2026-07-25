@@ -10,24 +10,30 @@ id가 순차 정수인 history 레코드를 소유자 검증 없이 조회하면
 from __future__ import annotations
 
 import os
-import tempfile
-from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("DISABLE_RATE_LIMIT", "1")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-for-access-control")
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:password@localhost:5432/real_estate_db")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    """auth/history DB를 임시 파일로 격리한 TestClient."""
+def client():
+    """
+    users/history 테이블을 비운 상태로 시작하는 TestClient.
+
+    이전에는 auth_db.DB/history_db.DB(SQLite 파일 경로)를 tmp_path로
+    monkeypatch해 테스트마다 완전히 별개의 DB 파일을 썼다. 지금은 모든
+    워커가 같은 Postgres 인스턴스를 보므로, 관련 테이블만 비워 격리한다.
+    """
     from fastapi.testclient import TestClient
 
-    from api import auth_db, history_db
+    from db.models import HistoryRecord, User
+    from tests.conftest import truncate_tables
 
-    monkeypatch.setattr(history_db, "DB", tmp_path / "history.db")
-    monkeypatch.setattr(auth_db, "DB", tmp_path / "auth.db")
+    truncate_tables(HistoryRecord, User)
 
     from api.main import app
 

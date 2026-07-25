@@ -1,102 +1,85 @@
 """
-auth_db.py — 사용자 인증 DB (SQLite)
+auth_db.py — 사용자 인증 DB (PostgreSQL, SQLAlchemy)
+
+이전에는 SQLite 파일(data/auth.db)을 직접 열었다. db/base.py 의 공용
+세션으로 옮기되, 호출부(api/routes/auth.py, api/deps.py 등)가 기대하는
+함수 시그니처와 반환 형태(dict)는 그대로 유지한다.
 """
 from __future__ import annotations
 
-import sqlite3
-import threading
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Optional
 
-_API_DIR = Path(__file__).parent
-_PROJECT_ROOT = _API_DIR.parent
-DB = _PROJECT_ROOT / "data" / "auth.db"
+from sqlalchemy import select
 
-# WAL은 WSL /mnt/c (9p) 등 일부 파일시스템에서 "database is locked"를
-# 유발할 수 있어 실패 시 기본 저널로 폴백하고, 접근을 락으로 직렬화한다.
-_DB_LOCK = threading.Lock()
-
-
-@contextmanager
-def _conn():
-    with _DB_LOCK:
-        con = sqlite3.connect(str(DB), check_same_thread=False, timeout=10)
-        con.row_factory = sqlite3.Row
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            pass  # WAL 미지원 파일시스템 → 기본(DELETE) 저널 유지
-        con.execute("PRAGMA busy_timeout=5000")
-        try:
-            yield con
-        finally:
-            con.close()
+from db.base import init_db, session_scope
+from db.models import User
 
 
 def init():
-    DB.parent.mkdir(parents=True, exist_ok=True)
-    with _conn() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                email         TEXT    NOT NULL UNIQUE,
-                password_hash TEXT    DEFAULT NULL,
-                name          TEXT    DEFAULT '',
-                avatar_url    TEXT    DEFAULT '',
-                provider      TEXT    DEFAULT 'local',
-                provider_id   TEXT    DEFAULT NULL,
-                created       TEXT    DEFAULT (datetime('now','localtime'))
-            )
-        """)
-        con.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)")
-        con.commit()
+    """앱 전체 테이블을 생성한다 (history_db.init()/activity_db.init() 과 동일한 진입점).
+
+    이름은 하위 호환을 위해 유지 — 실제로는 db.base.init_db() 로 위임한다.
+    """
+    init_db()
+
+
+def _to_dict(user: User) -> dict:
+    return {
+        "id":            user.id,
+        "email":         user.email,
+        "password_hash": user.password_hash,
+        "name":          user.name,
+        "avatar_url":    user.avatar_url,
+        "provider":      user.provider,
+        "provider_id":   user.provider_id,
+        "created":       user.created,
+    }
 
 
 def create_local_user(email: str, password_hash: str, name: str = "") -> dict:
-    with _conn() as con:
-        cur = con.execute(
-            "INSERT INTO users (email, password_hash, name, provider) VALUES (?,?,?,'local')",
-            (email, password_hash, name),
-        )
-        con.commit()
-    return get_by_id(cur.lastrowid)
+    with session_scope() as session:
+        user = User(email=email, password_hash=password_hash, name=name, provider="local")
+        session.add(user)
+        session.flush()
+        return _to_dict(user)
 
 
 def get_or_create_oauth_user(
     email: str, name: str, avatar_url: str, provider: str, provider_id: str
 ) -> dict:
-    with _conn() as con:
-        row = con.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        if row:
-            con.execute(
-                "UPDATE users SET name=?, avatar_url=?, provider=?, provider_id=? WHERE id=?",
-                (name, avatar_url, provider, provider_id, row["id"]),
-            )
-            con.commit()
-            return dict(row) | {"name": name, "avatar_url": avatar_url}
-        cur = con.execute(
-            "INSERT INTO users (email, name, avatar_url, provider, provider_id) VALUES (?,?,?,?,?)",
-            (email, name, avatar_url, provider, provider_id),
+    with session_scope() as session:
+        user = session.scalar(select(User).where(User.email == email))
+        if user:
+            user.name = name
+            user.avatar_url = avatar_url
+            user.provider = provider
+            user.provider_id = provider_id
+            session.flush()
+            return _to_dict(user)
+        user = User(
+            email=email, name=name, avatar_url=avatar_url,
+            provider=provider, provider_id=provider_id,
         )
-        con.commit()
-    return get_by_id(cur.lastrowid)
+        session.add(user)
+        session.flush()
+        return _to_dict(user)
 
 
 def get_by_email(email: str) -> Optional[dict]:
-    with _conn() as con:
-        row = con.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        return dict(row) if row else None
+    with session_scope() as session:
+        user = session.scalar(select(User).where(User.email == email))
+        return _to_dict(user) if user else None
 
 
 def get_by_id(user_id: int) -> Optional[dict]:
-    with _conn() as con:
-        row = con.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-        return dict(row) if row else None
+    with session_scope() as session:
+        user = session.get(User, user_id)
+        return _to_dict(user) if user else None
 
 
 def delete_user(user_id: int) -> None:
     """회원 탈퇴 — 계정 행 삭제 (이력·활동 삭제는 호출 측에서 함께 수행)"""
-    with _conn() as con:
-        con.execute("DELETE FROM users WHERE id=?", (user_id,))
-        con.commit()
+    with session_scope() as session:
+        user = session.get(User, user_id)
+        if user:
+            session.delete(user)

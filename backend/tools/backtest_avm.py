@@ -123,12 +123,7 @@ def run_backtest(region_name: str, lawd_cd: str,
     """지역 1곳 백테스트 → 케이스 목록 [{level, n, ape}, ...]"""
     # 로컬 스토어에서 적재된 전체 월 로드 (TTL 무시)
     months_data: dict[str, list[dict]] = {}
-    with transaction_store._conn() as con:
-        yms = [r[0] for r in con.execute(
-            """SELECT DISTINCT deal_ym FROM ingest_log
-               WHERE endpoint=? AND category=? AND lawd_cd=? ORDER BY deal_ym""",
-            (ENDPOINT, CATEGORY, lawd_cd),
-        ).fetchall()]
+    yms = transaction_store.list_ingested_months(ENDPOINT, CATEGORY, lawd_cd)
     for ym in yms:
         rows = transaction_store.get_month(ENDPOINT, CATEGORY, lawd_cd, ym, ignore_ttl=True)
         if rows:

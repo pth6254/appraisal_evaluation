@@ -17,7 +17,7 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
 | 🏡 **컨시어지 홈** | 사용자 여정(매물 탐색 → 가치 분석 → 안전 점검 → 법률·세금 상담) 기반 홈 화면. 주소 검색 히어로에서 바로 시세추정으로 연결, 시세추정·권리점검·상담을 합친 최근 활동 피드 |
 | 🏠 **AI 시세추정** | 자연어/단계별 입력 → 실거래 비교·수익환원·원가법 기반 추정 시세 산출, 공식 문서 형식 리포트 |
 | 📊 **리포트 영속화** | 결과가 이력 DB에 저장되어 `/report/{id}` URL로 재열람·공유·인쇄(PDF) 가능 |
-| ⏱ **비동기 작업 큐** | 30초~2분 걸리는 파이프라인을 job으로 실행, 단계별 진행 상황 실시간 표시 |
+| ⏱ **비동기 작업 큐** | 30초~2분 걸리는 파이프라인을 job으로 실행, 단계별 진행 상황 실시간 표시. 상태는 Redis에 저장돼 멀티 워커에서도 어느 워커가 폴링을 받든 동일한 진행 상황을 본다 |
 | ✨ **매물 추천** | **실거래 기반 단지 추천 (전국 시군구)** — 예산·면적 조건으로 실거래 데이터를 집계·점수화. 샘플 매물 모드 병행 |
 | 📈 **투자 시뮬레이션** | 취득세·대출 상환·현금흐름·3개 시나리오(기준/강세/약세) 수익률 계산 |
 | ⚖️ **매물 비교** | 복수 매물 점수 비교 + 우승 매물 선정 결정 리포트 |
@@ -26,7 +26,7 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
 | 📋 **이력 대시보드** | 사용자별 시세추정 이력 검색·통계 차트·리포트 재열람 |
 | 🔐 **인증·보안** | 이메일/비밀번호 + Google OAuth, JWT 쿠키 세션, 사용자별 이력 분리, 회원 탈퇴(전체 삭제), 로그인 잠금(5회 실패), 엔드포인트별 레이트 리밋, 챗봇 일일 상한 |
 | 🔒 **개인정보 보호** | 업로드 PDF는 메모리에서만 분석 후 즉시 파기(무저장), 활동 기록은 주소 마스킹·질문 축약 저장, 개인정보처리방침·이용약관 페이지(`/privacy`·`/terms`) |
-| 🗄 **실거래가 로컬 스토어** | MOLIT API 응답을 SQLite에 적재 — 반복 조회 시 API 호출 없이 즉시 응답, 배치 수집 CLI 제공 |
+| 🗄 **실거래가 로컬 스토어** | MOLIT API 응답을 PostgreSQL에 적재 — 반복 조회 시 API 호출 없이 즉시 응답, 배치 수집 CLI 제공 |
 
 ---
 
@@ -35,14 +35,16 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
 ```
 [Next.js 16 프론트엔드 :3000]
          │  HTTP (REST) · JWT 쿠키
-[FastAPI 백엔드 :8000]
-   ├── 작업 큐 (api/jobs.py — 인프로세스 스레드, 동시 4개)
-   ├── 인증 (api/auth_db.py — SQLite)
-   ├── 이력 (api/history_db.py — SQLite, 리포트 영속화)
-   ├── 활동 피드 (api/activity_db.py — SQLite, 권리점검·상담 활동 기록 → 홈 통합 피드)
+[FastAPI 백엔드 :8000]  (uvicorn --workers N 스케일아웃 가능)
+   ├── 작업 큐 (api/jobs.py — 상태는 Redis, 실행은 각 워커 스레드)
+   ├── 레이트 리밋 · 로그인 잠금 (Redis — 워커 간 카운터 공유)
+   ├── 인증 / 이력 / 활동 피드 (api/auth_db.py, history_db.py, activity_db.py
+   │                          — SQLAlchemy ORM, db/ 공용 세션)
    │
 [LangGraph 파이프라인 (backend/)]
-   ├── 실거래가 로컬 스토어 (backend/transaction_store.py — SQLite)
+   ├── 캐시·지역코드 (backend/cache_db.py)         │  PostgreSQL
+   ├── 실거래가 로컬 스토어 (backend/transaction_store.py)  │  (real_estate_db,
+   ├── 법률·세금 상담 코퍼스 (backend/chat_corpus.py)       │   pgvector 공유)
    │        ↑ 미스 시 폴백           ↑ 배치 수집
    ├── 국토부 MOLIT API      backend/tools/ingest_transactions.py
    ├── 카카오 지오코딩 · Vworld 용도지역
@@ -53,8 +55,10 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
   Pretendard 가변 폰트(`next/font/local` 셀프호스팅), lucide-react 아이콘, 모바일 반응형 내비게이션
 - **백엔드 API**: FastAPI (`api/`) — uvicorn 실행, 비동기 job + 동기 엔드포인트 병행
 - **파이프라인**: LangGraph (`backend/`) — 시세추정·추천·시뮬레이션·비교 4개 그래프
-- **저장소**: SQLite 4개 (`cache.db` 캐시·지역코드 / `auth.db` 사용자 / `history.db` 이력 / `transactions.db` 실거래가)
-  + PostgreSQL·pgvector (Docker, RAG 벡터스토어)
+- **저장소**: PostgreSQL 단일 인스턴스(`real_estate_db`) — 앱 테이블(사용자·이력·활동·캐시·
+  지역코드·실거래가·상담 코퍼스, `db/models.py`)과 RAG 벡터스토어(pgvector, `real_estate_docs`)가
+  같은 컨테이너를 공유 + Redis(작업 큐 상태·레이트 리밋·로그인 잠금 카운터)
+  — 둘 다 로컬 개발 포함 필수 (SQLite/인프로세스 메모리 폴백 없음, `docker compose up pgvector redis`)
 
 ### 시세추정 실행 흐름 (비동기 job)
 
@@ -75,7 +79,7 @@ GET  /api/appraisal/jobs/{job_id}      → { status, step, ... }  (프론트 2�
 cp .env.example .env
 # .env 파일을 열어 API 키 입력
 
-# 2. 전체 서비스 실행 (백엔드 + 프론트엔드 + DB)
+# 2. 전체 서비스 실행 (백엔드 + 프론트엔드 + PostgreSQL + Redis)
 docker compose up --build
 
 # 서비스 주소
@@ -84,20 +88,30 @@ docker compose up --build
 # API 문서:   http://localhost:8000/docs
 ```
 
-### 로컬 개발 (Docker 없이)
+### 로컬 개발 (백엔드만 네이티브 실행)
+
+앱 테이블(사용자·이력·활동·캐시·실거래가·상담 코퍼스)이 PostgreSQL, 작업 큐·레이트
+리밋·로그인 잠금이 Redis 필수라 — SQLite나 인프로세스 메모리로 도망칠 폴백이 없다.
+**Postgres·Redis는 항상 Docker로 띄우고, FastAPI만 네이티브로 돌리는 것**이 기본 흐름이다.
 
 ```bash
-# 1. Python 패키지 설치
+# 1. DB·캐시만 Docker로 기동 (백엔드는 아래에서 네이티브로 띄울 것이므로 제외)
+docker compose up -d pgvector redis
+
+# 2. Python 패키지 설치
 pip install -r requirements.txt
 
-# 2. Ollama 모델 다운로드 (시세추정 LLM 의견 생성에 필요)
+# 3. Ollama 모델 다운로드 (시세추정 LLM 의견 생성에 필요)
 ollama pull exaone3.5:7.8b
 ollama pull nomic-embed-text
 
-# 3. FastAPI 백엔드 실행
+# 4. 환경변수 설정 (.env 에 DATABASE_URL·REDIS_URL 이 로컬 포트를 가리키는지 확인)
+cp .env.example .env
+
+# 5. FastAPI 백엔드 실행
 uvicorn api.main:app --reload --port 8000
 
-# 4. Next.js 프론트엔드 실행 (별도 터미널)
+# 6. Next.js 프론트엔드 실행 (별도 터미널)
 cd frontend
 npm install
 npm run dev
@@ -134,14 +148,19 @@ python backend/transaction_store.py
 ```
 property_concierge/
 │
+├── db/                              공용 PostgreSQL 데이터 계층 (SQLAlchemy)
+│   ├── base.py                     엔진·세션 (DATABASE_URL, 지연 생성)
+│   ├── models.py                   ORM 모델 9종 (User/HistoryRecord/ActivityRecord/...)
+│   └── redis_client.py             Redis 커넥션 팩토리 (REDIS_URL)
+│
 ├── api/                            FastAPI 진입점 & 라우터
 │   ├── main.py                     FastAPI 앱 설정, CORS, 라우터 등록
-│   ├── jobs.py                     인프로세스 작업 큐 (시세추정 비동기 실행)
-│   ├── auth_db.py                  사용자 인증 SQLite DB
+│   ├── jobs.py                     작업 큐 (상태: Redis, 실행: 인프로세스 스레드)
+│   ├── auth_db.py                  사용자 인증 (db/ 공용 세션)
 │   ├── auth_utils.py               JWT 발급·검증
 │   ├── deps.py                     인증 의존성 (get_current_user / get_optional_user)
-│   ├── history_db.py               시세추정 이력 SQLite DB (리포트 영속화)
-│   ├── activity_db.py              권리점검·상담 활동 SQLite DB (홈 통합 피드 데이터 소스)
+│   ├── history_db.py               시세추정 이력 (db/ 공용 세션, 리포트 영속화)
+│   ├── activity_db.py              권리점검·상담 활동 (db/ 공용 세션, 홈 통합 피드 데이터 소스)
 │   └── routes/
 │       ├── appraisal.py            POST /api/appraisal (동기) · /api/appraisal/jobs (비동기)
 │       ├── auth.py                 회원가입 / 로그인 / Google OAuth / me / logout
@@ -184,15 +203,15 @@ property_concierge/
 │   ├── geocoding.py                지명 → 좌표 (카카오 + Vworld)
 │   ├── agents.py                   5개 유형별 가치 분석 에이전트
 │   ├── price_engine.py             가격 계산 엔진 (로컬 스토어 우선 → MOLIT API 폴백)
-│   ├── transaction_store.py        실거래가 로컬 스토어 (SQLite, TTL 기반)
+│   ├── transaction_store.py        실거래가 로컬 스토어 (PostgreSQL, TTL 기반)
 │   ├── appraisal_report.py         시세추정 마크다운 리포트 노드
 │   ├── deep_analysis.py            심층 분석 노드
 │   ├── rag_pipeline.py             RAG 검색 파이프라인
-│   ├── chat_corpus.py              법률·세금 상담 RAG 코퍼스 (시드 청크 + 임베딩 검색, data/chat_corpus.db)
+│   ├── chat_corpus.py              법률·세금 상담 RAG 코퍼스 (시드 청크 + 임베딩 검색, PostgreSQL chat_chunks)
 │   ├── tax_rules.py                세금·규제 법령 테이블 (증여·상속·양도·보유세, 기준일 명시)
 │   ├── llm_utils.py                LLM 의견 생성 (수치 창작 금지 가드레일)
 │   ├── model_factory.py            LLM 프로바이더 선택 (ollama/openai/anthropic)
-│   ├── cache_db.py                 SQLite 캐시 + 지역코드 룩업
+│   ├── cache_db.py                 PostgreSQL 캐시 + 지역코드 룩업
 │   ├── building_info.py            건물 정보 조회
 │   ├── models.py                   내부 모델 (ValuationResult)
 │   │
@@ -209,15 +228,11 @@ property_concierge/
 │
 ├── schemas/                        Pydantic 스키마 (단위: 원·㎡)
 ├── data/
-│   ├── sample_listings.csv         개발·테스트용 가상 매물 43건
-│   ├── transactions.db             실거래가 로컬 스토어 (자동 생성, Git 제외)
-│   ├── auth.db · history.db        사용자·이력·활동 DB (자동 생성, Git 제외)
-│   ├── chat_corpus.db              법률·세금 상담 RAG 코퍼스 (자동 생성, Git 제외)
-│   └── ...
-├── tests/                          pytest 테스트 (18개 파일 — test_rights_and_chat.py 포함)
-├── docker/init.sql                 PostgreSQL 초기화 스크립트
+│   └── sample_listings.csv         개발·테스트용 가상 매물 43건 (유일하게 파일로 남은 데이터 — 나머지는 전부 PostgreSQL)
+├── tests/                          pytest 테스트 (22개 파일 — test_access_control.py 등 포함)
+├── docker/init.sql                 PostgreSQL 초기화 스크립트 (vector 익스텐션·pgvector 테이블)
 ├── Dockerfile.backend / .frontend  서비스 이미지
-├── docker-compose.yml              pgvector + api + frontend
+├── docker-compose.yml              pgvector(app 테이블 겸 RAG 벡터스토어) + redis + api + frontend
 └── requirements.txt
 ```
 
@@ -309,6 +324,8 @@ PropertyQuery (지역·예산·면적·유형)
 | `GOOGLE_CLIENT_ID/SECRET` | Google OAuth (선택) | [console.cloud.google.com](https://console.cloud.google.com) |
 | `JWT_SECRET_KEY` | 세션 토큰 서명 — **운영(`APP_ENV=production`)에서는 필수, 미설정 시 기동 실패** (개발은 기본값 허용) | 임의 문자열 |
 | `CORS_ORIGINS` | 허용 오리진 (콤마 구분) — **배포 시 실제 도메인으로 교체 필수**, 미설정 시 localhost만 허용 | 예: `https://example.com` |
+| `DATABASE_URL` | 앱 테이블(사용자·이력·활동·캐시·실거래가·상담 코퍼스) — **필수, 폴백 없음** | `docker compose up pgvector` |
+| `REDIS_URL` | 작업 큐 상태·레이트 리밋·로그인 잠금 카운터 — **필수, 폴백 없음** | `docker compose up redis` |
 
 > 전체 환경변수 목록과 설명은 `.env.example` 참고.
 
@@ -490,18 +507,26 @@ total = 가격적정성×0.35 + 입지×0.30 + 투자가치×0.20 + (10 − 위�
 ## 테스트
 
 ```bash
+# DB·Redis 필요 테스트(test_access_control.py, test_transaction_store.py,
+# test_rights_and_chat.py 일부)를 돌리려면 먼저 컨테이너를 띄운다.
+docker compose up -d pgvector redis
+
 pytest tests/                              # 전체 실행
 
 # 주요 파일
 pytest tests/test_price_engine_calc.py    # 가격 계산
-pytest tests/test_transaction_store.py    # 실거래가 로컬 스토어 (TTL·멱등·동시성)
+pytest tests/test_transaction_store.py    # 실거래가 로컬 스토어 (TTL·멱등·동시성, PostgreSQL 필요)
 pytest tests/test_simulation_service.py   # 시뮬레이션
 pytest tests/test_comparison_service.py   # 비교
 pytest tests/test_rights_and_chat.py      # 권리관계 위험 점검 · 법률·세금 챗봇
-pytest tests/test_access_control.py       # 이력·작업 소유자 격리 (타인 리포트 열람 차단)
+pytest tests/test_access_control.py       # 이력·작업 소유자 격리 (타인 리포트 열람 차단, PostgreSQL·Redis 필요)
 ```
 
-GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 전체 스위트를 실행한다.
+DB에 접근하지 않는 나머지 테스트(전체 676개 중 648개)는 Postgres·Redis 없이도 동작한다 —
+`db/base.py`가 엔진을 지연 생성해 실제로 DB를 쓰는 시점에만 `DATABASE_URL`을 확인하기 때문이다.
+
+GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 서비스 컨테이너와
+함께 전체 스위트를 실행한다.
 
 > **주의**: `AppraisalResult`는 pydantic 기본 설정상 **모르는 필드를 조용히 무시**한다.
 > 제거된 `judgement`·`gap_rate` 같은 인자를 테스트에서 넘겨도 오류 없이 통과하므로
@@ -511,8 +536,8 @@ GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 전체 스위트
 
 ## 알려진 제약
 
-- **작업 큐**는 인프로세스 메모리 기반 — 멀티 워커(uvicorn `--workers N`) 배포 시 Redis 등 외부 저장소로 교체 필요 (현재 docker-compose는 단일 워커)
+- **스키마 마이그레이션 도구 미도입** — 앱 테이블은 `db/base.py`의 `create_all()`(idempotent)로만 생성된다. 컬럼 삭제·타입 변경처럼 `create_all`이 다루지 못하는 변경이 필요해지면 Alembic 도입을 검토할 것
 - **시점수정**은 주거용·토지만 부동산원 지수 적용 — 상업·업무·산업용은 적합한 월간 시군구 지수가 없어 근사 변동률 사용. 주거용은 아파트 지수를 연립·단독에도 대표 적용
 - **시세추정·단지 추천은 전국 시군구 지원** — 지오코딩 시군구코드 직접 사용 + 전국 250개 지역코드 시드(`tools/seed_region_codes.py`) + 지오코딩 자동 등록
 - **단지 추천**은 실거래 기반 추정 시세 — 실제 매물 존재 여부·호가는 미포함 (호가 매물은 데이터 제휴 필요). 샘플 매물 모드는 개발용 가상 데이터 유지
-- SQLite WAL 모드는 WSL `/mnt/c` 등 일부 파일시스템에서 미지원 — 자동으로 기본 저널 모드로 폴백함
+- **로컬 개발도 Docker(PostgreSQL·Redis) 필수** — SQLite·인프로세스 메모리 폴백을 두지 않았다. 완전 오프라인 개발이 필요해지면 SQLite 폴백 재도입을 검토할 것

@@ -17,7 +17,7 @@ def deep_analysis_node(state: dict) -> dict:
     LangGraph 심층 분석 통합 노드.
 
     흐름:
-      1. SQLite 캐시 확인 → 있으면 API 스킵
+      1. PostgreSQL 캐시 확인 → 있으면 API 스킵
       2. 국토부 실거래가 API 호출
       3. 결과를 RAG 파이프라인에 전달
       4. rag_top_matches + price_data를 state에 저장

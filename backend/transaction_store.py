@@ -1,5 +1,5 @@
 """
-transaction_store.py — 국토부 실거래가 로컬 스토어 (SQLite)
+transaction_store.py — 국토부 실거래가 로컬 스토어 (PostgreSQL, SQLAlchemy)
 
 price_engine이 MOLIT API에서 받아온 월 단위 실거래 데이터를
 (endpoint, category, lawd_cd, deal_ym) 키로 적재하고,
@@ -12,24 +12,22 @@ price_engine이 MOLIT API에서 받아온 월 단위 실거래 데이터를
 신선도(TTL) 정책:
   - 완결 월 (기준 2개월 이전): 30일 — 정정·해제 거래 반영 주기
   - 최근 월 (당월·전월):      12시간 — 신고 기한(30일) 내 데이터 계속 유입
+
+이전에는 SQLite 파일(data/transactions.db)이었다. db/base.py 의 공용 세션으로
+옮기되, 호출부(price_engine.py, ingest_transactions.py 등)가 기대하는
+함수 시그니처는 그대로 유지한다.
 """
 
 from __future__ import annotations
 
-import os
-import sqlite3
-import threading
 import time
-from contextlib import contextmanager
 from datetime import datetime
 
-_BACKEND_DIR  = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+from sqlalchemy import delete, distinct, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-DB_PATH = os.getenv(
-    "TRANSACTIONS_DB_PATH",
-    os.path.join(_PROJECT_ROOT, "data", "transactions.db"),
-)
+from db.base import init_db, session_scope
+from db.models import IngestLog, Transaction
 
 TTL_COMPLETE_MONTH = 60 * 60 * 24 * 30   # 30일 — 완결 월
 TTL_RECENT_MONTH   = 60 * 60 * 12        # 12시간 — 당월·전월
@@ -44,76 +42,12 @@ SAMPLE_FIELDS = [
 ]
 
 
-# ─────────────────────────────────────────
-#  커넥션 헬퍼
-#  - WAL은 WSL /mnt/c (9p) 등 일부 파일시스템에서 공유메모리 미지원으로
-#    "database is locked"를 유발 → 실패 시 기본 저널 모드로 폴백
-#  - ThreadPoolExecutor 동시 접근 대비, 모든 DB 접근을 락으로 직렬화
-#    (네트워크 I/O가 지배적이라 성능 영향 없음)
-# ─────────────────────────────────────────
-
-_DB_LOCK = threading.Lock()
-
-
-@contextmanager
-def _conn():
-    with _DB_LOCK:
-        con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
-        con.row_factory = sqlite3.Row
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            pass  # WAL 미지원 파일시스템 → 기본(DELETE) 저널 유지
-        con.execute("PRAGMA synchronous=NORMAL")
-        con.execute("PRAGMA busy_timeout=5000")
-        try:
-            yield con
-        finally:
-            con.close()
-
-
-INIT_SQL = """
-CREATE TABLE IF NOT EXISTS transactions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    endpoint    TEXT NOT NULL,      -- RTMSDataSvcAptTrade 등
-    category    TEXT NOT NULL,      -- 주거용/상업용/업무용/산업용/토지
-    lawd_cd     TEXT NOT NULL,      -- 법정동코드 5자리
-    deal_ym     TEXT NOT NULL,      -- YYYYMM
-    price       INTEGER NOT NULL,   -- 거래금액 (만원)
-    area_sqm    REAL,
-    area_pyeong REAL,
-    per_sqm     INTEGER,
-    floor       TEXT,
-    year_built  TEXT,
-    dong        TEXT,
-    apt_name    TEXT,
-    deal_year   TEXT,
-    deal_month  TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_tx_key ON transactions (endpoint, category, lawd_cd, deal_ym);
-CREATE INDEX IF NOT EXISTS idx_tx_apt ON transactions (lawd_cd, apt_name);
-
-CREATE TABLE IF NOT EXISTS ingest_log (
-    endpoint    TEXT NOT NULL,
-    category    TEXT NOT NULL,
-    lawd_cd     TEXT NOT NULL,
-    deal_ym     TEXT NOT NULL,
-    fetched_at  REAL NOT NULL,      -- epoch seconds
-    row_count   INTEGER NOT NULL,
-    PRIMARY KEY (endpoint, category, lawd_cd, deal_ym)
-);
-"""
-
-
 def init_store():
-    """스토어 DB 초기화 (중복 호출 안전)."""
+    """스토어 초기화 (중복 호출 안전)."""
     global _INITIALIZED
     if _INITIALIZED:
         return
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    with _conn() as con:
-        con.executescript(INIT_SQL)
-        con.commit()
+    init_db()
     _INITIALIZED = True
 
 
@@ -149,23 +83,21 @@ def get_month(endpoint: str, category: str, lawd_cd: str, deal_ym: str,
     ignore_ttl=True: 백테스트 등 과거 데이터 분석용 — 만료돼도 반환.
     """
     init_store()
-    key = (endpoint, category, lawd_cd, deal_ym)
     try:
-        with _conn() as con:
-            log = con.execute(
-                """SELECT fetched_at FROM ingest_log
-                   WHERE endpoint=? AND category=? AND lawd_cd=? AND deal_ym=?""",
-                key,
-            ).fetchone()
-            if not log or (not ignore_ttl and not _is_fresh(log["fetched_at"], deal_ym)):
+        with session_scope() as session:
+            log = session.get(IngestLog, (endpoint, category, lawd_cd, deal_ym))
+            if not log or (not ignore_ttl and not _is_fresh(log.fetched_at, deal_ym)):
                 return None
 
-            rows = con.execute(
-                f"""SELECT {', '.join(SAMPLE_FIELDS)} FROM transactions
-                    WHERE endpoint=? AND category=? AND lawd_cd=? AND deal_ym=?""",
-                key,
-            ).fetchall()
-            return [dict(r) for r in rows]
+            rows = session.scalars(
+                select(Transaction).where(
+                    Transaction.endpoint == endpoint,
+                    Transaction.category == category,
+                    Transaction.lawd_cd == lawd_cd,
+                    Transaction.deal_ym == deal_ym,
+                )
+            )
+            return [{f: getattr(r, f) for f in SAMPLE_FIELDS} for r in rows]
     except Exception as e:
         print(f"[tx_store] 조회 오류: {e}")
         return None
@@ -178,29 +110,50 @@ def put_month(endpoint: str, category: str, lawd_cd: str, deal_ym: str, samples:
     빈 결과가 TTL 동안 고착된다.
     """
     init_store()
-    key = (endpoint, category, lawd_cd, deal_ym)
     try:
-        with _conn() as con:
-            con.execute(
-                """DELETE FROM transactions
-                   WHERE endpoint=? AND category=? AND lawd_cd=? AND deal_ym=?""",
-                key,
+        with session_scope() as session:
+            session.execute(
+                delete(Transaction).where(
+                    Transaction.endpoint == endpoint,
+                    Transaction.category == category,
+                    Transaction.lawd_cd == lawd_cd,
+                    Transaction.deal_ym == deal_ym,
+                )
             )
-            con.executemany(
-                f"""INSERT INTO transactions
-                    (endpoint, category, lawd_cd, deal_ym, {', '.join(SAMPLE_FIELDS)})
-                    VALUES (?, ?, ?, ?, {', '.join('?' * len(SAMPLE_FIELDS))})""",
-                [key + tuple(s.get(f) for f in SAMPLE_FIELDS) for s in samples],
+            if samples:
+                session.add_all([
+                    Transaction(
+                        endpoint=endpoint, category=category, lawd_cd=lawd_cd, deal_ym=deal_ym,
+                        **{f: s.get(f) for f in SAMPLE_FIELDS},
+                    )
+                    for s in samples
+                ])
+            stmt = pg_insert(IngestLog).values(
+                endpoint=endpoint, category=category, lawd_cd=lawd_cd, deal_ym=deal_ym,
+                fetched_at=time.time(), row_count=len(samples),
+            ).on_conflict_do_update(
+                index_elements=["endpoint", "category", "lawd_cd", "deal_ym"],
+                set_={"fetched_at": time.time(), "row_count": len(samples)},
             )
-            con.execute(
-                """INSERT OR REPLACE INTO ingest_log
-                   (endpoint, category, lawd_cd, deal_ym, fetched_at, row_count)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                key + (time.time(), len(samples)),
-            )
-            con.commit()
+            session.execute(stmt)
     except Exception as e:
         print(f"[tx_store] 적재 오류: {e}")
+
+
+def list_ingested_months(endpoint: str, category: str, lawd_cd: str) -> list[str]:
+    """해당 지역·유형에 적재된 deal_ym 목록 (오름차순). backtest_avm.py 전용."""
+    init_store()
+    with session_scope() as session:
+        stmt = (
+            select(distinct(IngestLog.deal_ym))
+            .where(
+                IngestLog.endpoint == endpoint,
+                IngestLog.category == category,
+                IngestLog.lawd_cd == lawd_cd,
+            )
+            .order_by(IngestLog.deal_ym)
+        )
+        return list(session.scalars(stmt))
 
 
 # ─────────────────────────────────────────
@@ -210,19 +163,19 @@ def put_month(endpoint: str, category: str, lawd_cd: str, deal_ym: str, samples:
 def store_stats() -> dict:
     init_store()
     try:
-        with _conn() as con:
-            tx_count  = con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
-            log_count = con.execute("SELECT COUNT(*) FROM ingest_log").fetchone()[0]
-            regions   = con.execute("SELECT COUNT(DISTINCT lawd_cd) FROM ingest_log").fetchone()[0]
-            ym_range  = con.execute(
-                "SELECT MIN(deal_ym), MAX(deal_ym) FROM ingest_log"
-            ).fetchone()
+        from sqlalchemy import func as sa_func
+        with session_scope() as session:
+            tx_count  = session.scalar(select(sa_func.count()).select_from(Transaction))
+            log_count = session.scalar(select(sa_func.count()).select_from(IngestLog))
+            regions   = session.scalar(select(sa_func.count(distinct(IngestLog.lawd_cd))))
+            ym_min, ym_max = session.execute(
+                select(sa_func.min(IngestLog.deal_ym), sa_func.max(IngestLog.deal_ym))
+            ).one()
         return {
             "transactions":   tx_count,
             "ingested_keys":  log_count,
             "regions":        regions,
-            "month_range":    f"{ym_range[0]} ~ {ym_range[1]}" if ym_range[0] else "—",
-            "db_path":        DB_PATH,
+            "month_range":    f"{ym_min} ~ {ym_max}" if ym_min else "—",
         }
     except Exception as e:
         return {"error": str(e)}

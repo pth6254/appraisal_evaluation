@@ -12,8 +12,6 @@ POST   /api/auth/logout          : 로그아웃
 from __future__ import annotations
 
 import os
-import threading
-import time
 from urllib.parse import urlencode
 
 import httpx
@@ -24,6 +22,7 @@ from pydantic import BaseModel
 from api import activity_db, auth_db, auth_utils, history_db
 from api.deps import get_current_user
 from api.rate_limit import limiter
+from db.redis_client import get_redis
 
 router = APIRouter(tags=["auth"])
 
@@ -36,11 +35,18 @@ _COOKIE      = "auth_token"
 _COOKIE_AGE  = 7 * 24 * 3600
 _IS_PROD     = os.getenv("APP_ENV", "development") == "production"
 
-# 로그인 브루트포스 방지 — 계정별 10분 내 5회 실패 시 잠금 (인프로세스)
+# 로그인 브루트포스 방지 — 계정별 10분 내 5회 실패 시 잠금.
+# 이전에는 실패 타임스탬프 리스트를 프로세스 메모리 dict에 쌓는 슬라이딩 윈도우였다
+# (워커마다 따로 놀아 실질 한도가 워커 수만큼 늘어나는 문제가 있었다). Redis
+# INCR+EXPIRE 기반 고정 윈도우로 바꿔 워커 간 카운터를 공유한다 — 정확도는
+# 슬라이딩보다 약간 떨어지지만(윈도우 경계에서 최대 2배까지 허용 가능) 계정 잠금
+# 목적에는 충분하고 구현이 훨씬 단순하다.
 _LOCK_WINDOW_SEC = 600
 _LOCK_MAX_FAILS  = 5
-_login_fails: dict[str, list[float]] = {}
-_login_fails_lock = threading.Lock()
+
+
+def _fail_key(email: str) -> str:
+    return f"loginfail:{email}"
 
 
 def _set_cookie(response: Response, token: str) -> None:
@@ -52,25 +58,24 @@ def _set_cookie(response: Response, token: str) -> None:
 
 
 def _check_login_lock(email: str) -> None:
-    now = time.time()
-    with _login_fails_lock:
-        fails = [t for t in _login_fails.get(email, []) if now - t < _LOCK_WINDOW_SEC]
-        _login_fails[email] = fails
-        if len(fails) >= _LOCK_MAX_FAILS:
-            raise HTTPException(
-                status_code=429,
-                detail="로그인 시도가 너무 많습니다. 10분 후 다시 시도해주세요.",
-            )
+    count = get_redis().get(_fail_key(email))
+    if count is not None and int(count) >= _LOCK_MAX_FAILS:
+        raise HTTPException(
+            status_code=429,
+            detail="로그인 시도가 너무 많습니다. 10분 후 다시 시도해주세요.",
+        )
 
 
 def _record_login_fail(email: str) -> None:
-    with _login_fails_lock:
-        _login_fails.setdefault(email, []).append(time.time())
+    r   = get_redis()
+    key = _fail_key(email)
+    count = r.incr(key)
+    if count == 1:
+        r.expire(key, _LOCK_WINDOW_SEC)
 
 
 def _clear_login_fails(email: str) -> None:
-    with _login_fails_lock:
-        _login_fails.pop(email, None)
+    get_redis().delete(_fail_key(email))
 
 
 # ── 이메일/비밀번호 ──────────────────────────────────────

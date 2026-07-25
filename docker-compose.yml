@@ -24,6 +24,25 @@ services:
       start_period: 20s
 
   # ────────────────────────────────────────────
+  #  Redis — 작업 큐 상태 · 레이트 리밋 · 로그인 잠금 카운터
+  #  (이전에는 셋 다 API 프로세스 메모리에 있어 멀티 워커에서 상태가 갈렸다)
+  # ────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: property_concierge_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ────────────────────────────────────────────
   #  FastAPI 백엔드
   # ────────────────────────────────────────────
   api:
@@ -36,10 +55,16 @@ services:
     depends_on:
       pgvector:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
+      # app 테이블(auth/history/activity/cache/transactions/chat_corpus)과
+      # RAG 벡터스토어(real_estate_docs)가 같은 pgvector 컨테이너를 공유한다.
+      DATABASE_URL: postgresql://postgres:password@pgvector:5432/real_estate_db
       PG_CONNECTION_STRING: postgresql://postgres:password@pgvector:5432/real_estate_db
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     volumes:
@@ -74,3 +99,4 @@ services:
 
 volumes:
   pgvector_data:
+  redis_data:

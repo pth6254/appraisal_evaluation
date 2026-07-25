@@ -1,115 +1,68 @@
 """
-activity_db.py — 권리점검·상담 등 비(非)시세추정 활동 이력 저장소
+activity_db.py — 권리점검·상담 등 비(非)시세추정 활동 이력 저장소 (PostgreSQL, SQLAlchemy)
 
-시세추정 이력(history 테이블)과 같은 data/history.db 파일의 activity 테이블 사용.
+시세추정 이력(HistoryRecord)과 같은 PostgreSQL 인스턴스의 activity 테이블 사용.
 홈 '최근 활동' 통합 피드가 두 테이블을 합쳐 보여준다.
 """
 from __future__ import annotations
 
-import json
-import sqlite3
-import threading
-from contextlib import contextmanager
-from pathlib import Path
+from datetime import date
 from typing import Optional
 
-_API_DIR      = Path(__file__).parent
-_PROJECT_ROOT = _API_DIR.parent
-DB = _PROJECT_ROOT / "data" / "history.db"
+from sqlalchemy import delete, func, select
 
-_DB_LOCK = threading.Lock()
-
-
-@contextmanager
-def _conn():
-    with _DB_LOCK:
-        con = sqlite3.connect(str(DB), check_same_thread=False, timeout=10)
-        con.row_factory = sqlite3.Row
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            pass
-        con.execute("PRAGMA synchronous=NORMAL")
-        con.execute("PRAGMA busy_timeout=5000")
-        try:
-            yield con
-        finally:
-            con.close()
+from db.base import init_db, session_scope
+from db.models import ActivityRecord
 
 
 def init():
-    DB.parent.mkdir(parents=True, exist_ok=True)
-    with _conn() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS activity (
-                id       INTEGER PRIMARY KEY AUTOINCREMENT,
-                type     TEXT    NOT NULL,
-                title    TEXT    NOT NULL,
-                summary  TEXT    DEFAULT '',
-                meta     TEXT    DEFAULT '{}',
-                created  TEXT    DEFAULT (datetime('now','localtime')),
-                user_id  INTEGER DEFAULT NULL
-            )
-        """)
-        con.execute("CREATE INDEX IF NOT EXISTS idx_activity_created ON activity (created DESC)")
-        con.commit()
+    init_db()
 
 
 def save(type_: str, title: str, summary: str = "",
          meta: Optional[dict] = None, user_id=None) -> int:
-    with _conn() as con:
-        cur = con.execute(
-            "INSERT INTO activity (type, title, summary, meta, user_id) VALUES (?,?,?,?,?)",
-            (type_, title, summary,
-             json.dumps(meta or {}, ensure_ascii=False), user_id),
+    with session_scope() as session:
+        record = ActivityRecord(
+            type=type_, title=title, summary=summary,
+            meta=meta or {}, user_id=user_id,
         )
-        con.commit()
-        return cur.lastrowid
+        session.add(record)
+        session.flush()
+        return record.id
 
 
 def count_today(type_: str, user_id) -> int:
-    """오늘(로컬 기준) 해당 유형 활동 수 — 일일 사용량 상한 검사용"""
+    """오늘(서버 로컬 기준) 해당 유형 활동 수 — 일일 사용량 상한 검사용"""
     if user_id is None:
         return 0
-    with _conn() as con:
-        return con.execute(
-            "SELECT COUNT(*) FROM activity "
-            "WHERE type=? AND user_id=? AND date(created) = date('now','localtime')",
-            (type_, user_id),
-        ).fetchone()[0]
+    with session_scope() as session:
+        today_str = date.today().isoformat()  # 'created' 컬럼이 'YYYY-MM-DD HH:MM:SS' 문자열이라 접두 매칭
+        stmt = select(func.count()).select_from(ActivityRecord).where(
+            ActivityRecord.type == type_,
+            ActivityRecord.user_id == user_id,
+            ActivityRecord.created.like(f"{today_str}%"),
+        )
+        return session.scalar(stmt)
 
 
 def delete_all(user_id) -> None:
     """사용자 활동 전체 삭제 (회원 탈퇴 시)"""
     if user_id is None:
         return
-    with _conn() as con:
-        con.execute("DELETE FROM activity WHERE user_id=?", (user_id,))
-        con.commit()
+    with session_scope() as session:
+        session.execute(delete(ActivityRecord).where(ActivityRecord.user_id == user_id))
 
 
 def load_recent(limit: int = 10, user_id=None) -> list[dict]:
-    with _conn() as con:
+    with session_scope() as session:
+        stmt = select(ActivityRecord).order_by(ActivityRecord.created.desc()).limit(limit)
         if user_id is not None:
-            rows = con.execute(
-                "SELECT id, type, title, summary, meta, created "
-                "FROM activity WHERE user_id=? ORDER BY created DESC LIMIT ?",
-                (user_id, limit),
-            ).fetchall()
-        else:
-            rows = con.execute(
-                "SELECT id, type, title, summary, meta, created "
-                "FROM activity ORDER BY created DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-    items = []
-    for r in rows:
-        try:
-            meta = json.loads(r["meta"] or "{}")
-        except Exception:
-            meta = {}
-        items.append({
-            "id": r["id"], "type": r["type"], "title": r["title"],
-            "summary": r["summary"], "meta": meta, "created": r["created"],
-        })
-    return items
+            stmt = stmt.where(ActivityRecord.user_id == user_id)
+        rows = session.scalars(stmt)
+        return [
+            {
+                "id": r.id, "type": r.type, "title": r.title,
+                "summary": r.summary, "meta": r.meta or {}, "created": r.created,
+            }
+            for r in rows
+        ]
