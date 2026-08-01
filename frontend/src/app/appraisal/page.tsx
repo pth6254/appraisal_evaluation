@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { removeSessionValue, setSessionValue, useSessionValue } from "@/lib/sessionStore";
 
 const PROPERTY_TYPES = [
   { category: "주거용", detail: "아파트",     label: "아파트",          hasDong: true,  hasHo: true  },
@@ -32,7 +33,19 @@ export default function AppraisalPage() {
   const [selectedType, setSelectedType] = useState<PropertyType | null>(null);
 
   // step 2
-  const [searchQuery, setSearchQuery]     = useState("");
+  //
+  // 홈 컨시어지 데스크에서 넘어온 검색어를 프리필한다. 이전에는 useEffect 에서
+  // sessionStorage 를 읽어 setSearchQuery 를 호출했는데, effect 안의 동기
+  // setState 라 연쇄 렌더를 유발했다(react-hooks/set-state-in-effect).
+  //
+  // 대신 "사용자가 입력한 값(typedQuery)이 있으면 그것을, 없으면 넘겨받은
+  // 검색어를" 쓰는 파생 값으로 만든다. 페이지를 서버에서 그릴 때는
+  // heroQuery 가 undefined 라 빈 문자열이 되므로, 폼 자체는 그대로
+  // 서버 렌더된다(게이트를 걸어 페이지를 통째로 비우지 않는다).
+  const heroQuery = useSessionValue("heroQuery");
+  const [typedQuery, setTypedQuery] = useState<string | null>(null);
+  const searchQuery = typedQuery ?? heroQuery ?? "";
+  const setSearchQuery = setTypedQuery;
   const [searchResults, setSearchResults] = useState<KakaoDoc[]>([]);
   const [searching, setSearching]         = useState(false);
   const [selectedAddress, setSelectedAddress] = useState("");
@@ -51,13 +64,20 @@ export default function AppraisalPage() {
   const [error, setError]     = useState("");
   const [progressStep, setProgressStep] = useState(""); // 파이프라인 현재 노드명
 
-  // 홈 컨시어지 데스크에서 넘어온 검색어를 주소 검색창에 프리필
+  // 폴링 취소용 — 페이지를 벗어나면 진행 중인 요청과 대기를 즉시 중단한다.
+  // (없으면 다른 메뉴로 이동해도 2초마다 API를 계속 호출하는 유령 폴링이 남는다)
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
-    const q = sessionStorage.getItem("heroQuery");
-    if (q) {
-      setSearchQuery(q);
-      sessionStorage.removeItem("heroQuery");
-    }
+    return () => abortRef.current?.abort();
+  }, []);
+
+  // 프리필 값은 페이지를 떠날 때 지운다 — 나중에 /appraisal 에 다시 들어왔을 때
+  // 예전 검색어가 또 채워지지 않도록. 마운트 시점에 지우면 heroQuery 가 null 이
+  // 되어 위 파생 값이 빈 문자열로 되돌아가므로(= 입력창이 스스로 비워짐)
+  // 반드시 언마운트에서 지워야 한다.
+  useEffect(() => {
+    return () => removeSessionValue("heroQuery");
   }, []);
 
   const handleAddressSearch = async () => {
@@ -104,12 +124,32 @@ export default function AppraisalPage() {
   };
 
   const POLL_INTERVAL_MS = 2000;
+  // 파이프라인은 보통 30초~2분이지만, 워커가 죽으면 job이 running 상태로 남는다
+  // (서버측 PENDING_TTL은 2시간). 클라이언트는 그보다 훨씬 짧게 끊어
+  // 사용자가 "진행 중" 화면에 무한정 갇히지 않게 한다.
+  const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+  /** abort 되면 즉시 깨어나는 sleep — 페이지 이탈 후 최대 2초를 더 기다리지 않도록 */
+  const sleep = (ms: number, signal: AbortSignal) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, ms);
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      }, { once: true });
+    });
 
   const handleSubmit = async () => {
     if (!selectedAddress) { setError("주소를 입력해주세요."); return; }
     setError("");
     setLoading(true);
     setProgressStep("");
+
+    abortRef.current?.abort();               // 이전 실행이 남아 있으면 정리
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     try {
       const userInput = buildUserInput();
 
@@ -119,15 +159,16 @@ export default function AppraisalPage() {
       );
 
       // 2) 완료까지 폴링 (진행 단계 표시)
-      for (;;) {
-        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-        const job = await api.appraisalJob(job_id);
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await sleep(POLL_INTERVAL_MS, signal);
+        const job = await api.appraisalJob(job_id, signal);
         if (job.step) setProgressStep(job.step);
 
         if (job.status === "done") {
           if (job.result) {
-            sessionStorage.setItem("appraisalResult", JSON.stringify(job.result));
-            sessionStorage.setItem("appraisalQuery", userInput);
+            setSessionValue("appraisalResult", JSON.stringify(job.result));
+            setSessionValue("appraisalQuery", userInput);
           }
           // 이력에 저장된 경우 영속 URL로, 아니면 세션 리포트로
           router.push(job.history_id ? `/report/${job.history_id}` : "/report");
@@ -138,10 +179,18 @@ export default function AppraisalPage() {
           return;
         }
       }
+
+      // 제한 시간 초과 — 작업 자체는 서버에서 계속 돌 수 있으므로 그 점을 안내한다
+      setError(
+        "시세추정이 예상보다 오래 걸리고 있습니다. 작업은 계속 진행 중일 수 있으니 " +
+        "잠시 후 이력 대시보드에서 결과를 확인해주세요."
+      );
     } catch (e: unknown) {
+      // 페이지 이탈로 인한 취소는 사용자에게 보여줄 오류가 아니다
+      if (signal.aborted) return;
       setError(e instanceof Error ? e.message : "시세추정 실패");
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   };
 
@@ -277,6 +326,7 @@ export default function AppraisalPage() {
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                   placeholder="예: 서울시 서초구 반포동 1번지"
                   autoFocus
+                  value={selectedAddress}
                   onChange={e => setSelectedAddress(e.target.value)}
                 />
               )}

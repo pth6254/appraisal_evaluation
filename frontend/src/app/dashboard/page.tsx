@@ -30,7 +30,24 @@ export default function DashboardPage() {
     }
   };
 
-  useEffect(() => { load(0, ""); }, []);
+  // 최초 목록 로드. load() 를 그대로 호출하면 그 안의 setLoading(true) 가
+  // effect 본문에서 동기 실행되어 연쇄 렌더를 유발하므로(loading 은 이미 true 로
+  // 시작한다) 여기서는 fetch 후 결과만 반영한다. 언마운트 시 setState 를
+  // 건너뛰도록 취소 플래그도 함께 둔다.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.history(PAGE_SIZE, 0, "");
+        if (cancelled) return;
+        setItems(res.items as HistoryItem[]);
+        setTotal(res.total);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const doSearch = () => { setPage(0); load(0, search); setKeyword(search); };
 

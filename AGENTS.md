@@ -1,0 +1,228 @@
+# 에이전트 작업 지침 — 부동산 컨시어지
+
+> 이 파일은 Claude Code · Codex 등 **모든 코딩 에이전트가 공유하는 단일 원본**이다.
+> `CLAUDE.md` 는 이 파일을 `@AGENTS.md` 로 임포트만 한다 — 내용을 양쪽에 복제하지 말 것.
+> 사람이 읽는 셋업·기능 설명은 `README.md` 에 있다. 여기에는 **코드를 고칠 때 알아야 할
+> 제약과 함정**만 적는다.
+
+---
+
+## 1. 프로젝트 한눈에
+
+자연어/단계별 입력 → 국토부 실거래가 기반 **AI 시세추정(AVM)** 리포트를 생성하고,
+매물추천 · 투자시뮬레이션 · 매물비교 · 권리관계 점검 · 법률세금 챗봇을 제공한다.
+
+```
+Next.js 16 (App Router) :3000
+   │ REST · JWT 쿠키
+FastAPI :8000  (uvicorn --workers 4)
+   ├── api/          라우터 · 인증 · 작업 큐
+   ├── backend/      LangGraph 파이프라인 4종 + 도메인 로직
+   ├── db/           SQLAlchemy 모델 9종 + Alembic + Redis 클라이언트
+   └── schemas/      Pydantic 스키마 (단위: 원 · ㎡)
+        │
+PostgreSQL(+pgvector) · Redis
+```
+
+시세추정은 `주거 / 상업 / 업무 / 산업 / 토지` **5개 유형별 에이전트**로 조건부 분기한다
+(`backend/graphs/appraisal_graph.py` 의 `CATEGORY_TO_AGENT`). 신규 유형은 이 매핑에
+에이전트를 추가하면 된다.
+
+---
+
+## 2. 절대 되돌리면 안 되는 결정
+
+아래는 모두 **문제를 겪고 내린 결정**이다. "단순화"하려다 되돌리기 쉬우니 주의할 것.
+
+### 2-1. SQLite · 인프로세스 메모리 폴백을 두지 않는다
+
+`DATABASE_URL` / `REDIS_URL` 이 없으면 **기동을 막는다**(`db/base.py`, `db/redis_client.py`).
+"로컬은 SQLite, 운영은 Postgres"로 갈라지면 로컬에서 검증되지 않은 쿼리가 운영에서만
+깨진다. 로컬 개발도 `docker compose up -d pgvector redis` 를 전제로 한다.
+
+작업 큐 · 레이트 리밋 · 로그인 잠금 상태도 **전부 Redis**다. 프로세스 메모리로 되돌리면
+멀티 워커에서 상태가 갈려 다음이 조용히 깨진다:
+- 워커 A가 만든 job을 워커 B가 못 찾음 → 폴링 404
+- 레이트 리밋 · 로그인 잠금 한도가 워커 수만큼 실질 증가 → 브루트포스 방어 무력화
+
+### 2-2. Alembic 은 워커 기동 "전에" 단일 프로세스로 실행한다
+
+`Dockerfile.backend` 의 `CMD` 가 `alembic upgrade head && uvicorn ... --workers N` 인 것은
+의도된 순서다. 스키마를 먼저 확정해야 여러 워커가 동시에 DDL을 치는 경합이 아예 생기지 않는다.
+
+`db/base.py` 의 `init_db()`(create_all)는 alembic 없이 `uvicorn` 을 직접 띄우는
+로컬·테스트 경로용 **안전망**이다. 지우지 말 것. 단, create_all 은 컬럼 삭제·타입 변경을
+반영하지 못하므로 그런 변경은 반드시 마이그레이션을 만들어야 한다.
+
+```bash
+alembic revision --autogenerate -m "설명"   # 생성 후 파일을 반드시 검토
+alembic upgrade head
+```
+
+### 2-3. 소유자 검증 없이 레코드를 조회하지 않는다
+
+`history` · `activity` 의 id는 순차 정수다. 사용자 요청 경로에서 소유자 필터 없이 조회하면
+id를 훑어 타인 데이터를 전량 읽을 수 있다(실제로 있었던 취약점).
+
+- 조회 함수에 `user_id` 를 넘긴다 (`history_db.load_one(record_id, user_id=...)`)
+- 타인 레코드는 403이 아니라 **404** — 403은 "그 id에 무언가 있다"를 노출한다
+- 회귀 테스트: `tests/test_access_control.py` (이 파일을 지우거나 약화시키지 말 것)
+
+### 2-4. 시크릿을 저장소에 넣지 않는다
+
+`docker-compose.yml` 은 `${POSTGRES_PASSWORD:?...}` 로 **미설정 시 기동 실패**하게 되어 있다.
+편의를 위해 기본값을 넣으면 그 값이 그대로 운영에 올라간다.
+
+`.github/workflows/ci.yml` 의 postgres 비밀번호는 예외다 — 워크플로 실행 중에만 존재하는
+휘발성 컨테이너라 유출 리스크가 없다(주석에 명시되어 있음).
+
+### 2-5. LLM 수치 가드레일을 우회하지 않는다
+
+`backend/opinion_guard.py` 는 LLM 출력에서 **컨텍스트로 주입한 수치 외의 숫자가 든 문장을
+자동 삭제**한다. 부동산 가격에서 환각은 치명적이라 프롬프트 부탁이 아니라 출력 검증으로
+막는다. 위반 시 1회 재생성 → 결정론적 폴백.
+
+---
+
+## 3. 실측으로 확인한 함정
+
+여기 적힌 것들은 전부 **실제로 재현해서 확인한 것**이다. 추측이 아니다.
+
+### 3-1. pydantic 은 모르는 필드를 조용히 무시한다
+
+```python
+AppraisalResult(judgement="저평가")   # judgement 는 존재하지 않는 필드 — 오류 없이 버려짐
+```
+
+`AppraisalResult` 에서 제거된 `judgement` · `gap_rate` 를 테스트가 계속 넘기고 있었고,
+**아무것도 검증하지 않으면서 통과하는 상태**였다. 스키마를 바꾸면 테스트도 함께 갱신할 것.
+
+### 3-2. `create_all` 은 멀티 프로세스에서 경합한다
+
+빈 DB에 4개 워커를 동시에 붙이면 **매번** 3개가 죽는다. 예상과 달리 테이블
+(`ProgrammingError` / DuplicateTable)뿐 아니라 **SERIAL 컬럼의 시퀀스에서도
+`IntegrityError` / UniqueViolation** 이 난다. 두 예외를 모두 잡아야 한다
+(`db/base.py` 의 `init_db()` 참고).
+
+### 3-3. Next.js 16 · React 19
+
+- **`middleware.ts` 가 아니라 `proxy.ts`** 다. Next 16에서 이름이 바뀌었다(`src/proxy.ts`).
+- `frontend/AGENTS.md` 의 경고대로, 코드 작성 전 `frontend/node_modules/next/dist/docs/` 를
+  확인할 것. 학습 데이터와 다르다.
+- **effect 안에서 동기 `setState` 금지** (`react-hooks/set-state-in-effect`). CI 린트가 잡는다.
+  - sessionStorage 읽기는 반드시 `frontend/src/lib/sessionStore.ts` 의
+    `useSessionValue` / `setSessionValue` / `removeSessionValue` 를 쓴다.
+    raw `sessionStorage.setItem` 으로 쓰면 구독자가 갱신되지 않는다.
+  - 마운트 시 fetch는 `await` 이후에 setState 하고 취소 플래그를 둔다.
+  - 경로 변경 시 상태 초기화는 `key` 기반 재마운트로 한다 (`Navbar.tsx` 참고).
+
+### 3-4. 클라이언트 전용 값 때문에 페이지 전체를 비우지 말 것
+
+`if (value === undefined) return null` 로 페이지를 통째로 막으면 **SSR이 빈 셸로 내려간다**
+(`/appraisal` 이 20.6KB → 16.5KB 로 줄고 본문이 사라졌던 실제 회귀).
+
+대신:
+- 파생 값으로 처리 (`typed ?? seed ?? ""`) — `appraisal/page.tsx`
+- 또는 `key` 로 재마운트 — `simulation/page.tsx`
+
+`/report` · `/comparison` 은 예외적으로 게이트를 쓴다 — 이전에 "결과 없음"이 한 번 그려졌다
+사라지는 깜빡임이 있었고, 빈 화면이 잘못된 내용보다 낫다고 판단했다.
+
+### 3-5. 시드 값 삭제는 언마운트에서
+
+프리필 값(`heroQuery`, `simFromListing`)을 마운트 시점에 지우면, 파생 값/`key` 가 즉시
+바뀌어 **입력이 스스로 비워진다**. 반드시 `useEffect` cleanup 에서 지울 것.
+
+---
+
+## 4. 개발 환경 (이 저장소 특이사항)
+
+WSL과 Windows가 섞여 있다. 툴별로 위치가 다르니 주의.
+
+| 대상 | 위치 | 비고 |
+|---|---|---|
+| Python venv | `venv-wsl/` (WSL 전용) | `bin/pip` 의 shebang이 깨져 있음 → **`./venv-wsl/bin/python -m pip`** 로 실행 |
+| node · npm | **Windows 쪽만** 존재 | WSL 에는 없다. `npx next build` 는 WSL에서 되지만 `node script.js` 는 PowerShell로 |
+| docker | WSL에서 사용 가능 | 컨테이너: `property_concierge_pgvector`, `property_concierge_redis` |
+
+WSL의 `127.0.0.1` 과 Windows의 `127.0.0.1` 은 **다른 네트워크 네임스페이스**다.
+Windows에서 띄운 서버를 WSL curl로 때리면 연결되지 않는다.
+
+---
+
+## 5. 명령어
+
+```bash
+# ── 백엔드 ──────────────────────────────────────────────
+docker compose up -d pgvector redis          # DB·캐시 먼저
+
+DISABLE_RATE_LIMIT=1 APP_ENV=development \
+JWT_SECRET_KEY=dev-secret \
+DATABASE_URL="postgresql://postgres:<pw>@localhost:5432/real_estate_db" \
+REDIS_URL="redis://localhost:6379/0" \
+./venv-wsl/bin/python -m pytest tests/ -q    # 전체 테스트 (현재 676개 통과)
+
+alembic upgrade head                          # 마이그레이션 적용
+
+# ── 프론트엔드 ──────────────────────────────────────────
+cd frontend
+npx tsc --noEmit    # 타입 체크
+npm run lint        # ESLint (set-state-in-effect 등)
+npm run build       # 프로덕션 빌드
+
+# ── 전체 실행 ───────────────────────────────────────────
+docker compose up --build                     # 개발 (override 자동 병합)
+docker compose -f docker-compose.yml up -d --build   # 운영 (override 배제)
+
+# ── 백업 ────────────────────────────────────────────────
+./scripts/backup_db.sh
+./scripts/restore_db.sh backups/property_concierge_<타임스탬프>.dump
+```
+
+**CI**(`.github/workflows/ci.yml`)는 두 job을 병렬 실행한다:
+- `test` — PostgreSQL·Redis 서비스 컨테이너 + `alembic upgrade head` + `pytest`
+- `frontend` — `tsc --noEmit` + `npm run lint` + `npm run build`
+
+**변경 후에는 양쪽을 모두 돌려볼 것.** 백엔드만 고쳤다고 프론트가 안전한 게 아니다
+(API 응답 형태가 바뀌면 `frontend/src/lib/api.ts` 의 타입도 함께 고쳐야 한다).
+
+---
+
+## 6. 코드 컨벤션
+
+- **주석·문서는 한국어.** 기존 코드 톤을 따를 것.
+- **주석은 "무엇"이 아니라 "왜"를 적는다.** 특히 되돌리기 쉬운 결정에는 이유를 남긴다.
+- 프론트엔드에 `any` · `@ts-ignore` 를 쓰지 않는다 (현재 0건).
+- 금액 단위는 **원(int)**, 면적은 **㎡(float)**.
+  예외: `backend/models.py` 의 `ValuationResult` 는 만원 단위 — 리포트 생성 시 변환한다.
+- 파일명은 구체적으로. `report.py` · `utils.py` 같은 흔한 이름은 외부 패키지와 충돌한다
+  (실제로 겪어서 `appraisal_report.py` 로 바꾼 이력이 있음).
+
+---
+
+## 7. 제품상 알아둘 것
+
+기능을 고칠 때 **사실과 다르게 말하지 않도록** 알아둬야 하는 것들.
+
+- **매물추천 · 비교 · 시뮬레이션의 매물 데이터는 개발용 가상 데이터**
+  (`data/sample_listings.csv`, 43건). 실호가가 아니다.
+  반면 **시세추정은 국토부 실거래가 실데이터**를 쓴다.
+- **AVM 신뢰도 편차가 크다.** 백테스트(서초구 434건) 실측 기준 동일 단지 매칭은
+  ±10% 적중률 69~84%지만 **동일동·구 매칭은 8~33%** 다.
+  신뢰도는 이 실측치를 블렌딩해 하향 보정된다(`backend/confidence.py`).
+- **시점수정은 주거용·토지만** 부동산원 R-ONE 지수를 적용한다. 상업·업무·산업용은
+  적합한 월간 시군구 지수가 없어 근사 변동률을 쓴다.
+- **의도분석의 `clarification_question` 은 사용자에게 노출되지 않는다.**
+  내부 재분석 루프(최대 2회)에만 쓰이고, 그래도 부족하면 오류로 끝난다.
+  "사용자에게 보완 질문을 던진다"고 설명하면 사실과 다르다.
+- 시세추정은 **AVM 기반 참고용 분석**이며 「감정평가 및 감정평가사에 관한 법률」에 따른
+  감정평가가 아니다. UI·문서에서 이 고지를 빼지 말 것.
+
+---
+
+## 8. 현재 알려진 부채
+
+- **프론트엔드 테스트 0건.** CI는 타입체크·린트·빌드만 검증한다.
+- 프리필 흐름(홈 → `/appraisal`, 추천 → `/simulation`)의 **런타임 동작은 브라우저로 검증되지
+  않았다.** 타입·빌드·SSR만 확인된 상태다.
+- 매물 데이터 제휴 없이는 추천·비교가 데모 수준을 벗어나기 어렵다.

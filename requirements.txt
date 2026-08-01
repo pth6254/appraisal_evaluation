@@ -29,6 +29,9 @@ starlette==1.2.1
 uvicorn==0.48.0
 websockets==16.0
 
+# ── 관측성 (선택 — SENTRY_DSN 설정 시에만 활성화) ────────────────
+sentry-sdk[fastapi]==2.19.2
+
 # ── LangChain ────────────────────────────────────────────────
 langchain==1.3.2
 langchain-classic==1.0.7
@@ -60,6 +63,7 @@ pydantic-settings==2.14.1
 pydantic_core==2.46.4
 
 # ── 데이터베이스 (PostgreSQL / pgvector / Redis) ───────────────
+alembic==1.15.2
 greenlet==3.5.1
 pgvector==0.4.2
 psycopg2-binary==2.9.12

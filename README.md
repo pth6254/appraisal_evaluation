@@ -77,7 +77,7 @@ GET  /api/appraisal/jobs/{job_id}      → { status, step, ... }  (프론트 2�
 ```bash
 # 1. 환경변수 설정
 cp .env.example .env
-# .env 파일을 열어 API 키 입력
+# .env 파일을 열어 API 키 + POSTGRES_PASSWORD 입력 (예: openssl rand -base64 32)
 
 # 2. 전체 서비스 실행 (백엔드 + 프론트엔드 + PostgreSQL + Redis)
 docker compose up --build
@@ -87,6 +87,21 @@ docker compose up --build
 # 백엔드 API: http://localhost:8000
 # API 문서:   http://localhost:8000/docs
 ```
+
+`-f` 없이 실행하면 Compose가 `docker-compose.yml`(운영 기준 베이스)과
+`docker-compose.override.yml`(로컬 편의: 소스 핫리로드·PostgreSQL/Redis 포트 호스트
+노출)을 자동 병합한다. 위 명령이 바로 그 상태 — 로컬 개발에서 쓰는 명령이다.
+
+**운영 배포**는 override를 명시적으로 배제한다:
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+베이스 파일만 쓰면 소스는 이미지에 구운 것만 실행되고(볼륨 마운트 없음),
+PostgreSQL·Redis 포트는 호스트에 노출되지 않는다(도커 내부 네트워크로만 통신).
+`scripts/backup_db.sh`·`restore_db.sh`는 호스트 포트가 아니라 `docker exec`로
+컨테이너 내부에 접속하므로 이 차이와 무관하게 그대로 동작한다.
 
 ### 로컬 개발 (백엔드만 네이티브 실행)
 
@@ -151,7 +166,13 @@ property_concierge/
 ├── db/                              공용 PostgreSQL 데이터 계층 (SQLAlchemy)
 │   ├── base.py                     엔진·세션 (DATABASE_URL, 지연 생성)
 │   ├── models.py                   ORM 모델 9종 (User/HistoryRecord/ActivityRecord/...)
-│   └── redis_client.py             Redis 커넥션 팩토리 (REDIS_URL)
+│   ├── redis_client.py             Redis 커넥션 팩토리 (REDIS_URL)
+│   └── migrations/                 Alembic 마이그레이션 (env.py + versions/)
+├── alembic.ini                      Alembic 설정 (접속 문자열은 DATABASE_URL 환경변수로)
+│
+├── scripts/
+│   ├── backup_db.sh                 PostgreSQL 논리 백업 (pg_dump)
+│   └── restore_db.sh                백업 복원 (pg_restore, 확인 프롬프트 있음)
 │
 ├── api/                            FastAPI 진입점 & 라우터
 │   ├── main.py                     FastAPI 앱 설정, CORS, 라우터 등록
@@ -326,6 +347,7 @@ PropertyQuery (지역·예산·면적·유형)
 | `CORS_ORIGINS` | 허용 오리진 (콤마 구분) — **배포 시 실제 도메인으로 교체 필수**, 미설정 시 localhost만 허용 | 예: `https://example.com` |
 | `DATABASE_URL` | 앱 테이블(사용자·이력·활동·캐시·실거래가·상담 코퍼스) — **필수, 폴백 없음** | `docker compose up pgvector` |
 | `REDIS_URL` | 작업 큐 상태·레이트 리밋·로그인 잠금 카운터 — **필수, 폴백 없음** | `docker compose up redis` |
+| `SENTRY_DSN` | 에러 추적 (선택, 비워두면 완전히 비활성 — 로컬·CI에 영향 없음) | [sentry.io](https://sentry.io) |
 
 > 전체 환경변수 목록과 설명은 `.env.example` 참고.
 
@@ -504,6 +526,64 @@ total = 가격적정성×0.35 + 입지×0.30 + 투자가치×0.20 + (10 − 위�
 
 ---
 
+## 백업 · 복구
+
+사용자 계정·시세추정 이력·활동 기록·실거래가 캐시·RAG 벡터스토어가 전부
+`pgvector` 컨테이너 하나(`pgvector_data` 볼륨)에 있다. `docker compose down -v`
+또는 볼륨 손상 시 별도 백업이 없으면 전체 데이터가 복구 불가능하게 사라진다.
+
+```bash
+# 백업 — backups/ 에 타임스탬프 덤프 생성, 14일 초과분 자동 정리
+./scripts/backup_db.sh
+./scripts/backup_db.sh --out /mnt/backup --retention-days 30   # 저장 위치·보존기간 지정
+
+# 운영 환경: cron으로 매일 새벽 실행
+# 0 3 * * * cd /path/to/property_concierge && ./scripts/backup_db.sh --out /mnt/backup >> /var/log/pc_backup.log 2>&1
+
+# 복구 — 대상 DB를 DROP 후 덤프로 재생성 (되돌릴 수 없음, 확인 프롬프트 있음)
+./scripts/restore_db.sh backups/property_concierge_20260725_030000.dump
+docker compose restart api   # 커넥션 풀 재연결
+```
+
+두 스크립트 모두 `.env`의 `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`를 읽고,
+`property_concierge_pgvector` 컨테이너([docker-compose.yml](docker-compose.yml)의
+`container_name`)에 대해 `pg_dump`/`pg_restore`를 실행한다. 컨테이너 이름을 바꿨다면
+스크립트 안의 이름도 함께 바꿔야 한다.
+
+> 백업 파일(`backups/`, `*.dump`)은 `.gitignore`에 등록돼 있다 — 사용자 개인정보가
+> 담긴 덤프를 저장소에 커밋하지 않도록 주의할 것.
+
+---
+
+## 스키마 마이그레이션 (Alembic)
+
+앱 테이블(`db/models.py`, 9종)의 스키마 변경 이력은 `db/migrations/`가 관리한다.
+운영 배포는 `alembic upgrade head`가 uvicorn 워커보다 먼저, 단일 프로세스로
+실행된다([Dockerfile.backend](Dockerfile.backend)) — 여러 워커가 동시에 스키마를
+바꾸려는 경합 자체를 원천 차단하기 위해서다.
+
+```bash
+# 모델(db/models.py) 변경 후 마이그레이션 생성
+alembic revision --autogenerate -m "설명"
+# 생성된 db/migrations/versions/*.py 파일을 반드시 검토할 것 —
+# autogenerate는 인덱스명·서버 기본값 등을 놓치거나 과도하게 잡아낼 수 있다.
+
+# 로컬 DB에 적용
+alembic upgrade head
+
+# 현재 DB가 어느 리비전인지 확인
+alembic current
+```
+
+`create_all()`(`db/base.py`)은 alembic 없이 `uvicorn`을 직접 띄우는 로컬 개발·
+테스트 경로를 위한 안전망으로 남겨뒀다 — 정상 배포 경로에서는 alembic이 먼저
+스키마를 확정하므로 `create_all()`은 아무 일도 하지 않는다(이미 존재하는
+테이블은 건드리지 않음). 다만 `create_all()`은 컬럼 삭제·타입 변경처럼
+alembic이 다루는 변경은 반영하지 못하므로, 그런 변경은 반드시 마이그레이션을
+거쳐야 한다.
+
+---
+
 ## 테스트
 
 ```bash
@@ -536,7 +616,6 @@ GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 
 
 ## 알려진 제약
 
-- **스키마 마이그레이션 도구 미도입** — 앱 테이블은 `db/base.py`의 `create_all()`(idempotent)로만 생성된다. 컬럼 삭제·타입 변경처럼 `create_all`이 다루지 못하는 변경이 필요해지면 Alembic 도입을 검토할 것
 - **시점수정**은 주거용·토지만 부동산원 지수 적용 — 상업·업무·산업용은 적합한 월간 시군구 지수가 없어 근사 변동률 사용. 주거용은 아파트 지수를 연립·단독에도 대표 적용
 - **시세추정·단지 추천은 전국 시군구 지원** — 지오코딩 시군구코드 직접 사용 + 전국 250개 지역코드 시드(`tools/seed_region_codes.py`) + 지오코딩 자동 등록
 - **단지 추천**은 실거래 기반 추정 시세 — 실제 매물 존재 여부·호가는 미포함 (호가 매물은 데이터 제휴 필요). 샘플 매물 모드는 개발용 가상 데이터 유지

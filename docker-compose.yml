@@ -1,3 +1,17 @@
+# docker-compose.yml — 운영 기준 베이스 설정.
+#
+# 이 파일 단독으로는 운영에 안전한 기본값을 유지한다: DB·Redis 포트를
+# 호스트에 노출하지 않고, 소스코드는 이미지에 구운 것만 쓴다(볼륨 마운트 없음).
+#
+# 로컬 개발 편의(소스 핫리로드, DB 포트 호스트 노출, --reload)는
+# docker-compose.override.yml 에 있다 — `docker compose up` 처럼 -f 없이 실행하면
+# Compose가 두 파일을 자동 병합한다. 운영 배포는 override를 명시적으로 배제한다:
+#
+#   docker compose -f docker-compose.yml up -d --build
+#
+# 백업 스크립트(scripts/backup_db.sh 등)는 호스트 포트가 아니라 `docker exec`로
+# 컨테이너 내부에 접속하므로 포트 미노출과 무관하게 그대로 동작한다.
+
 services:
 
   # ────────────────────────────────────────────
@@ -8,11 +22,14 @@ services:
     container_name: property_concierge_pgvector
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: real_estate_db
-    ports:
-      - "5432:5432"
+      # 비밀번호는 저장소에 두지 않는다. .env 의 POSTGRES_PASSWORD 를 읽으며,
+      # 미설정이면 `?` 문법으로 compose 가 즉시 실패한다 (기본값을 두면 그 값이
+      # 그대로 운영에 올라가므로 일부러 폴백을 두지 않음).
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요. 예: openssl rand -base64 32}"
+      POSTGRES_DB: ${POSTGRES_DB:-real_estate_db}
+    # 호스트 포트 미노출 — api 컨테이너가 도커 내부 네트워크(pgvector:5432)로만 접속한다.
+    # 로컬에서 psql·GUI 툴로 직접 붙어야 하면 override 파일이 5432:5432 를 되살린다.
     volumes:
       - pgvector_data:/var/lib/postgresql/data
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -31,8 +48,7 @@ services:
     image: redis:7-alpine
     container_name: property_concierge_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # 호스트 포트 미노출 — pgvector와 동일한 이유.
     volumes:
       - redis_data:/data
     healthcheck:
@@ -62,16 +78,14 @@ services:
     environment:
       # app 테이블(auth/history/activity/cache/transactions/chat_corpus)과
       # RAG 벡터스토어(real_estate_docs)가 같은 pgvector 컨테이너를 공유한다.
-      DATABASE_URL: postgresql://postgres:password@pgvector:5432/real_estate_db
-      PG_CONNECTION_STRING: postgresql://postgres:password@pgvector:5432/real_estate_db
+      # 접속 문자열도 .env 의 비밀번호를 조합해 만든다 — 자격증명 하드코딩 금지.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?}@pgvector:5432/${POSTGRES_DB:-real_estate_db}
+      PG_CONNECTION_STRING: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?}@pgvector:5432/${POSTGRES_DB:-real_estate_db}
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app/backend
-      - ./api:/app/api
-      - ./schemas:/app/schemas
-      - ./data:/app/data
+    # 소스 볼륨 마운트 없음 — 이미지에 COPY 된 코드만 실행한다 (Dockerfile.backend).
+    # 워커 수(UVICORN_WORKERS, 기본 4)는 Dockerfile ENV 로 정의되며 .env 에서 재정의 가능.
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 15s

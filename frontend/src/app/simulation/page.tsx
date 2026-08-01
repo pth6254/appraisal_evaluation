@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { removeSessionValue, useSessionValue } from "@/lib/sessionStore";
 import type { SimulationResult, SimulationRequest, ScenarioResult } from "@/lib/types";
 
 const PROP_TYPES   = ["아파트", "오피스텔", "상가", "오피스", "공장", "토지"];
@@ -26,20 +27,74 @@ function fmt(n?: number) { return n != null ? n.toLocaleString("ko-KR") + "원" 
 function fmtPct(n?: number, deci = 2) { return n != null ? (n >= 0 ? "+" : "") + n.toFixed(deci) + "%" : "—"; }
 function signLabel(n?: number) { return n == null ? "—" : n > 0 ? "▲" : n < 0 ? "▼" : "─"; }
 
+/** 추천·비교 페이지에서 "시뮬레이션 해보기"로 넘길 때 실어 보내는 매물 정보 */
+type ListingSeed = {
+  asking_price?: number;
+  property_type?: string;
+  deposit_price?: number;
+  maintenance_fee?: number;
+};
+
+const LISTING_TYPE_TO_PROP: Record<string, string> = {
+  주거용: "아파트", 상업용: "상가", 업무용: "오피스", 산업용: "공장",
+};
+
+/**
+ * 넘겨받은 매물 정보를 폼의 초기값으로 주입한다.
+ *
+ * 이전에는 폼이 마운트된 뒤 useEffect 에서 sessionStorage 를 읽어 각 입력을
+ * setState 로 채웠는데, 그건 effect 안의 동기 setState 라 연쇄 렌더를 유발한다
+ * (react-hooks/set-state-in-effect).
+ *
+ * 대신 시드를 key 로 넘겨, 클라이언트에서 시드가 확인되는 순간 폼이 새로
+ * 마운트되며 useState 초기값으로 반영되게 한다. 서버 렌더 시점에는 시드가
+ * undefined 라 기본값 폼이 그대로 그려지므로(게이트로 페이지를 비우지 않는다)
+ * 초기 페인트가 비지 않는다.
+ */
 export default function SimulationPage() {
+  const rawSeed = useSessionValue("simFromListing");
+  const seed = rawSeed ?? null;
+  return <SimulationForm key={seed ?? "no-seed"} rawSeed={seed} />;
+}
+
+function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
+  const seed = useMemo<ListingSeed>(
+    () => (rawSeed ? (JSON.parse(rawSeed) as ListingSeed) : {}),
+    [rawSeed],
+  );
+
+  // 시드는 페이지를 떠날 때 지운다 — 나중에 /simulation 에 다시 들어왔을 때
+  // 예전 매물이 또 채워지지 않도록. 마운트 시점에 지우면 rawSeed 가 null 이
+  // 되면서 위 key 가 바뀌어 폼이 기본값으로 다시 마운트되므로(= 시드가 즉시
+  // 날아감) 반드시 언마운트에서 지워야 한다.
+  useEffect(() => {
+    return () => removeSessionValue("simFromListing");
+  }, []);
+
   // 입력 상태
-  const [purchasePriceStr, setPurchasePriceStr] = useState("");
-  const [propType, setPropType]     = useState("아파트");
+  const [purchasePriceStr, setPurchasePriceStr] = useState(
+    seed.asking_price ? String(Math.round(seed.asking_price / 10000)) + "만" : "",
+  );
+  const [propType, setPropType]     = useState(
+    seed.property_type
+      ? (LISTING_TYPE_TO_PROP[seed.property_type] ?? seed.property_type)
+      : "아파트",
+  );
   const [loanRatio, setLoanRatio]   = useState(50);
   const [interestRate, setInterestRate] = useState(4.0);
   const [loanYears, setLoanYears]   = useState(30);
   const [repayType, setRepayType]   = useState("equal_payment");
   const [holdingYears, setHoldingYears] = useState(3);
   const [growthRate, setGrowthRate] = useState(0);
-  const [rentalMode, setRentalMode] = useState("없음");
-  const [depositStr, setDepositStr] = useState("");
+  // 전세 보증금이 있는 매물이면 임대 모드를 전세로 맞춰서 시작한다
+  const [rentalMode, setRentalMode] = useState(seed.deposit_price ? "전세" : "없음");
+  const [depositStr, setDepositStr] = useState(
+    seed.deposit_price ? String(Math.round(seed.deposit_price / 10000)) + "만" : "",
+  );
   const [rentFeeStr, setRentFeeStr] = useState("");
-  const [mgmtFeeStr, setMgmtFeeStr] = useState("");
+  const [mgmtFeeStr, setMgmtFeeStr] = useState(
+    seed.maintenance_fee ? String(seed.maintenance_fee) : "",
+  );
   const [ownedHomes, setOwnedHomes] = useState(1);
 
   // 세금·규제 입력
@@ -68,21 +123,7 @@ export default function SimulationPage() {
       .catch(() => {});
   }, []);
 
-  // 추천 페이지에서 매물 자동입력
-  useEffect(() => {
-    const raw = sessionStorage.getItem("simFromListing");
-    if (raw) {
-      const l = JSON.parse(raw);
-      if (l.asking_price) setPurchasePriceStr(String(Math.round(l.asking_price / 10000)) + "만");
-      if (l.property_type) {
-        const map: Record<string,string> = { 주거용: "아파트", 상업용: "상가", 업무용: "오피스", 산업용: "공장" };
-        setPropType(map[l.property_type] || l.property_type);
-      }
-      if (l.deposit_price) { setRentalMode("전세"); setDepositStr(String(Math.round(l.deposit_price / 10000)) + "만"); }
-      if (l.maintenance_fee) setMgmtFeeStr(String(l.maintenance_fee));
-      sessionStorage.removeItem("simFromListing");
-    }
-  }, []);
+  // (넘겨받은 매물 정보는 위 useState 초기값으로 이미 반영돼 있다)
 
   const handleSubmit = async () => {
     const purchasePrice = parsePrice(purchasePriceStr);

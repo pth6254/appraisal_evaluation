@@ -220,6 +220,10 @@ __marimo__/
 # Runtime databases (Streamlit cache/history — 로컬 전용)
 *.db
 
+# PostgreSQL 백업 산출물 (scripts/backup_db.sh) — 사용자 데이터가 포함되므로 커밋 금지
+/backups/
+*.dump
+
 # Next.js src/lib 예외 (lib/ 패턴이 삼킴)
 !frontend/src/lib/
 !frontend/src/lib/**

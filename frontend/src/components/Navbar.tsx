@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   Home, Tag, MapPin, TrendingUp, Columns2, ShieldCheck,
@@ -139,27 +139,23 @@ function UserFooter() {
   );
 }
 
-export default function Navbar() {
-  const path = usePathname();
+/**
+ * 모바일 상단바 + 드로어.
+ *
+ * 드로어 열림 상태는 경로가 바뀌면 닫혀야 한다. 이전에는 useEffect 에서
+ * setOpen(false) 를 호출했지만, 그건 effect 안의 동기 setState 라 연쇄 렌더를
+ * 유발한다(react-hooks/set-state-in-effect). 대신 Navbar 가 이 컴포넌트에
+ * `key={path}` 를 주어, 경로가 바뀌면 컴포넌트가 새로 마운트되며 open 이
+ * 자연스럽게 초기값(false)으로 돌아가게 한다 — React 가 권장하는
+ * "prop 이 바뀌면 key 로 상태 초기화" 패턴이다.
+ *
+ * 링크 클릭뿐 아니라 브라우저 뒤로가기 같은 경로 변경에도 동일하게 동작한다.
+ */
+function MobileNav({ path }: { path: string }) {
   const [open, setOpen] = useState(false);
-
-  // 라우트가 바뀌면 모바일 드로어 닫기
-  useEffect(() => { setOpen(false); }, [path]);
 
   return (
     <>
-      {/* 데스크톱 사이드바 */}
-      <aside className="no-print fixed left-0 top-0 z-50 hidden h-full w-[236px] flex-col bg-brand text-white shadow-lg md:flex">
-        <div className="border-b border-white/10 px-5 py-5">
-          <Wordmark />
-          <div className="mt-2 text-[11.5px] text-white/50">
-            매물 탐색부터 계약·세금까지, 한 곳에서
-          </div>
-        </div>
-        <NavList path={path} />
-        <UserFooter />
-      </aside>
-
       {/* 모바일 상단바 */}
       <div className="no-print sticky top-0 z-50 flex items-center justify-between bg-brand px-4 py-3 md:hidden">
         <Wordmark />
@@ -196,6 +192,28 @@ export default function Navbar() {
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+export default function Navbar() {
+  const path = usePathname();
+
+  return (
+    <>
+      {/* 데스크톱 사이드바 */}
+      <aside className="no-print fixed left-0 top-0 z-50 hidden h-full w-[236px] flex-col bg-brand text-white shadow-lg md:flex">
+        <div className="border-b border-white/10 px-5 py-5">
+          <Wordmark />
+          <div className="mt-2 text-[11.5px] text-white/50">
+            매물 탐색부터 계약·세금까지, 한 곳에서
+          </div>
+        </div>
+        <NavList path={path} />
+        <UserFooter />
+      </aside>
+
+      <MobileNav key={path} path={path} />
     </>
   );
 }

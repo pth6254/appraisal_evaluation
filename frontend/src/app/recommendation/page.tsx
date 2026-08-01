@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { removeSessionValue, setSessionValue } from "@/lib/sessionStore";
 import type { RecommendationResult } from "@/lib/types";
 
 const REGIONS    = ["전체", "강남구", "마포구", "서초구", "송파구", "용산구", "성동구", "강동구", "영등포구"];
@@ -133,11 +134,11 @@ export default function RecommendationPage() {
     if (basket.length >= 5) { alert("최대 5개까지 비교 가능합니다."); return; }
     const next = [...basket, r];
     setBasket(next);
-    sessionStorage.setItem("comparisonBasket", JSON.stringify(next));
+    setSessionValue("comparisonBasket", JSON.stringify(next));
   };
 
   const simFromListing = (r: RecommendationResult) => {
-    sessionStorage.setItem("simFromListing", JSON.stringify(r.listing));
+    setSessionValue("simFromListing", JSON.stringify(r.listing));
     router.push("/simulation");
   };
 
@@ -424,7 +425,7 @@ export default function RecommendationPage() {
                 className="w-full py-2 bg-primary text-white text-xs rounded-lg font-semibold hover:bg-primary-strong">
                 비교 분석 시작
               </button>
-              <button onClick={() => { setBasket([]); sessionStorage.removeItem("comparisonBasket"); }}
+              <button onClick={() => { setBasket([]); removeSessionValue("comparisonBasket"); }}
                 className="w-full py-1.5 text-xs text-slate-400 mt-1 hover:text-slate-600">
                 바구니 초기화
               </button>

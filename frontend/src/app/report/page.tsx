@@ -1,26 +1,25 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import AppraisalReport from "@/components/AppraisalReport";
+import { useSessionValue } from "@/lib/sessionStore";
 
 /**
  * /report — 방금 실행한 시세추정 결과 (sessionStorage)
  * 저장된 리포트 재열람은 /report/[id] 사용.
  */
 export default function ReportPage() {
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
-  const [query, setQuery] = useState("");
-  const [loaded, setLoaded] = useState(false);
+  const rawResult = useSessionValue("appraisalResult");
+  const query = useSessionValue("appraisalQuery") ?? "";
 
-  useEffect(() => {
-    const raw = sessionStorage.getItem("appraisalResult");
-    const q = sessionStorage.getItem("appraisalQuery");
-    if (raw) setResult(JSON.parse(raw));
-    if (q) setQuery(q);
-    setLoaded(true);
-  }, []);
+  const result = useMemo(
+    () => (rawResult ? (JSON.parse(rawResult) as Record<string, unknown>) : null),
+    [rawResult],
+  );
 
-  if (!loaded) return null;
+  // undefined = 아직 클라이언트에서 읽기 전 — "결과 없음" 화면이 한 번
+  // 스쳤다 사라지지 않도록 아무것도 그리지 않는다.
+  if (rawResult === undefined) return null;
 
   if (!result) {
     return (

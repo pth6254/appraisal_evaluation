@@ -53,8 +53,13 @@ export const api = {
       }),
     }),
 
-  /** 작업 상태 폴링 → { status, step, history_id?, result? } */
-  appraisalJob: (jobId: string) =>
+  /**
+   * 작업 상태 폴링 → { status, step, history_id?, result? }
+   *
+   * signal 을 넘기면 페이지 이탈 시 진행 중인 요청을 취소할 수 있다
+   * (폴링은 수 분간 반복되므로 취소 수단이 없으면 유령 요청이 남는다).
+   */
+  appraisalJob: (jobId: string, signal?: AbortSignal) =>
     req<{
       job_id: string;
       status: "queued" | "running" | "done" | "error";
@@ -62,7 +67,7 @@ export const api = {
       error: string;
       history_id?: number;
       result?: Record<string, unknown>;
-    }>(`/appraisal/jobs/${jobId}`),
+    }>(`/appraisal/jobs/${jobId}`, { signal }),
 
   recommendation: (params: RecommendationRequest) =>
     req("/recommendation", { method: "POST", body: JSON.stringify(params) }),

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { setSessionValue } from "@/lib/sessionStore";
 import type { ActivityItem } from "@/lib/types";
 import {
   Search, Tag, MapPin, TrendingUp, Columns2, ShieldCheck,
@@ -110,7 +111,7 @@ export default function HomePage() {
   const startFromHero = (e: React.FormEvent) => {
     e.preventDefault();
     const q = heroQuery.trim();
-    if (q) sessionStorage.setItem("heroQuery", q);
+    if (q) setSessionValue("heroQuery", q);
     router.push("/appraisal");
   };
 

@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { removeSessionValue, setSessionValue, useSessionValue } from "@/lib/sessionStore";
 import type { RecommendationResult, ComparisonResult } from "@/lib/types";
 
 function fmt(n?: number) { return n != null ? n.toLocaleString("ko-KR") + "원" : "—"; }
@@ -9,16 +10,19 @@ function fmtPct(n?: number) { return n != null ? (n >= 0 ? "+" : "") + n.toFixed
 
 export default function ComparisonPage() {
   const router = useRouter();
-  const [basket, setBasket]   = useState<RecommendationResult[]>([]);
   const [result, setResult]   = useState<ComparisonResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
   const [tab, setTab]         = useState(0);
 
-  useEffect(() => {
-    const raw = sessionStorage.getItem("comparisonBasket");
-    if (raw) setBasket(JSON.parse(raw));
-  }, []);
+  // 바구니는 sessionStorage 가 유일한 출처다 — 별도 state 로 복제하지 않고
+  // 파생시킨다. 쓰기(setSessionValue/removeSessionValue)가 구독자에게 알리므로
+  // 목록 변경이 그대로 리렌더로 이어진다.
+  const rawBasket = useSessionValue("comparisonBasket");
+  const basket = useMemo<RecommendationResult[]>(
+    () => (rawBasket ? (JSON.parse(rawBasket) as RecommendationResult[]) : []),
+    [rawBasket],
+  );
 
   const handleCompare = async () => {
     if (basket.length < 2) { setError("최소 2개 이상 선택해야 합니다."); return; }
@@ -40,21 +44,23 @@ export default function ComparisonPage() {
   };
 
   const clearBasket = () => {
-    setBasket([]);
     setResult(null);
-    sessionStorage.removeItem("comparisonBasket");
+    removeSessionValue("comparisonBasket");
   };
 
   const removeItem = (id: string) => {
     const next = basket.filter(b => b.listing.listing_id !== id);
-    setBasket(next);
-    sessionStorage.setItem("comparisonBasket", JSON.stringify(next));
+    setSessionValue("comparisonBasket", JSON.stringify(next));
   };
 
   const simFromListing = (listing: RecommendationResult["listing"]) => {
-    sessionStorage.setItem("simFromListing", JSON.stringify(listing));
+    setSessionValue("simFromListing", JSON.stringify(listing));
     router.push("/simulation");
   };
+
+  // undefined = 아직 클라이언트에서 읽기 전 — "바구니가 비어있습니다"가
+  // 한 번 스쳤다 사라지지 않도록 아무것도 그리지 않는다.
+  if (rawBasket === undefined) return null;
 
   if (basket.length === 0) {
     return (

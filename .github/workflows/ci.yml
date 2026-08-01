@@ -6,12 +6,19 @@ on:
   pull_request:
 
 jobs:
+  # ────────────────────────────────────────────
+  #  백엔드 — PostgreSQL·Redis 서비스 컨테이너 + pytest
+  # ────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     # 앱 테이블·작업 큐·레이트 리밋이 전부 PostgreSQL/Redis 필수로 바뀌어
     # (SQLite/인프로세스 메모리 폴백 없음) 테스트도 실제 서비스 컨테이너가 필요하다.
+    #
+    # 아래 postgres 비밀번호는 워크플로 실행 중에만 존재하는 휘발성 컨테이너의
+    # 값이라 운영 자격증명과 무관하다 — docker-compose.yml(실제 배포 설정)과
+    # 달리 여기서는 하드코딩해도 유출 리스크가 없어 의도적으로 그대로 둔다.
     services:
       postgres:
         image: ankane/pgvector:latest
@@ -58,5 +65,47 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
+      # 실제 배포 경로(Dockerfile.backend)와 동일하게 워커·테스트 이전에
+      # 마이그레이션을 먼저 적용한다 — 이렇게 해야 새 마이그레이션 파일이
+      # db/models.py 와 어긋나거나 깨진 채로 머지되는 것을 CI에서 잡아낸다.
+      # (pytest만 돌리면 lifespan의 create_all() 안전망이 이 오류를 가려버린다.)
+      - name: Run Alembic migrations
+        run: alembic upgrade head
+
       - name: Run tests
         run: pytest tests/ -v
+
+  # ────────────────────────────────────────────
+  #  프론트엔드 — 타입 체크 + 프로덕션 빌드
+  #
+  #  프론트엔드에는 아직 테스트가 없다. 최소한 타입 오류와 빌드 실패는
+  #  머지 전에 걸러낸다 (백엔드 job과 독립적이라 병렬로 실행된다).
+  # ────────────────────────────────────────────
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
