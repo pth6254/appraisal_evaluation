@@ -24,7 +24,7 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
 | 🔍 **권리관계 위험 점검** | 등기부등본·건축물대장 **PDF 업로드** → 가압류·신탁·근저당 검출, 깡통전세 위험도(경매 배당 시뮬레이션), 소액임차인 최우선변제 판정 |
 | 💬 **법률·세금 AI 안내** | RAG(법령·분쟁사례) + 세금 계산기 도구 호출(증여·상속·양도·보유세) 챗봇 — 수치 가드레일로 계산기 값만 인용, `tools/build_law_corpus.py`로 법령·판례 코퍼스 확장 |
 | 📋 **이력 대시보드** | 사용자별 시세추정 이력 검색·통계 차트·리포트 재열람 |
-| 🔐 **인증·보안** | 이메일/비밀번호 + Google OAuth, JWT 쿠키 세션, 사용자별 이력 분리, 회원 탈퇴(전체 삭제), 로그인 잠금(5회 실패), 엔드포인트별 레이트 리밋, 챗봇 일일 상한 |
+| 🔐 **인증·보안** | 이메일/비밀번호 + Google OAuth, JWT 쿠키 세션, 사용자별 이력 분리, 회원 탈퇴(전체 삭제), 로그인 잠금(5회 실패), 엔드포인트별 레이트 리밋, 챗봇 일일 상한, 비밀번호 재설정(계정 열거 방지) + 재설정 시 기존 세션 전부 무효화, 배포 형태별 쿠키 `SameSite` 설정 |
 | 🔒 **개인정보 보호** | 업로드 PDF는 메모리에서만 분석 후 즉시 파기(무저장), 활동 기록은 주소 마스킹·질문 축약 저장, 개인정보처리방침·이용약관 페이지(`/privacy`·`/terms`) |
 | 🗄 **실거래가 로컬 스토어** | MOLIT API 응답을 PostgreSQL에 적재 — 반복 조회 시 API 호출 없이 즉시 응답, 배치 수집 CLI 제공 |
 
@@ -40,6 +40,7 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
    ├── 레이트 리밋 · 로그인 잠금 (Redis — 워커 간 카운터 공유)
    ├── 인증 / 이력 / 활동 피드 (api/auth_db.py, history_db.py, activity_db.py
    │                          — SQLAlchemy ORM, db/ 공용 세션)
+   ├── 비밀번호 재설정 메일 (api/email_service.py — Resend, 키 없으면 서버 로그 폴백)
    │
 [LangGraph 파이프라인 (backend/)]
    ├── 캐시·지역코드 (backend/cache_db.py)         │  PostgreSQL
@@ -178,8 +179,9 @@ property_concierge/
 │   ├── main.py                     FastAPI 앱 설정, CORS, 라우터 등록
 │   ├── jobs.py                     작업 큐 (상태: Redis, 실행: 인프로세스 스레드)
 │   ├── auth_db.py                  사용자 인증 (db/ 공용 세션)
-│   ├── auth_utils.py               JWT 발급·검증
-│   ├── deps.py                     인증 의존성 (get_current_user / get_optional_user)
+│   ├── auth_utils.py               JWT 발급·검증 (비밀번호 변경 시각을 클레임에 심어 세션 무효화)
+│   ├── email_service.py            비밀번호 재설정 메일 발송 (Resend, 키 없으면 로그 출력 폴백)
+│   ├── deps.py                     인증 의존성 (get_current_user / get_optional_user — 둘 다 세션 유효성 검사)
 │   ├── history_db.py               시세추정 이력 (db/ 공용 세션, 리포트 영속화)
 │   ├── activity_db.py              권리점검·상담 활동 (db/ 공용 세션, 홈 통합 피드 데이터 소스)
 │   └── routes/
@@ -250,7 +252,7 @@ property_concierge/
 ├── schemas/                        Pydantic 스키마 (단위: 원·㎡)
 ├── data/
 │   └── sample_listings.csv         개발·테스트용 가상 매물 43건 (유일하게 파일로 남은 데이터 — 나머지는 전부 PostgreSQL)
-├── tests/                          pytest 테스트 (22개 파일 — test_access_control.py 등 포함)
+├── tests/                          pytest 테스트 (24개 파일, 695개 — test_access_control.py·test_password_reset.py·test_cookie_config.py 등 포함)
 ├── docker/init.sql                 PostgreSQL 초기화 스크립트 (vector 익스텐션·pgvector 테이블)
 ├── Dockerfile.backend / .frontend  서비스 이미지
 ├── docker-compose.yml              pgvector(app 테이블 겸 RAG 벡터스토어) + redis + api + frontend
@@ -269,6 +271,8 @@ property_concierge/
 | `GET` | `/api/appraisal/jobs/{id}` | 작업 상태 폴링 → `{status, step, history_id?, result?}` |
 | `POST` | `/api/auth/register` | 회원가입 (이메일/비밀번호) |
 | `POST` | `/api/auth/login` | 로그인 → JWT 쿠키 |
+| `POST` | `/api/auth/password-reset/request` | 재설정 링크 발송 — 응답은 계정 존재 여부와 무관하게 항상 동일(계정 열거 방지) |
+| `POST` | `/api/auth/password-reset/confirm` | 토큰 검증 후 비밀번호 변경 — **기존 세션 전부 무효화** |
 | `GET` | `/api/auth/google` → `/callback` | Google OAuth |
 | `GET` | `/api/auth/me` | 현재 사용자 조회 |
 | `DELETE` | `/api/auth/me` | 회원 탈퇴 — 계정·이력·활동 즉시 삭제 |
@@ -345,6 +349,9 @@ PropertyQuery (지역·예산·면적·유형)
 | `GOOGLE_CLIENT_ID/SECRET` | Google OAuth (선택) | [console.cloud.google.com](https://console.cloud.google.com) |
 | `JWT_SECRET_KEY` | 세션 토큰 서명 — **운영(`APP_ENV=production`)에서는 필수, 미설정 시 기동 실패** (개발은 기본값 허용) | 임의 문자열 |
 | `CORS_ORIGINS` | 허용 오리진 (콤마 구분) — **배포 시 실제 도메인으로 교체 필수**, 미설정 시 localhost만 허용 | 예: `https://example.com` |
+| `COOKIE_SAMESITE` | 세션 쿠키 SameSite — `lax`(기본, 프론트·API 동일 출처) / `none`(다른 사이트 배포 시, HTTPS 필수) / `strict` | `lax` |
+| `FORWARDED_ALLOW_IPS` | 리버스 프록시 뒤에 배포 시 **필수** — 없으면 모든 요청이 프록시 IP로 뭉쳐 레이트 리밋·로그인 잠금이 사실상 무력화 | 예: `172.18.0.0/16` |
+| `RESEND_API_KEY` | 비밀번호 재설정 메일 발송 (선택, 비워두면 서버 로그에 재설정 링크 출력) | [resend.com](https://resend.com) |
 | `DATABASE_URL` | 앱 테이블(사용자·이력·활동·캐시·실거래가·상담 코퍼스) — **필수, 폴백 없음** | `docker compose up pgvector` |
 | `REDIS_URL` | 작업 큐 상태·레이트 리밋·로그인 잠금 카운터 — **필수, 폴백 없음** | `docker compose up redis` |
 | `SENTRY_DSN` | 에러 추적 (선택, 비워두면 완전히 비활성 — 로컬·CI에 영향 없음) | [sentry.io](https://sentry.io) |
@@ -600,9 +607,11 @@ pytest tests/test_simulation_service.py   # 시뮬레이션
 pytest tests/test_comparison_service.py   # 비교
 pytest tests/test_rights_and_chat.py      # 권리관계 위험 점검 · 법률·세금 챗봇
 pytest tests/test_access_control.py       # 이력·작업 소유자 격리 (타인 리포트 열람 차단, PostgreSQL·Redis 필요)
+pytest tests/test_password_reset.py       # 비밀번호 재설정 + 세션 무효화 (계정 열거 방지 포함, PostgreSQL·Redis 필요)
+pytest tests/test_cookie_config.py        # 쿠키 SameSite/Secure 설정 → 실제 Set-Cookie 헤더 매핑
 ```
 
-DB에 접근하지 않는 나머지 테스트(전체 676개 중 648개)는 Postgres·Redis 없이도 동작한다 —
+전체 695개 테스트 중 DB에 접근하지 않는 나머지는 Postgres·Redis 없이도 동작한다 —
 `db/base.py`가 엔진을 지연 생성해 실제로 DB를 쓰는 시점에만 `DATABASE_URL`을 확인하기 때문이다.
 
 GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 서비스 컨테이너와
@@ -620,3 +629,5 @@ GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 
 - **시세추정·단지 추천은 전국 시군구 지원** — 지오코딩 시군구코드 직접 사용 + 전국 250개 지역코드 시드(`tools/seed_region_codes.py`) + 지오코딩 자동 등록
 - **단지 추천**은 실거래 기반 추정 시세 — 실제 매물 존재 여부·호가는 미포함 (호가 매물은 데이터 제휴 필요). 샘플 매물 모드는 개발용 가상 데이터 유지
 - **로컬 개발도 Docker(PostgreSQL·Redis) 필수** — SQLite·인프로세스 메모리 폴백을 두지 않았다. 완전 오프라인 개발이 필요해지면 SQLite 폴백 재도입을 검토할 것
+- **비밀번호 재설정 메일은 아직 실제로 발송되지 않는다** — `RESEND_API_KEY` 미설정 시 서버 로그에 재설정 링크를 출력하는 폴백만 동작. 실발송하려면 Resend 도메인 인증(SPF/DKIM)이 필요
+- **TLS·리버스 프록시 미구성** — 외부 도메인으로 배포하려면 프록시 컨테이너 추가 + `FORWARDED_ALLOW_IPS` 지정이 선행되어야 한다 (레이트 리밋이 프록시 IP 하나로 뭉치는 것을 막기 위함)
