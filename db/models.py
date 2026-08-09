@@ -45,6 +45,15 @@ class User(Base):
     provider_id: Mapped[str | None] = mapped_column(String(255), default=None)
     created: Mapped[str] = mapped_column(String(32), default=_now_str)
 
+    # 비밀번호를 마지막으로 변경한 시각. JWT 는 stateless 라 서버가 발급된 토큰을
+    # 직접 폐기할 수 없으므로, 발급 시각 대신 이 값을 토큰에 함께 넣고 검증 때
+    # 대조한다 — 비밀번호가 바뀌면 값이 달라져 기존 세션이 전부 무효가 된다
+    # (계정 탈취 후 비밀번호를 바꿔도 공격자 세션이 살아있는 문제를 막는다).
+    #
+    # NULL = 가입 이후 한 번도 변경한 적 없음. 이 경우 pwd_at 클레임이 없는
+    # 기존 토큰도 그대로 통과시킨다 (컬럼 추가 이전 발급분 호환).
+    password_changed_at: Mapped[str | None] = mapped_column(String(32), default=None)
+
 
 # ─────────────────────────────────────────
 #  시세추정 이력 (구 api/history_db.py)

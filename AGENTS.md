@@ -59,6 +59,13 @@ alembic revision --autogenerate -m "설명"   # 생성 후 파일을 반드시 �
 alembic upgrade head
 ```
 
+**autogenerate 결과에서 아래 세 테이블의 `drop_table` 은 반드시 지울 것:**
+`real_estate_docs` · `langchain_pg_collection` · `langchain_pg_embedding`
+
+이 셋은 `docker/init.sql` 이 만드는 RAG 벡터스토어 테이블로 `db/models.py` 에 없다.
+autogenerate 는 모델에 없으면 "삭제된 것"으로 간주해 **매번 drop 구문을 끼워 넣는다.**
+그대로 적용하면 RAG 데이터가 전부 사라진다 (실제로 겪어서 `b7e42562ca36` 에서 제거함).
+
 ### 2-3. 소유자 검증 없이 레코드를 조회하지 않는다
 
 `history` · `activity` 의 id는 순차 정수다. 사용자 요청 경로에서 소유자 필터 없이 조회하면
@@ -76,7 +83,28 @@ id를 훑어 타인 데이터를 전량 읽을 수 있다(실제로 있었던 �
 `.github/workflows/ci.yml` 의 postgres 비밀번호는 예외다 — 워크플로 실행 중에만 존재하는
 휘발성 컨테이너라 유출 리스크가 없다(주석에 명시되어 있음).
 
-### 2-5. LLM 수치 가드레일을 우회하지 않는다
+### 2-5. 리버스 프록시 뒤에 배포하면 FORWARDED_ALLOW_IPS 를 반드시 지정한다
+
+레이트 리밋(`slowapi`)과 로그인 잠금이 **클라이언트 IP 기준**인데, 프록시를 거치면
+FastAPI 에는 모든 요청이 프록시 IP 하나로 들어온다. 실제 IP 는 `X-Forwarded-For` 에 있다.
+
+uvicorn 은 `proxy_headers=True` 가 기본이지만 `forwarded_allow_ips` 기본값이
+`"127.0.0.1"` 이라 **같은 기계의 프록시만** 신뢰한다. docker compose 처럼 프록시가
+별도 컨테이너면 기본값으로는 동작하지 않는다 — `FORWARDED_ALLOW_IPS` 환경변수에
+프록시 IP/대역을 넣으면 uvicorn 이 자동으로 읽는다(코드 변경 불필요).
+
+**실측 결과** (register 분당 5회 제한, 7회 연속 요청):
+
+| 조건 | 6번째 요청 |
+|---|---|
+| 기본값 + `X-Forwarded-For` 위조 | **201** ← 위조가 통해 레이트 리밋 무력화 |
+| 기본값 + 헤더 없음 | 429 (정상) |
+| `FORWARDED_ALLOW_IPS=<프록시IP>` + 위조 | 429 (정상) |
+
+⚠️ `"*"` 로 열어두고 앱이 외부에 직접 노출되면 누구나 헤더를 위조해 우회할 수 있다.
+프록시 주소를 정확히 지정할 것.
+
+### 2-6. LLM 수치 가드레일을 우회하지 않는다
 
 `backend/opinion_guard.py` 는 LLM 출력에서 **컨텍스트로 주입한 수치 외의 숫자가 든 문장을
 자동 삭제**한다. 부동산 가격에서 환각은 치명적이라 프롬프트 부탁이 아니라 출력 검증으로

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const AUTH_PAGES   = ["/login", "/register"];          // 로그인 상태면 접근 불필요
-const OPEN_PAGES   = ["/privacy", "/terms"];           // 로그인 여부와 무관하게 공개
+// 로그인 여부와 무관하게 공개.
+// 비밀번호 재설정은 AUTH_PAGES 가 아니라 여기 둔다 — 로그인된 상태에서 메일의
+// 재설정 링크를 눌렀을 때 /appraisal 로 튕겨내면 재설정을 할 수 없기 때문이다.
+const OPEN_PAGES   = ["/privacy", "/terms", "/forgot-password", "/reset-password"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

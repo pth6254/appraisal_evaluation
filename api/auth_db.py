@@ -25,14 +25,15 @@ def init():
 
 def _to_dict(user: User) -> dict:
     return {
-        "id":            user.id,
-        "email":         user.email,
-        "password_hash": user.password_hash,
-        "name":          user.name,
-        "avatar_url":    user.avatar_url,
-        "provider":      user.provider,
-        "provider_id":   user.provider_id,
-        "created":       user.created,
+        "id":                  user.id,
+        "email":               user.email,
+        "password_hash":       user.password_hash,
+        "name":                user.name,
+        "avatar_url":          user.avatar_url,
+        "provider":            user.provider,
+        "provider_id":         user.provider_id,
+        "created":             user.created,
+        "password_changed_at": user.password_changed_at,
     }
 
 
@@ -75,6 +76,26 @@ def get_by_id(user_id: int) -> Optional[dict]:
     with session_scope() as session:
         user = session.get(User, user_id)
         return _to_dict(user) if user else None
+
+
+def update_password(user_id: int, password_hash: str) -> Optional[dict]:
+    """
+    비밀번호 변경 + 변경 시각 기록.
+
+    password_changed_at 이 갱신되면 그 이전에 발급된 JWT 는 전부 무효가 된다
+    (auth_utils.is_session_valid 참고) — 재설정 직후 기존 세션이 끊기는 것이
+    의도된 동작이다.
+    """
+    from db.models import _now_str
+
+    with session_scope() as session:
+        user = session.get(User, user_id)
+        if not user:
+            return None
+        user.password_hash = password_hash
+        user.password_changed_at = _now_str()
+        session.flush()
+        return _to_dict(user)
 
 
 def delete_user(user_id: int) -> None:
