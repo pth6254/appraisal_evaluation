@@ -14,6 +14,8 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
 
 | 기능 | 설명 |
 |------|------|
+| **매수 검토 케이스** | 매수 목표·예산·관심 지역·후보 부동산을 묶고, 지역 저장 당시 실거래 통계와 기존 시세추정 이력을 함께 검토 |
+| **동네·단지 탐색** | 전국 행정구역 코드 구조에서 수집된 서울 실거래를 중앙값·분위수·예산 적합률·표본 신뢰도로 비교하고, 관심 지역과 아파트 단지 후보를 케이스에 저장 |
 | 🏡 **컨시어지 홈** | 사용자 여정(매물 탐색 → 가치 분석 → 안전 점검 → 법률·세금 상담) 기반 홈 화면. 주소 검색 히어로에서 바로 시세추정으로 연결, 시세추정·권리점검·상담을 합친 최근 활동 피드 |
 | 🏠 **AI 시세추정** | 자연어/단계별 입력 → 실거래 비교·수익환원·원가법 기반 추정 시세 산출, 공식 문서 형식 리포트 |
 | 📊 **리포트 영속화** | 결과가 이력 DB에 저장되어 `/report/{id}` URL로 재열람·공유·인쇄(PDF) 가능 |
@@ -143,6 +145,12 @@ npm run dev
 # 서초구·강남구 주거용 최근 12개월
 python backend/tools/ingest_transactions.py --regions 서초구,강남구 --months 12
 
+# 서울특별시의 모든 자치구, 현재월 포함 최근 12개월 매매 원천 전체
+python backend/tools/ingest_transactions.py --sido 서울특별시 --months 12 --yes
+
+# 기존 범위보다 이전·이후 월을 증분 수집 (완료된 월은 자동으로 건너뜀)
+python backend/tools/ingest_transactions.py --sido 서울특별시 --from 202401 --to 202508 --yes
+
 # 등록된 전체 지역(수도권+광역시 약 60개), 주거용+상업용 6개월
 python backend/tools/ingest_transactions.py --all --categories 주거용,상업용
 
@@ -151,11 +159,35 @@ python backend/tools/ingest_transactions.py --regions 서초구 --force
 python backend/transaction_store.py
 ```
 
+배치는 `지역 × API 원천 × 거래월`의 완료 이력을 기준으로 증분 실행한다. 완료된 과거 월은
+다시 호출하지 않고 실패·중단된 월만 재시도한다. 신고·해제·정정이 계속 유입되는 당월과
+전월은 TTL이 지난 경우 해당 월 전체 스냅샷을 다시 받아 트랜잭션으로 교체하므로 중복 적재 없이
+최신 상태를 유지한다. `--force`를 지정한 경우에만 완료된 범위를 강제로 다시 수집한다.
+
 > 공공데이터포털 개발계정은 일일 트래픽 제한(보통 1,000건)이 있다.
 > 실행 전 출력되는 예상 호출 수(지역 × 엔드포인트 × 월)를 확인할 것.
 
 **신선도(TTL) 정책**: 완결 월(기준 2개월 이전)은 30일, 최근 월(당월·전월)은 12시간 후 재수집
 — 실거래 신고 기한(30일) 내 데이터 유입을 반영한다.
+
+### 전국 법정동코드 동기화
+
+동네 탐색은 이름이 기본키인 기존 `region_codes`가 아니라 행정안전부 10자리
+법정동코드를 사용하는 `legal_regions` 계층 마스터를 기준으로 한다. 시도부터
+법정리까지 현행 전체를 가져오며, 전체 조회가 성공한 경우에만 DB를 갱신한다.
+
+```bash
+# 공식 API 조회·계층 검증만 수행
+python backend/tools/sync_legal_regions.py --dry-run
+
+# legal_regions 테이블에 업서트
+python backend/tools/sync_legal_regions.py
+```
+
+`MOIS_REGION_API_KEY`가 있으면 우선 사용하고, 없으면 data.go.kr 공용 키인
+`MOLIT_API_KEY`를 사용한다. 목록 API는 공식 폐지일을 제공하지 않으므로 이전
+동기화에 있던 코드가 새 전체 목록에서 사라지면 비활성화만 하고 폐지일을 추정해
+채우지 않는다.
 
 ---
 
@@ -166,7 +198,7 @@ property_concierge/
 │
 ├── db/                              공용 PostgreSQL 데이터 계층 (SQLAlchemy)
 │   ├── base.py                     엔진·세션 (DATABASE_URL, 지연 생성)
-│   ├── models.py                   ORM 모델 9종 (User/HistoryRecord/ActivityRecord/...)
+│   ├── models.py                   ORM 모델 13종 (User/HistoryRecord/PurchaseCase/CaseProperty/CaseRegion/...)
 │   ├── redis_client.py             Redis 커넥션 팩토리 (REDIS_URL)
 │   └── migrations/                 Alembic 마이그레이션 (env.py + versions/)
 ├── alembic.ini                      Alembic 설정 (접속 문자열은 DATABASE_URL 환경변수로)
@@ -244,6 +276,7 @@ property_concierge/
 │   │   └── rights_analysis_service.py  권리관계 위험 점검 서비스 (등기부·건축물대장 파싱·위험도 산정)
 │   └── tools/
 │       ├── ingest_transactions.py  실거래가 배치 수집 CLI
+│       ├── sync_legal_regions.py    전국 10자리 법정동코드 계층 동기화 CLI
 │       ├── build_law_corpus.py     국가법령정보센터 법령·판례 수집 → chat_corpus 확장
 │       ├── listing_tool.py         샘플 CSV 매물 조회
 │       ├── scoring_tool.py         매물 종합 점수 산출
@@ -252,7 +285,7 @@ property_concierge/
 ├── schemas/                        Pydantic 스키마 (단위: 원·㎡)
 ├── data/
 │   └── sample_listings.csv         개발·테스트용 가상 매물 43건 (유일하게 파일로 남은 데이터 — 나머지는 전부 PostgreSQL)
-├── tests/                          pytest 테스트 (24개 파일, 695개 — test_access_control.py·test_password_reset.py·test_cookie_config.py 등 포함)
+├── tests/                          pytest 테스트 (28개 파일, 718개 — 접근제어·시장탐색·케이스 소유권 등 포함)
 ├── docker/init.sql                 PostgreSQL 초기화 스크립트 (vector 익스텐션·pgvector 테이블)
 ├── Dockerfile.backend / .frontend  서비스 이미지
 ├── docker-compose.yml              pgvector(app 테이블 겸 RAG 벡터스토어) + redis + api + frontend
@@ -341,6 +374,7 @@ PropertyQuery (지역·예산·면적·유형)
 |--------|------|--------|
 | `KAKAO_REST_API_KEY` | 지오코딩 + 주변시설 | [developers.kakao.com](https://developers.kakao.com) |
 | `MOLIT_API_KEY` | 국토부 실거래가 | [data.go.kr](https://www.data.go.kr) |
+| `MOIS_REGION_API_KEY` | 행정안전부 법정동코드 동기화 (선택, 없으면 `MOLIT_API_KEY` 재사용) | [data.go.kr](https://www.data.go.kr/data/15077871/openapi.do) |
 | `RBONE_API_KEY` (또는 `REB_API_KEY`) | 부동산원 R-ONE 월간지수 — 시점수정 정밀화 (선택) | [reb.or.kr/r-one](https://www.reb.or.kr/r-one/portal/openapi/openApiIntroPage.do) |
 | `ECOS_API_KEY` | 한국은행 금리 — 시뮬레이션 금리 자동 세팅 (선택, 없으면 sample 키 시도) | [ecos.bok.or.kr](https://ecos.bok.or.kr) |
 | `LAW_OC_KEY` | 국가법령정보 — 챗봇 코퍼스 확장용 법령·판례 수집 (선택, 시드 코퍼스만으로도 동작) | [open.law.go.kr](https://open.law.go.kr) |
@@ -564,7 +598,7 @@ docker compose restart api   # 커넥션 풀 재연결
 
 ## 스키마 마이그레이션 (Alembic)
 
-앱 테이블(`db/models.py`, 9종)의 스키마 변경 이력은 `db/migrations/`가 관리한다.
+앱 테이블(`db/models.py`, 13종)의 스키마 변경 이력은 `db/migrations/`가 관리한다.
 운영 배포는 `alembic upgrade head`가 uvicorn 워커보다 먼저, 단일 프로세스로
 실행된다([Dockerfile.backend](Dockerfile.backend)) — 여러 워커가 동시에 스키마를
 바꾸려는 경합 자체를 원천 차단하기 위해서다.
@@ -611,7 +645,7 @@ pytest tests/test_password_reset.py       # 비밀번호 재설정 + 세션 무�
 pytest tests/test_cookie_config.py        # 쿠키 SameSite/Secure 설정 → 실제 Set-Cookie 헤더 매핑
 ```
 
-전체 695개 테스트 중 DB에 접근하지 않는 나머지는 Postgres·Redis 없이도 동작한다 —
+전체 718개 테스트 중 DB에 접근하지 않는 나머지는 Postgres·Redis 없이도 동작한다 —
 `db/base.py`가 엔진을 지연 생성해 실제로 DB를 쓰는 시점에만 `DATABASE_URL`을 확인하기 때문이다.
 
 GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 서비스 컨테이너와

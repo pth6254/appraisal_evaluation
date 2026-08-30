@@ -1,4 +1,4 @@
-import type { ActivityItem, RecommendationRequest, SimulationRequest } from "./types";
+import type { ActivityItem, ConciergeResponse, PurchaseCase, RecommendationRequest, SimulationRequest } from "./types";
 
 const BASE = "/api";
 
@@ -12,6 +12,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const msg = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(msg);
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -125,6 +126,66 @@ export const api = {
 
   deleteAllHistory: () => req("/history", { method: "DELETE" }),
 
+  cases: () => req<{ items: PurchaseCase[] }>("/cases"),
+
+  marketRegions: (params: { level?: "sido" | "sigungu" | "eupmyeondong" | "ri"; parent_code?: string } = {}) => {
+    const query = new URLSearchParams();
+    query.set("level", params.level ?? "sido");
+    if (params.parent_code) query.set("parent_code", params.parent_code);
+    return req<{ items: {
+      code: string; parent_code: string | null; name: string; full_name: string;
+      level: "sido" | "sigungu" | "eupmyeondong" | "ri"; lawd_code: string | null;
+    }[] }>(`/market/regions?${query.toString()}`);
+  },
+
+  regionMarket: (params: { region_code: string; months?: number; property_type?: string; budget_max?: number }) => {
+    const query = new URLSearchParams();
+    query.set("region_code", params.region_code);
+    query.set("months", String(params.months ?? 12));
+    query.set("property_type", params.property_type ?? "all");
+    if (params.budget_max) query.set("budget_max", String(params.budget_max));
+    return req<{
+      source: string; price_unit: "만원"; period: { from: string; to: string } | null;
+      scope: { code: string; name: string; full_name: string; level: string } | null;
+      property_type: string; items: {
+        region_name: string; region_code: string; lawd_code: string; deal_count: number; avg_price: number;
+        sample_size: number; median_price: number; price_q1: number; price_q3: number;
+        avg_per_sqm: number; median_per_sqm: number; asset_count: number; last_deal_ym: string;
+        budget_fit_count: number; budget_fit_ratio: number; confidence: "high" | "medium" | "low";
+      }[];
+    }>(`/market/regions/summary?${query.toString()}`);
+  },
+
+  createCase: (data: {
+    title: string; budget_min?: number; budget_max?: number;
+    target_regions?: string[]; notes?: string;
+  }) => req<PurchaseCase>("/cases", { method: "POST", body: JSON.stringify(data) }),
+
+  caseOne: (id: number) => req<PurchaseCase>(`/cases/${id}`),
+
+  updateCase: (id: number, data: Partial<Pick<PurchaseCase,
+    "title" | "status" | "budget_min" | "budget_max" | "target_regions" | "notes"
+  >>) => req<PurchaseCase>(`/cases/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  deleteCase: (id: number) => req<void>(`/cases/${id}`, { method: "DELETE" }),
+
+  addCaseProperty: (caseId: number, data: {
+    name: string; address?: string; category?: string; asking_price?: number;
+    area_sqm?: number; notes?: string; history_id?: number;
+    source?: "manual" | "recommendation" | "appraisal";
+  }) => req(`/cases/${caseId}/properties`, { method: "POST", body: JSON.stringify(data) }),
+
+  deleteCaseProperty: (caseId: number, propertyId: number) =>
+    req<void>(`/cases/${caseId}/properties/${propertyId}`, { method: "DELETE" }),
+
+  addCaseRegion: (caseId: number, data: {
+    region_code: string; property_type: string; budget_max_won?: number;
+    months?: number; source?: "market_explorer" | "concierge";
+  }) => req(`/cases/${caseId}/regions`, { method: "POST", body: JSON.stringify(data) }),
+
+  deleteCaseRegion: (caseId: number, regionId: number) =>
+    req<void>(`/cases/${caseId}/regions/${regionId}`, { method: "DELETE" }),
+
   /** 등기부등본·건축물대장 PDF 권리관계 위험 점검 (PDF는 base64) */
   rightsAnalyze: (params: {
     registry_pdf_b64?: string;
@@ -164,6 +225,12 @@ export const api = {
       tool_used: string | null;
       disclaimer: string;
     }>("/chat", { method: "POST", body: JSON.stringify({ message, history }) }),
+
+  conciergeMessage: (message: string, conversationId: string | null) =>
+    req<ConciergeResponse>("/concierge/messages", {
+      method: "POST",
+      body: JSON.stringify({ message, conversation_id: conversationId }),
+    }),
 
   addressSearch: (query: string, type: "keyword" | "address" = "keyword") =>
     req<{ documents: object[]; meta: object }>(

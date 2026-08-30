@@ -56,6 +56,45 @@ def test_empty_month_is_valid(store):
     """거래 0건 월은 [] — None(미적재)과 구분되어야 한다."""
     store.put_month(*KEY, [])
     assert store.get_month(*KEY) == []
+    assert store.is_month_completed(*KEY)
+
+
+def test_failed_month_is_retried(store):
+    store.mark_month_started(*KEY)
+    assert not store.is_month_completed(*KEY)
+    store.mark_month_failed(*KEY, "일시적인 API 오류")
+    assert not store.is_month_completed(*KEY)
+    store.put_month(*KEY, [])
+    assert store.is_month_completed(*KEY)
+
+
+def test_completed_old_month_is_skipped_even_after_ttl(store):
+    from sqlalchemy import update
+    from db.base import session_scope
+    from db.models import IngestLog
+
+    old_key = (*KEY[:3], "202401")
+    store.put_month(*old_key, [])
+    with session_scope() as session:
+        session.execute(
+            update(IngestLog).where(IngestLog.deal_ym == "202401").values(fetched_at=0)
+        )
+    assert store.should_skip_batch_month(*old_key)
+
+
+def test_stale_recent_month_is_refetched(store):
+    from datetime import datetime
+    from sqlalchemy import update
+    from db.base import session_scope
+    from db.models import IngestLog
+
+    recent_key = (*KEY[:3], datetime.now().strftime("%Y%m"))
+    store.put_month(*recent_key, [])
+    with session_scope() as session:
+        session.execute(
+            update(IngestLog).where(IngestLog.deal_ym == recent_key[-1]).values(fetched_at=0)
+        )
+    assert not store.should_skip_batch_month(*recent_key)
 
 
 def test_replace_is_idempotent(store):

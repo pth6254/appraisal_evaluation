@@ -176,6 +176,115 @@ export interface ActivityItem {
   tool_used?: string | null;
 }
 
+export type PurchaseCaseStatus = "exploring" | "reviewing" | "negotiating" | "decided" | "archived";
+
+export interface CaseAppraisalSummary {
+  history_id: number;
+  query: string;
+  estimated_value: number | null;
+  valuation_verdict: string | null;
+  created: string;
+}
+
+export interface CaseProperty {
+  id: number;
+  case_id: number;
+  name: string;
+  address: string;
+  category: string;
+  asking_price: number | null;
+  area_sqm: number | null;
+  legal_region_code: string | null;
+  source: "manual" | "recommendation" | "appraisal";
+  status: "reviewing" | "shortlisted" | "rejected" | "selected";
+  notes: string;
+  history_id: number | null;
+  appraisal: CaseAppraisalSummary | null;
+  created: string;
+  updated: string;
+}
+
+export interface CaseRegion {
+  id: number;
+  case_id: number;
+  region_code: string;
+  region_name: string;
+  source: "market_explorer" | "concierge";
+  property_type: string;
+  budget_max_won: number | null;
+  period_from: string | null;
+  period_to: string | null;
+  stats_snapshot: ConciergeRegionItem;
+  created: string;
+}
+
+export interface PurchaseCase {
+  id: number;
+  title: string;
+  status: PurchaseCaseStatus;
+  purpose: "purchase";
+  budget_min: number | null;
+  budget_max: number | null;
+  target_regions: string[];
+  notes: string;
+  created: string;
+  updated: string;
+  property_count: number;
+  properties?: CaseProperty[];
+  regions?: CaseRegion[];
+}
+
+export type ConciergeIntent =
+  | "find_region" | "select_property" | "appraise" | "compare"
+  | "simulate" | "rights_check" | "tax_legal" | "general";
+
+export interface ConciergeCriteria {
+  property_type: string | null;
+  transaction_type: "purchase" | "rent" | "lease";
+  budget_max_won: number | null;
+  region_name: string | null;
+  region_code: string | null;
+  area_min_sqm: number | null;
+  purpose: "residence" | "investment" | null;
+}
+
+export interface ConciergeRegionItem {
+  region_name: string;
+  region_code: string;
+  lawd_code: string;
+  deal_count: number;
+  sample_size: number;
+  avg_price: number;
+  median_price: number;
+  price_q1: number;
+  price_q3: number;
+  avg_per_sqm: number;
+  median_per_sqm: number;
+  asset_count: number;
+  last_deal_ym: string;
+  budget_fit_count: number;
+  budget_fit_ratio: number;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface ConciergeResponse {
+  conversation_id: string;
+  status: "completed" | "needs_input" | "not_available" | "error";
+  intent: ConciergeIntent;
+  answer: string;
+  criteria: ConciergeCriteria;
+  data: {
+    source?: string;
+    price_unit?: string;
+    period?: { from: string; to: string } | null;
+    items?: ConciergeRegionItem[];
+    region_candidates?: { code: string; full_name: string; level: string }[];
+  };
+  missing_fields: string[];
+  tool_used: string | null;
+  pending_action: Record<string, unknown> | null;
+}
+
 // Request types
 export interface RecommendationRequest {
   region?: string;

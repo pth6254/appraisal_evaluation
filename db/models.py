@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, JSON, BigInteger, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -90,6 +90,81 @@ class ActivityRecord(Base):
     )
 
 
+class PurchaseCase(Base):
+    """한 사용자의 매수 의사결정을 묶는 최상위 작업 단위."""
+
+    __tablename__ = "purchase_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(150), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="exploring", nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(20), default="purchase", nullable=False)
+    budget_min: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    budget_max: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    target_regions: Mapped[list] = mapped_column(JSON, default=list)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created: Mapped[str] = mapped_column(String(32), default=_now_str, index=True)
+    updated: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+
+class CaseProperty(Base):
+    """매수 검토 케이스 안에서 평가하는 후보 부동산."""
+
+    __tablename__ = "case_properties"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("purchase_cases.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    address: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(30), default="")
+    asking_price: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    area_sqm: Mapped[float | None] = mapped_column(Float, default=None)
+    legal_region_code: Mapped[str | None] = mapped_column(String(10), default=None, index=True)
+    source: Mapped[str] = mapped_column(String(30), default="manual")
+    status: Mapped[str] = mapped_column(String(20), default="reviewing", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    history_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("history.id", ondelete="SET NULL"), default=None, index=True
+    )
+    created: Mapped[str] = mapped_column(String(32), default=_now_str)
+    updated: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+    __table_args__ = (
+        Index("idx_case_properties_case_status", "case_id", "status"),
+    )
+
+
+class CaseRegion(Base):
+    """매수 검토 케이스에 저장한 관심 지역과 저장 당시 판단 근거."""
+
+    __tablename__ = "case_regions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("purchase_cases.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    region_code: Mapped[str] = mapped_column(
+        String(10), ForeignKey("legal_regions.code", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    region_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(30), default="market_explorer", nullable=False)
+    property_type: Mapped[str] = mapped_column(String(30), default="all", nullable=False)
+    budget_max_won: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    period_from: Mapped[str | None] = mapped_column(String(6), default=None)
+    period_to: Mapped[str | None] = mapped_column(String(6), default=None)
+    stats_snapshot: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+    __table_args__ = (
+        Index("uq_case_regions_case_region", "case_id", "region_code", unique=True),
+    )
+
+
 # ─────────────────────────────────────────
 #  API 응답 캐시 · 지역코드 · 임베딩 캐시 (구 backend/cache_db.py)
 # ─────────────────────────────────────────
@@ -111,6 +186,43 @@ class RegionCode(Base):
     lawd_code: Mapped[str] = mapped_column(String(10), nullable=False)
     sido: Mapped[str] = mapped_column(String(30), default="")
     sigungu: Mapped[str] = mapped_column(String(30), default="")
+
+
+class LegalRegion(Base):
+    """행정안전부 10자리 법정동코드의 전국 계층 마스터.
+
+    기존 ``region_codes``는 이름을 기본키로 사용해 서울 중구·부산 중구 같은
+    동명이구를 함께 저장할 수 없다. 현재 시세추정 경로의 하위 호환 때문에 그
+    테이블은 유지하고, 동네 탐색은 코드가 기본키인 이 테이블을 사용한다.
+    """
+
+    __tablename__ = "legal_regions"
+
+    code: Mapped[str] = mapped_column(String(10), primary_key=True)
+    parent_code: Mapped[str | None] = mapped_column(String(10), default=None, index=True)
+    sido_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    sigungu_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    eup_myeon_dong_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    ri_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    level: Mapped[str] = mapped_column(String(20), nullable=False)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 국토부 실거래 조회·건축물대장 시군구 식별에 쓰는 앞 5자리. 시도 노드는 NULL.
+    lawd_code: Mapped[str | None] = mapped_column(String(5), default=None, index=True)
+    resident_code: Mapped[str] = mapped_column(String(10), default="")
+    cadastral_code: Mapped[str] = mapped_column(String(10), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    remarks: Mapped[str] = mapped_column(Text, default="")
+    effective_date: Mapped[str | None] = mapped_column(String(8), default=None)
+    # 목록 API는 공식 폐지일을 주지 않는다. 별도 변경이력 연계 전에는 추정값을 넣지 않는다.
+    abolished_date: Mapped[str | None] = mapped_column(String(8), default=None)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    synced_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+    __table_args__ = (
+        Index("idx_legal_regions_parent_active", "parent_code", "is_active"),
+    )
 
 
 class EmbedCache(Base):
@@ -144,6 +256,16 @@ class Transaction(Base):
     apt_name: Mapped[str | None] = mapped_column(String(100), default=None)
     deal_year: Mapped[str | None] = mapped_column(String(10), default=None)
     deal_month: Mapped[str | None] = mapped_column(String(10), default=None)
+    deal_day: Mapped[str | None] = mapped_column(String(10), default=None)
+    bjdong_code: Mapped[str | None] = mapped_column(String(10), default=None, index=True)
+    property_detail: Mapped[str | None] = mapped_column(String(30), default=None)
+    building_area_sqm: Mapped[float | None] = mapped_column(Float, default=None)
+    land_area_sqm: Mapped[float | None] = mapped_column(Float, default=None)
+    building_use: Mapped[str | None] = mapped_column(String(100), default=None)
+    jimok: Mapped[str | None] = mapped_column(String(50), default=None)
+    transaction_type: Mapped[str | None] = mapped_column(String(30), default=None)
+    cancellation_date: Mapped[str | None] = mapped_column(String(8), default=None)
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         Index("idx_tx_key", "endpoint", "category", "lawd_cd", "deal_ym"),
@@ -160,6 +282,11 @@ class IngestLog(Base):
     deal_ym: Mapped[str] = mapped_column(String(6), primary_key=True)
     fetched_at: Mapped[float] = mapped_column(Float, nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False, index=True)
+    started_at: Mapped[float | None] = mapped_column(Float, default=None)
+    completed_at: Mapped[float | None] = mapped_column(Float, default=None)
+    page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, default=None)
 
 
 # ─────────────────────────────────────────

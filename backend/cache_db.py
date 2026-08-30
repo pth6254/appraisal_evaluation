@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from db.base import init_db, session_scope
-from db.models import ApiCache, EmbedCache, RegionCode
+from db.models import ApiCache, EmbedCache, LegalRegion, RegionCode
 
 DEFAULT_TTL = 60 * 60 * 24   # 24시간 (초)
 
@@ -190,6 +190,17 @@ def get_lawd_code(region_name: str) -> str:
     init_cache_db()
     try:
         with session_scope() as session:
+            # 신규 탐색 화면은 동명이 있는 시군구를 구분할 수 있도록 법정동 계층의
+            # 전체 이름을 우선 사용한다. 기존 region_codes는 과거 호출 경로 호환용이다.
+            legal = session.scalar(
+                select(LegalRegion).where(
+                    LegalRegion.is_active.is_(True),
+                    LegalRegion.level == "sigungu",
+                    LegalRegion.full_name == region_name,
+                )
+            )
+            if legal and legal.lawd_code:
+                return legal.lawd_code
             row = session.get(RegionCode, region_name)
             if row:
                 return row.lawd_code

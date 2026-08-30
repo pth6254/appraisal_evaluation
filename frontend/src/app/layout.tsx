@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import ConciergeWidget from "@/components/ConciergeWidget";
 import { AuthProvider } from "@/lib/auth";
 
 const pretendard = localFont({
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <Navbar />
           <main className="min-h-screen p-4 md:ml-[236px] md:p-6">{children}</main>
+          <ConciergeWidget />
         </AuthProvider>
       </body>
     </html>

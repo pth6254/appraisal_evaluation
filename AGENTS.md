@@ -18,7 +18,7 @@ Next.js 16 (App Router) :3000
 FastAPI :8000  (uvicorn --workers 4)
    ├── api/          라우터 · 인증 · 작업 큐
    ├── backend/      LangGraph 파이프라인 4종 + 도메인 로직
-   ├── db/           SQLAlchemy 모델 9종 + Alembic + Redis 클라이언트
+   ├── db/           SQLAlchemy 모델 13종 + Alembic + Redis 클라이언트
    └── schemas/      Pydantic 스키마 (단위: 원 · ㎡)
         │
 PostgreSQL(+pgvector) · Redis
@@ -225,7 +225,7 @@ DISABLE_RATE_LIMIT=1 APP_ENV=development \
 JWT_SECRET_KEY=dev-secret \
 DATABASE_URL="postgresql://postgres:<pw>@localhost:5432/real_estate_db" \
 REDIS_URL="redis://localhost:6379/0" \
-./venv-wsl/bin/python -m pytest tests/ -q    # 전체 테스트 (현재 695개 통과)
+./venv-wsl/bin/python -m pytest tests/ -q    # 전체 테스트 (현재 718개 통과)
 
 alembic upgrade head                          # 마이그레이션 적용
 

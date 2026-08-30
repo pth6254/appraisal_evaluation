@@ -47,8 +47,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
-    router.push("/appraisal");
-  }, [router]);
+    // 인증 쿠키가 설정된 뒤 새 문서 요청을 보내야 proxy가 로그인 상태를 확실히 인식한다.
+    window.location.assign("/");
+  }, []);
 
   const register = useCallback(async (email: string, password: string, name: string) => {
     const res = await fetch("/api/auth/register", {
@@ -63,8 +64,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
-    router.push("/appraisal");
-  }, [router]);
+    // 회원가입도 로그인과 동일한 인증 경계를 지나므로 클라이언트 캐시를 재사용하지 않는다.
+    window.location.assign("/");
+  }, []);
 
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });

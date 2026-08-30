@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   Home, Tag, MapPin, TrendingUp, Columns2, ShieldCheck,
-  MessageSquareText, FileText, History, Menu, X,
+  MessageSquareText, FileText, History, Menu, X, BriefcaseBusiness, SearchCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -16,6 +16,13 @@ const GROUPS: NavGroup[] = [
   {
     label: null,
     items: [{ href: "/", label: "홈", icon: Home, exact: true }],
+  },
+  {
+    label: "의사결정",
+    items: [
+      { href: "/explore", label: "동네·단지 탐색", icon: SearchCheck },
+      { href: "/cases", label: "매수 검토 케이스", icon: BriefcaseBusiness },
+    ],
   },
   {
     label: "분석",

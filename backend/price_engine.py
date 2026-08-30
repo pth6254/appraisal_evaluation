@@ -352,7 +352,7 @@ def get_lawd_code(region_2depth: str) -> str:
     return _get(region_2depth)
 
 
-def _parse_items(items, category: str) -> list[dict]:
+def _parse_items(items, category: str, property_detail: str = "", lawd_code: str = "") -> list[dict]:
     price_fields = PRICE_FIELD_MAP.get(category, ["거래금액"])
     area_fields  = AREA_FIELD_MAP.get(category, ["전용면적"])
     result = []
@@ -389,6 +389,19 @@ def _parse_items(items, category: str) -> list[dict]:
             umd_nm   = item.findtext("umdNm", "")
             apt_nm   = f"{umd_nm} {bldg_use}".strip() if bldg_use else umd_nm
 
+        sgg_cd = item.findtext("sggCd", "").strip()
+        umd_cd = item.findtext("umdCd", "").strip()
+        region_prefix = sgg_cd if len(sgg_cd) == 5 else lawd_code
+        bjdong_code = f"{region_prefix}{umd_cd}00" if len(region_prefix) == 5 and len(umd_cd) == 3 else ""
+        cancellation_date = item.findtext("cdealDay", "").strip()
+
+        def _float(field: str) -> float | None:
+            value = item.findtext(field, "").strip()
+            try:
+                return float(value) if value else None
+            except ValueError:
+                return None
+
         result.append({
             "price":       price_val,
             "area_sqm":    area_val,
@@ -400,6 +413,16 @@ def _parse_items(items, category: str) -> list[dict]:
             "apt_name":    apt_nm,
             "deal_year":   item.findtext("dealYear", ""),
             "deal_month":  item.findtext("dealMonth", ""),
+            "deal_day":    item.findtext("dealDay", ""),
+            "bjdong_code": bjdong_code,
+            "property_detail": property_detail,
+            "building_area_sqm": _float("buildingAr"),
+            "land_area_sqm": _float("plottageAr"),
+            "building_use": item.findtext("buildingUse", ""),
+            "jimok": item.findtext("jimok", ""),
+            "transaction_type": item.findtext("dealingGbn", ""),
+            "cancellation_date": cancellation_date,
+            "is_cancelled": bool(cancellation_date),
         })
     return result
 
@@ -417,27 +440,38 @@ def _fetch_one_month_api(url: str, safe_key: str, lawd_code: str,
     반환: 성공 시 파싱된 샘플 리스트 (거래 0건이면 빈 리스트),
           API 오류·타임아웃 시 None — 호출측이 스토어 적재를 건너뛰도록 구분.
     """
-    query_string = (
-        f"serviceKey={safe_key}"
-        f"&LAWD_CD={lawd_code}"
-        f"&DEAL_YMD={deal_ymd}"
-        f"&numOfRows=1000"
-        f"&pageNo=1"
-    )
-    full_url = f"{url}?{query_string}"
+    endpoint = _endpoint_name(url)
+    detail_by_endpoint = {
+        "RTMSDataSvcAptTrade": "아파트",
+        "RTMSDataSvcRHTrade": "연립다세대",
+        "RTMSDataSvcSHTrade": "단독다가구",
+        "RTMSDataSvcOffiTrade": "오피스텔",
+        "RTMSDataSvcNrgTrade": "비주거용",
+        "RTMSDataSvcInduTrade": "공장창고",
+        "RTMSDataSvcLandTrade": "토지",
+    }
     try:
-        res = requests.get(full_url, timeout=10)
-        res.raise_for_status()
-        root = ET.fromstring(res.text)
-
-        result_code = root.findtext(".//resultCode", "")
-        if result_code and result_code.lstrip("0") not in ("", "0"):
-            result_msg = root.findtext(".//resultMsg", "")
-            print(f"[molit] API 오류 ({deal_ymd}): {result_code} - {result_msg}")
-            return None
-
-        items  = root.findall(".//item")
-        parsed = _parse_items(items, category)
+        parsed: list[dict] = []
+        page_no = 1
+        while True:
+            query_string = (
+                f"serviceKey={safe_key}&LAWD_CD={lawd_code}&DEAL_YMD={deal_ymd}"
+                f"&numOfRows=1000&pageNo={page_no}"
+            )
+            res = requests.get(f"{url}?{query_string}", timeout=20)
+            res.raise_for_status()
+            root = ET.fromstring(res.text)
+            result_code = root.findtext(".//resultCode", "")
+            if result_code and result_code.lstrip("0") not in ("", "0"):
+                result_msg = root.findtext(".//resultMsg", "")
+                print(f"[molit] API 오류 ({deal_ymd}): {result_code} - {result_msg}")
+                return None
+            items = root.findall(".//item")
+            parsed.extend(_parse_items(items, category, detail_by_endpoint.get(endpoint, ""), lawd_code))
+            total_count = int(root.findtext(".//totalCount", "0") or 0)
+            if page_no * 1000 >= total_count or not items:
+                break
+            page_no += 1
         print(f"[molit] {deal_ymd}: {len(parsed)}건 (API)")
         return parsed
 
