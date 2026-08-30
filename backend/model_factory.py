@@ -36,7 +36,7 @@ def get_llm():
     if LLM_PROVIDER == "ollama":
         from langchain_ollama import ChatOllama
         return ChatOllama(
-            model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
+            model=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
             base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             temperature=0.0,
         )
@@ -75,7 +75,7 @@ def get_llm_json():
     if LLM_PROVIDER == "ollama":
         from langchain_ollama import ChatOllama
         return ChatOllama(
-            model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
+            model=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
             base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             temperature=0.0,
             format="json",
@@ -145,7 +145,7 @@ def get_embeddings():
 
 def print_config():
     model_name = {
-        "ollama":    os.getenv("OLLAMA_MODEL",    "exaone3.5:7.8b"),
+        "ollama":    os.getenv("OLLAMA_MODEL",    "qwen3.5:9b"),
         "openai":    os.getenv("OPENAI_MODEL",    "gpt-4o"),
         "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-opus-4-7"),
         "google":    os.getenv("GOOGLE_MODEL",    "gemini-3.5-flash"),

@@ -1,6 +1,6 @@
 """
 DeepAgent 부동산 컨시어지 — Step 1: 의도 분석 에이전트
-EXAONE / Solar / llama3.1 등 로컬 모델 대응
+Qwen / EXAONE / Solar / llama3.1 등 로컬 모델 대응
 
 변경사항:
   - category 값을 완전 한국어로 통일 (주거용/상업용/업무용/산업용/토지)
@@ -48,7 +48,8 @@ VALID_TRANSACTION_TYPES = ["매매", "전세", "월세", "임대", "분양"]
 class PropertyIntent(BaseModel):
     """의도 분석 결과 — 모든 값 한국어"""
 
-    # 카테고리: 주거용 / 상업용 / 업무용 / 산업용 / 토지
+    # LLM이 추출한 검색 후보다. 지오코딩 이후의 최종 유형은 사용자 선택·공식
+    # 데이터·규칙으로 다시 확정하며 이 값을 그대로 신뢰하지 않는다.
     category: str            = Field(default="주거용")
     category_detail: str     = Field(default="")        # 아파트, 빌라, 상가, 사무실 등
 
@@ -139,7 +140,7 @@ INTENT_SYSTEM_PROMPT = """당신은 한국 부동산 전문 AI 어시스턴트�
 - missing_fields     : 누락된 항목명 문자열 배열
 - clarification_question : 추가 확인 질문 문자열 (없으면 빈 문자열)
 
-## category 허용값 (이 중 하나만 사용)
+## category 허용값 (검색 후보이며 최종 부동산 유형을 확정하지 않음)
 주거용 → 아파트, 빌라, 오피스텔, 원룸, 단독주택
 상업용 → 상가, 점포, 식당, 카페 등 수익형 상업시설
 업무용 → 사무실, 오피스
@@ -438,7 +439,7 @@ TEST_CASES = [
 ]
 
 if __name__ == "__main__":
-    model_name = os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b")
+    model_name = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
     print("=" * 60)
     print(f"  모델: {model_name}")
     print("=" * 60)

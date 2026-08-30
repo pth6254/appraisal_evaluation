@@ -111,6 +111,10 @@ def run_appraisal(
     appraisal_date: str = "",
     appraisal_purpose: str = "",
     progress_cb=None,
+    *,
+    address: str = "",
+    property_category: str = "",
+    property_detail: str = "",
 ) -> dict:
     """
     감정평가(시세추정) 실행 — FastAPI 등 외부에서 호출하는 공개 API.
@@ -122,6 +126,9 @@ def run_appraisal(
         appraisal_purpose : 조회 목적 (담보/경매/과세/매매/보상/임의)
         progress_cb       : 노드 완료마다 호출되는 콜백 fn(node_name: str).
                             None이면 invoke(), 지정 시 stream()으로 실행.
+        address           : 사용자가 검색 결과에서 직접 선택한 공식 주소.
+        property_category : 사용자가 직접 선택한 5개 부동산 유형.
+        property_detail   : 사용자가 직접 선택한 세부 유형.
     """
     text = user_input.strip()
 
@@ -138,6 +145,11 @@ def run_appraisal(
         "user_input":        text,
         "building_name":     building_name.strip(),
         "appraisal_purpose": appraisal_purpose.strip(),
+        "raw_inputs": {
+            "address": address.strip(),
+            "property_category": property_category.strip(),
+            "property_detail": property_detail.strip(),
+        },
         "error":             "",
         "retry_count":       0,
     }
@@ -285,7 +297,7 @@ def run_comparison(
 
 
 if __name__ == "__main__":
-    model = os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b")
+    model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
     print(f"모델: {model}")
     print("=" * 60)
 

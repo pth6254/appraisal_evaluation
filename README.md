@@ -50,8 +50,9 @@ AI 기반 부동산 종합 분석 서비스. 자연어 입력으로 국토부 �
    ├── 법률·세금 상담 코퍼스 (backend/chat_corpus.py)       │   pgvector 공유)
    │        ↑ 미스 시 폴백           ↑ 배치 수집
    ├── 국토부 MOLIT API      backend/tools/ingest_transactions.py
-   ├── 카카오 지오코딩 · Vworld 용도지역
-   └── LLM (Ollama exaone3.5 / OpenAI / Anthropic — model_factory)
+   ├── 결정론적 지오코딩 (카카오 주소·좌표 → 건축물대장 주용도 → 검증된 장소 규칙)
+   ├── Vworld 용도지역·공시지가 보강 (선택, 조회 결과가 없을 수 있음)
+   └── LLM (Ollama Qwen3.5 9B / OpenAI / Anthropic — 자연어 후보 추출·분석 의견)
 ```
 
 - **프론트엔드**: Next.js 16 (App Router, TypeScript, Tailwind v4) — 딥 그린 브랜드 디자인 토큰,
@@ -120,7 +121,7 @@ docker compose up -d pgvector redis
 pip install -r requirements.txt
 
 # 3. Ollama 모델 다운로드 (시세추정 LLM 의견 생성에 필요)
-ollama pull exaone3.5:7.8b
+ollama pull qwen3.5:9b
 ollama pull nomic-embed-text
 
 # 4. 환경변수 설정 (.env 에 DATABASE_URL·REDIS_URL 이 로컬 포트를 가리키는지 확인)
@@ -255,7 +256,7 @@ property_concierge/
 │   ├── router.py                   공개 API — run_appraisal(progress_cb 지원) 외 3종
 │   ├── state.py                    LangGraph 공유 상태 (AgentState)
 │   ├── intent_agent.py             자연어 → PropertyIntent 구조화
-│   ├── geocoding.py                지명 → 좌표 (카카오 + Vworld)
+│   ├── geocoding.py                자연어 후보 → 공식 주소·좌표·유형 (카카오+건축물대장+규칙)
 │   ├── agents.py                   5개 유형별 가치 분석 에이전트
 │   ├── price_engine.py             가격 계산 엔진 (로컬 스토어 우선 → MOLIT API 폴백)
 │   ├── transaction_store.py        실거래가 로컬 스토어 (PostgreSQL, TTL 기반)
@@ -300,7 +301,7 @@ property_concierge/
 |--------|------|------|
 | `GET` | `/health` | 헬스체크 |
 | `POST` | `/api/appraisal` | 시세추정 실행 (동기, 하위 호환) |
-| `POST` | `/api/appraisal/jobs` | 시세추정 작업 생성 → `{job_id}` |
+| `POST` | `/api/appraisal/jobs` | 시세추정 작업 생성 → `{job_id}` (`address`·`property_category`·`property_detail` 구조화 입력 지원) |
 | `GET` | `/api/appraisal/jobs/{id}` | 작업 상태 폴링 → `{status, step, history_id?, result?}` |
 | `POST` | `/api/auth/register` | 회원가입 (이메일/비밀번호) |
 | `POST` | `/api/auth/login` | 로그인 → JWT 쿠키 |
@@ -333,9 +334,14 @@ property_concierge/
 
 ```
 사용자 자연어 입력
-  → intent_agent.py       의도 분석 (카테고리/위치/면적/호가/기준시점)
+  → intent_agent.py       LLM 의도 분석 (주소·건물명·카테고리 검색 후보, 면적/호가/기준시점)
   → 검증                   필수 정보 확인 (미비 시 오류처리)
-  → geocoding.py          좌표 변환 + 용도지역·공시지가
+  → geocoding.py          공식 주소·좌표·법정동·지번 확정
+  │     ├─ 사용자 직접 선택 유형
+  │     ├─ 건축물대장 주용도 규칙
+  │     └─ 주소·건물명·거리 검증을 통과한 카카오 장소 규칙
+  │        ※ LLM 카테고리 후보는 최종 유형으로 사용하지 않음
+  → Vworld                 용도지역·공시지가 보강 (선택)
   → deep_analysis.py      심층 분석 (실거래 + RAG)
   │     └─ price_engine.py: transaction_store 조회 → 미스 시 MOLIT API → write-through 적재
   → 라우터                 카테고리별 에이전트 분기
@@ -346,6 +352,45 @@ property_concierge/
 
 각 노드 완료 시 `progress_cb`가 호출되어 job의 `step`이 갱신되고,
 프론트엔드가 5단계(요청 분석 → 주소 확인 → 실거래 수집 → AI 분석 → 리포트 생성)로 표시한다.
+
+### 지오코딩 책임 분리와 트러블슈팅
+
+지오코딩은 가격·법정동 코드처럼 사실성이 중요한 데이터이므로 LLM이 좌표나 최종 부동산
+유형을 생성하지 않는다. Qwen3.5 9B를 포함한 LLM의 책임은 자연어에서 주소·건물명·유형
+**검색 후보**를 추출하는 데서 끝난다. 이후 값은 다음 우선순위로 확정한다.
+
+1. 프론트/API에서 사용자가 직접 선택한 유형 (`category_source=user`)
+2. 카카오 주소 API의 좌표·법정동 코드·지번으로 조회한 건축물대장 주용도
+   (`building_register`)
+3. `아파트`·`오피스텔`·`공장`·`파이낸스센터`처럼 의미가 명확한 건물명 규칙
+   (`building_name_rule`)
+4. 건물명 유사·동일 시군구·300m 이내를 모두 만족한 카카오 장소 카테고리
+   (`kakao_exact`)
+5. 모두 실패하면 `unknown` — LLM 후보로 채우지 않고 물건 종류 직접 선택 요청
+
+**실제로 발생한 오분류:** `서울 강남구 테헤란로 152`의 주소와 건물명은
+강남파이낸스센터로 정상 변환됐지만, 건물명 카테고리를 찾지 못한 뒤 주소 전체를 키워드
+검색하면서 같은 주소의 나이키 매장을 첫 결과로 골라 `상업용/상가`로 분류했다.
+
+**해결:** 주소 전체 키워드 검색의 첫 결과를 유형 근거로 쓰는 폴백을 제거했다. 사용자
+선택값을 구조화 필드(`address`, `property_category`, `property_detail`)로 LLM 입력과 분리하고,
+건축물대장과 검증된 규칙만 최종 유형을 변경할 수 있게 했다. 현재 같은 주소는 건축물대장
+`업무시설`을 근거로 `업무용/사무실`을 반환한다.
+
+**진단 포인트:**
+
+- 좌표·법정동 코드가 비었으면 `KAKAO_REST_API_KEY`와 카카오 주소 검색 응답을 확인한다.
+- `category_source=unknown`이면 LLM 장애가 아니라 공식·규칙 근거 부족이다. UI에서 유형을
+  직접 선택하거나 건축물대장 조회 결과를 확인한다.
+- 건축물대장 조회는 공공 API가 간헐적으로 503을 반환할 수 있다. 표제부 → 총괄표제부 →
+  기본개요 순으로 폴백하며, 그래도 주용도가 없으면 건물명·정확한 장소 규칙으로 넘어간다.
+- Vworld가 HTTP 200과 함께 `NOT_FOUND`를 반환할 수 있다. 이는 지오코딩 실패가 아니라 해당
+  좌표의 용도지역·공시지가 보강 데이터가 없다는 뜻이며 빈 값으로 유지한다.
+- 사용자가 직접 고른 유형은 최우선이라 건축물대장과 달라도 자동으로 덮어쓰지 않는다.
+  향후에는 이 충돌을 오류가 아닌 경고로 사용자에게 표시하는 개선이 필요하다.
+
+회귀 테스트는 `tests/test_geocoding_rules.py`에 있다. 사용자 선택 우선순위, 건축물대장
+매핑, 주변 입점 매장 배제, LLM 후보 비확정, 5개 서비스 유형 규칙을 고정한다.
 
 ### 매물 추천 파이프라인
 
@@ -397,7 +442,7 @@ LLM 프로바이더 (`model_factory.py`):
 | 환경변수 | 기본값 |
 |---------|--------|
 | `LLM_PROVIDER` | `ollama` (`openai` / `anthropic` / `google` 지원) |
-| `OLLAMA_MODEL` | `exaone3.5:7.8b` |
+| `OLLAMA_MODEL` | `qwen3.5:9b` |
 | `OPENAI_MODEL` / `ANTHROPIC_MODEL` | 프로바이더 전환 시 |
 
 > **카카오 403 오류** 발생 시: 개발자 콘솔 → 플랫폼 → Web → `http://localhost` 등록
@@ -428,7 +473,13 @@ LLM 프로바이더 (`model_factory.py`):
 ```python
 from backend.router import run_appraisal
 
-result = run_appraisal("마포구 아파트 84㎡", building_name="마포래미안푸르지오")
+result = run_appraisal(
+    "마포구 아파트 84㎡",
+    building_name="마포래미안푸르지오",
+    address="서울 마포구 마포대로 201",
+    property_category="주거용",
+    property_detail="아파트",
+)
 # result["final_report"]              — 마크다운 리포트
 # result["analysis_result"]           — 수치 데이터 dict
 # result["report_output"].structured  — AppraisalResult (구조화)
@@ -643,9 +694,10 @@ pytest tests/test_rights_and_chat.py      # 권리관계 위험 점검 · 법률
 pytest tests/test_access_control.py       # 이력·작업 소유자 격리 (타인 리포트 열람 차단, PostgreSQL·Redis 필요)
 pytest tests/test_password_reset.py       # 비밀번호 재설정 + 세션 무효화 (계정 열거 방지 포함, PostgreSQL·Redis 필요)
 pytest tests/test_cookie_config.py        # 쿠키 SameSite/Secure 설정 → 실제 Set-Cookie 헤더 매핑
+pytest tests/test_geocoding_rules.py      # LLM 후보와 결정론적 주소·유형 확정 경계
 ```
 
-전체 718개 테스트 중 DB에 접근하지 않는 나머지는 Postgres·Redis 없이도 동작한다 —
+전체 724개 테스트 중 DB에 접근하지 않는 나머지는 Postgres·Redis 없이도 동작한다 —
 `db/base.py`가 엔진을 지연 생성해 실제로 DB를 쓰는 시점에만 `DATABASE_URL`을 확인하기 때문이다.
 
 GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 서비스 컨테이너와
@@ -661,6 +713,8 @@ GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 
 
 - **시점수정**은 주거용·토지만 부동산원 지수 적용 — 상업·업무·산업용은 적합한 월간 시군구 지수가 없어 근사 변동률 사용. 주거용은 아파트 지수를 연립·단독에도 대표 적용
 - **시세추정·단지 추천은 전국 시군구 지원** — 지오코딩 시군구코드 직접 사용 + 전국 250개 지역코드 시드(`tools/seed_region_codes.py`) + 지오코딩 자동 등록
+- **Vworld 토지 보강은 선택 데이터** — 키와 HTTP 호출이 정상이더라도 좌표에 따라 `NOT_FOUND`가 반환될 수 있으며, 이때 용도지역·공시지가는 빈 값으로 유지
+- **사용자 선택 유형이 공식 주용도보다 우선** — LLM 오분류 방지를 위한 현재 정책. 건축물대장과 충돌할 때 UI 경고를 표시하는 기능은 아직 없음
 - **단지 추천**은 실거래 기반 추정 시세 — 실제 매물 존재 여부·호가는 미포함 (호가 매물은 데이터 제휴 필요). 샘플 매물 모드는 개발용 가상 데이터 유지
 - **로컬 개발도 Docker(PostgreSQL·Redis) 필수** — SQLite·인프로세스 메모리 폴백을 두지 않았다. 완전 오프라인 개발이 필요해지면 SQLite 폴백 재도입을 검토할 것
 - **비밀번호 재설정 메일은 아직 실제로 발송되지 않는다** — `RESEND_API_KEY` 미설정 시 서버 로그에 재설정 링크를 출력하는 폴백만 동작. 실발송하려면 Resend 도메인 인증(SPF/DKIM)이 필요

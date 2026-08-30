@@ -94,19 +94,19 @@ def should_retry(state):
 
 | 모델 | 한국어 | JSON 준수 | 권장 |
 |------|--------|-----------|------|
-| EXAONE 3.5 7.8B | ★★★★★ | ★★★★ | ✅ |
-| Qwen 2.5 7B | ★★★★ | ★★★★★ | 대안 |
+| Qwen 3.5 9B | ★★★★★ | ★★★★★ | ✅ |
+| EXAONE 3.5 7.8B | ★★★★★ | ★★★★ | 대안 |
 | Solar 10.7B | ★★★ | ★★ | ✗ |
 | llama3.1 8B | ★★ | ★★★ | ✗ |
 
 Solar는 JSON 구조를 임의로 변경하고 영어로 응답하는 경향이 있음.
-EXAONE은 한국어로 사전학습된 유일한 로컬 모델이라 정확도가 높음.
+현재 기본 모델은 한국어 조건 추출과 JSON 응답을 확인한 Qwen 3.5 9B임.
 
 ### 핵심 설정
 
 ```python
 ChatOllama(
-    model=os.getenv("OLLAMA_MODEL", "exaone3.5:7.8b"),
+    model=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
     temperature=0.0,   # 결정론적 결과를 위해 0으로 고정
     format="json",     # JSON 모드 강제
     num_predict=1024,  # 반드시 설정 — 없으면 JSON이 중간에 잘림
@@ -292,7 +292,7 @@ class ValuationResult(BaseModel):    # 감정평가 결과
 pip install -r requirements.txt
 pip install typing_extensions
 
-ollama pull exaone3.5:7.8b
+ollama pull qwen3.5:9b
 ollama pull nomic-embed-text
 
 cp .env.example .env

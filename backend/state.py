@@ -16,6 +16,7 @@ class AgentState(TypedDict, total=False):
     """전체 파이프라인 공유 상태"""
     user_input:       str
     building_name:    str
+    raw_inputs:       dict           # 사용자가 직접 고른 주소·유형 (LLM 추론과 분리)
     intent:           Optional[object]   # PropertyIntent (순환 import 방지로 object 사용)
     raw_llm_output:   str
     error:            str

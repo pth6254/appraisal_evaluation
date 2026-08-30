@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -19,6 +19,9 @@ router = APIRouter(tags=["appraisal"])
 class AppraisalRequest(BaseModel):
     user_input: str
     building_name: str = ""
+    address: str = ""
+    property_category: Literal["", "주거용", "상업용", "업무용", "산업용", "토지"] = ""
+    property_detail: str = ""
     save_history: bool = True
     appraisal_date: str = ""       # YYYYMMDD (빈 문자열 = 현재 시점)
     appraisal_purpose: str = ""    # 담보 / 경매 / 과세 / 매매 / 보상 / 임의
@@ -53,6 +56,9 @@ async def run_appraisal_endpoint(request: Request, req: AppraisalRequest, user: 
         req.building_name,
         req.appraisal_date,
         req.appraisal_purpose,
+        address=req.address,
+        property_category=req.property_category,
+        property_detail=req.property_detail,
     )
 
     if req.save_history and not result.get("error"):
@@ -85,6 +91,9 @@ async def create_appraisal_job(request: Request, req: AppraisalRequest, user: Op
             req.appraisal_date,
             req.appraisal_purpose,
             progress_cb=set_step,
+            address=req.address,
+            property_category=req.property_category,
+            property_detail=req.property_detail,
         )
 
     job_id = jobs.create(

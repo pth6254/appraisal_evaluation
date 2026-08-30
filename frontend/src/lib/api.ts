@@ -42,6 +42,9 @@ export const api = {
     saveHistory = true,
     appraisalDate = "",
     appraisalPurpose = "",
+    address = "",
+    propertyCategory = "",
+    propertyDetail = "",
   ) =>
     req<{ job_id: string }>("/appraisal/jobs", {
       method: "POST",
@@ -51,6 +54,9 @@ export const api = {
         save_history:      saveHistory,
         appraisal_date:    appraisalDate,
         appraisal_purpose: appraisalPurpose,
+        address,
+        property_category: propertyCategory,
+        property_detail:   propertyDetail,
       }),
     }),
 

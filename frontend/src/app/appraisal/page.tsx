@@ -155,7 +155,14 @@ export default function AppraisalPage() {
 
       // 1) 작업 시작 → job_id
       const { job_id } = await api.appraisalJobStart(
-        userInput, buildingName, true, getAppraisalDate(), appraisalPurpose,
+        userInput,
+        buildingName,
+        true,
+        getAppraisalDate(),
+        appraisalPurpose,
+        selectedAddress,
+        selectedType?.category ?? "",
+        selectedType?.detail ?? "",
       );
 
       // 2) 완료까지 폴링 (진행 단계 표시)
