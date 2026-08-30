@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from api import case_db
 from api.deps import get_current_user
 from backend.services.market_service import get_region_market_summary
-from schemas.purchase_case import CasePropertyCreate, CaseRegionCreate, PurchaseCaseCreate, PurchaseCaseUpdate
+from schemas.purchase_case import (
+    CasePropertyCreate, CasePropertyUpdate, CaseRegionCreate, ChecklistItemUpdate,
+    PurchaseCaseCreate, PurchaseCaseUpdate,
+)
 
 router = APIRouter(tags=["purchase-cases"])
 
@@ -59,6 +62,22 @@ def delete_property(case_id: int, property_id: int, user: dict = Depends(get_cur
     if not deleted:
         raise HTTPException(status_code=404, detail="후보 부동산이 없습니다")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/cases/{case_id}/properties/{property_id}")
+def update_property(case_id: int, property_id: int, body: CasePropertyUpdate, user: dict = Depends(get_current_user)):
+    item = case_db.update_property(case_id, property_id, user["id"], body.model_dump(exclude_unset=True))
+    if not item:
+        raise HTTPException(status_code=404, detail="후보 부동산이 없습니다")
+    return item
+
+
+@router.patch("/cases/{case_id}/properties/{property_id}/checklist/{checklist_id}")
+def update_checklist(case_id: int, property_id: int, checklist_id: int, body: ChecklistItemUpdate, user: dict = Depends(get_current_user)):
+    item = case_db.update_checklist(case_id, property_id, checklist_id, user["id"], body.model_dump(exclude_unset=True))
+    if not item:
+        raise HTTPException(status_code=404, detail="검토 항목이 없습니다")
+    return item
 
 
 @router.post("/cases/{case_id}/regions", status_code=status.HTTP_201_CREATED)

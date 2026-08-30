@@ -8,7 +8,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from api import history_db, jobs
+from api import case_db, history_db, jobs
 from api.deps import get_optional_user
 from api.rate_limit import limiter
 
@@ -22,9 +22,20 @@ class AppraisalRequest(BaseModel):
     address: str = ""
     property_category: Literal["", "주거용", "상업용", "업무용", "산업용", "토지"] = ""
     property_detail: str = ""
+    case_id: int | None = None
+    candidate_id: int | None = None
     save_history: bool = True
     appraisal_date: str = ""       # YYYYMMDD (빈 문자열 = 현재 시점)
     appraisal_purpose: str = ""    # 담보 / 경매 / 과세 / 매매 / 보상 / 임의
+
+
+def _validate_candidate_link(req: AppraisalRequest, user: Optional[dict]) -> None:
+    if req.case_id is None and req.candidate_id is None:
+        return
+    if req.case_id is None or req.candidate_id is None or not user:
+        raise HTTPException(status_code=404, detail="검토 후보가 없습니다")
+    if not case_db.validate_candidate(req.case_id, req.candidate_id, user["id"]):
+        raise HTTPException(status_code=404, detail="검토 후보가 없습니다")
 
 
 def _save_history(req: AppraisalRequest, user: Optional[dict]):
@@ -35,6 +46,8 @@ def _save_history(req: AppraisalRequest, user: Optional[dict]):
         history_id = history_db.save(
             req.user_input, result, user_id=user["id"] if user else None
         )
+        if req.case_id is not None and req.candidate_id is not None and user:
+            case_db.link_appraisal(req.case_id, req.candidate_id, history_id, user["id"], result)
         return {"history_id": history_id}
     return on_done
 
@@ -47,6 +60,8 @@ def _save_history(req: AppraisalRequest, user: Optional[dict]):
 @limiter.limit("5/minute")
 async def run_appraisal_endpoint(request: Request, req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
     from backend.router import run_appraisal
+
+    _validate_candidate_link(req, user)
 
     logger.info("시세추정 요청(동기) — %s / %s / 기준시점: %s / 목적: %s",
                 req.user_input, req.building_name, req.appraisal_date or "현재", req.appraisal_purpose or "없음")
@@ -66,6 +81,8 @@ async def run_appraisal_endpoint(request: Request, req: AppraisalRequest, user: 
             result["history_id"] = history_db.save(
                 req.user_input, result, user_id=user["id"] if user else None
             )
+            if req.case_id is not None and req.candidate_id is not None and user:
+                case_db.link_appraisal(req.case_id, req.candidate_id, result["history_id"], user["id"], result)
         except Exception as e:
             logger.warning("이력 저장 실패: %s", e)
 
@@ -81,6 +98,8 @@ async def run_appraisal_endpoint(request: Request, req: AppraisalRequest, user: 
 async def create_appraisal_job(request: Request, req: AppraisalRequest, user: Optional[dict] = Depends(get_optional_user)):
     """작업 생성 → 즉시 job_id 반환. 진행 상태는 GET /appraisal/jobs/{id} 폴링."""
     from backend.router import run_appraisal
+
+    _validate_candidate_link(req, user)
 
     logger.info("시세추정 요청(job) — %s / %s", req.user_input, req.building_name)
 

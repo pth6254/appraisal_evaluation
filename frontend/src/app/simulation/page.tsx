@@ -33,6 +33,8 @@ type ListingSeed = {
   property_type?: string;
   deposit_price?: number;
   maintenance_fee?: number;
+  case_id?: number;
+  candidate_id?: number;
 };
 
 const LISTING_TYPE_TO_PROP: Record<string, string> = {
@@ -132,6 +134,8 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
     setLoading(true);
     try {
       const params: SimulationRequest = {
+        case_id: seed.case_id,
+        candidate_id: seed.candidate_id,
         purchase_price: purchasePrice,
         loan_ratio: loanRatio / 100,
         annual_interest_rate: interestRate,

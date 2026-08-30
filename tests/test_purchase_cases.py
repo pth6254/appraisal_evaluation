@@ -13,10 +13,10 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 @pytest.fixture()
 def client():
     from fastapi.testclient import TestClient
-    from db.models import CaseProperty, CaseRegion, HistoryRecord, PurchaseCase, User
+    from db.models import CandidateAnalysis, CandidateChecklistItem, CaseProperty, CaseRegion, HistoryRecord, PurchaseCase, User
     from tests.conftest import truncate_tables
 
-    truncate_tables(CaseProperty, CaseRegion, PurchaseCase, HistoryRecord, User)
+    truncate_tables(CandidateAnalysis, CandidateChecklistItem, CaseProperty, CaseRegion, PurchaseCase, HistoryRecord, User)
     from api.main import app
     with TestClient(app) as value:
         yield value
@@ -90,3 +90,64 @@ def test_cannot_link_other_users_history(client):
 def test_cases_require_login(client):
     client.cookies.clear()
     assert client.get("/api/cases").status_code == 401
+
+
+def test_candidate_checklist_and_owner_scoped_updates(client):
+    from api import case_db, history_db
+
+    user_id = _register(client, "workspace-owner@example.com")
+    case_id = client.post("/api/cases", json={"title": "매수 검토"}).json()["id"]
+    candidate = client.post(f"/api/cases/{case_id}/properties", json={"name": "후보 A"}).json()
+    assert len(candidate["checklist"]) == 5
+
+    checklist_id = candidate["checklist"][0]["id"]
+    updated = client.patch(
+        f"/api/cases/{case_id}/properties/{candidate['id']}/checklist/{checklist_id}",
+        json={"status": "done", "evidence": "검토 완료"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["completed_at"]
+    detail = client.get(f"/api/cases/{case_id}").json()
+    assert detail["workspace"]["checklist_done"] == 1
+    assert detail["properties"][0]["review_progress"] == 20
+
+    history_id = history_db.save("후보 A 시세", {"analysis_result": {"estimated_value": 900_000_000}}, user_id=user_id)
+    assert case_db.link_appraisal(case_id, candidate["id"], history_id, user_id, {
+        "analysis_result": {"estimated_value": 900_000_000, "valuation_verdict": "적정"}
+    })
+    linked = client.get(f"/api/cases/{case_id}").json()["properties"][0]
+    assert linked["history_id"] == history_id
+    assert linked["analyses"][0]["analysis_type"] == "appraisal"
+
+    assert case_db.link_candidate_analysis(
+        case_id, candidate["id"], user_id, "simulation",
+        {"purchase_price": 1_000_000_000, "loan_amount": 500_000_000},
+        evidence="금융 조건 입력 완료",
+    )
+    assert case_db.link_candidate_analysis(
+        case_id, candidate["id"], user_id, "rights",
+        {"risk_grade": "caution", "risk_score": 45},
+        checklist_status="warning", evidence="권리 위험 확인 필요",
+    )
+    linked = client.get(f"/api/cases/{case_id}").json()["properties"][0]
+    assert {value["analysis_type"] for value in linked["analyses"]} == {"appraisal", "simulation", "rights"}
+    statuses = {value["category"]: value["status"] for value in linked["checklist"]}
+    assert statuses["funding"] == "done"
+    assert statuses["rights"] == "warning"
+
+    client.cookies.clear()
+    _register(client, "workspace-attacker@example.com")
+    assert client.patch(
+        f"/api/cases/{case_id}/properties/{candidate['id']}", json={"status": "selected"}
+    ).status_code == 404
+    assert client.patch(
+        f"/api/cases/{case_id}/properties/{candidate['id']}/checklist/{checklist_id}",
+        json={"status": "done"},
+    ).status_code == 404
+    assert client.post("/api/simulation", json={
+        "purchase_price": 1_000_000_000, "case_id": case_id, "candidate_id": candidate["id"],
+    }).status_code == 404
+    assert client.post("/api/rights/analyze", json={
+        "registry_pdf_b64": "data:application/pdf;base64,JVBERi0=",
+        "case_id": case_id, "candidate_id": candidate["id"],
+    }).status_code == 404

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 CaseStatus = Literal["exploring", "reviewing", "negotiating", "decided", "archived"]
 PropertyStatus = Literal["reviewing", "shortlisted", "rejected", "selected"]
+ChecklistStatus = Literal["todo", "done", "warning", "blocked"]
 MarketPropertyType = Literal[
     "all", "apartment", "row_house", "detached", "officetel",
     "non_residential", "industrial", "land",
@@ -46,6 +47,16 @@ class CasePropertyCreate(BaseModel):
     status: PropertyStatus = "reviewing"
     notes: str = Field(default="", max_length=5000)
     history_id: int | None = Field(default=None, gt=0)
+
+
+class CasePropertyUpdate(BaseModel):
+    status: PropertyStatus | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class ChecklistItemUpdate(BaseModel):
+    status: ChecklistStatus
+    evidence: str | None = Field(default=None, max_length=5000)
 
 
 class CaseRegionCreate(BaseModel):

@@ -45,6 +45,8 @@ export const api = {
     address = "",
     propertyCategory = "",
     propertyDetail = "",
+    caseId?: number,
+    candidateId?: number,
   ) =>
     req<{ job_id: string }>("/appraisal/jobs", {
       method: "POST",
@@ -57,6 +59,8 @@ export const api = {
         address,
         property_category: propertyCategory,
         property_detail:   propertyDetail,
+        case_id:            caseId,
+        candidate_id:       candidateId,
       }),
     }),
 
@@ -184,6 +188,16 @@ export const api = {
   deleteCaseProperty: (caseId: number, propertyId: number) =>
     req<void>(`/cases/${caseId}/properties/${propertyId}`, { method: "DELETE" }),
 
+  updateCaseProperty: (caseId: number, propertyId: number, data: {
+    status?: "reviewing" | "shortlisted" | "rejected" | "selected"; notes?: string;
+  }) => req(`/cases/${caseId}/properties/${propertyId}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  updateCandidateChecklist: (caseId: number, propertyId: number, checklistId: number, data: {
+    status: "todo" | "done" | "warning" | "blocked"; evidence?: string;
+  }) => req(`/cases/${caseId}/properties/${propertyId}/checklist/${checklistId}`, {
+    method: "PATCH", body: JSON.stringify(data),
+  }),
+
   addCaseRegion: (caseId: number, data: {
     region_code: string; property_type: string; budget_max_won?: number;
     months?: number; source?: "market_explorer" | "concierge";
@@ -194,6 +208,8 @@ export const api = {
 
   /** 등기부등본·건축물대장 PDF 권리관계 위험 점검 (PDF는 base64) */
   rightsAnalyze: (params: {
+      case_id?: number;
+      candidate_id?: number;
     registry_pdf_b64?: string;
     building_pdf_b64?: string;
     my_deposit?: number;

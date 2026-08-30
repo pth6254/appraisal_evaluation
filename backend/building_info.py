@@ -257,18 +257,21 @@ def fetch_building_info(
     return result
 
 
-def fetch_unit_area(
+def fetch_unit_info(
     sigungu_cd: str,
     bjdong_cd: str,
     bun: str,
     ji: str = "",
     dong_no: str = "",
     ho_no: str = "",
-) -> Optional[float]:
+) -> Optional[dict]:
     """
-    집합건물 전유부 면적 조회 (아파트·오피스텔·연립다세대).
+    집합건물 전유부 면적·용도 조회 (아파트·오피스텔·상가·사무실 등).
     dong_no: "101동" 형태, ho_no: "1502호" 형태.
-    반환: 전용면적(㎡) 또는 None.
+    반환: {exclusive_area, main_purps, dong_name, ho_name} 또는 None.
+
+    건물 전체 주용도와 개별 호실 용도가 다른 복합건축물이 있으므로 전유부의
+    mainPurpsCdNm/기타용도를 버리지 않는다.
     """
     if not sigungu_cd or not bun:
         return None
@@ -326,7 +329,7 @@ def fetch_unit_area(
             if filtered:
                 matched = filtered
 
-        # 전용면적 추출
+        # 전용면적과 개별 호실 용도를 함께 추출한다.
         for it in matched:
             area_text = (
                 it.findtext("excluUseAr", "")
@@ -335,13 +338,29 @@ def fetch_unit_area(
             )
             try:
                 area = float(area_text.strip())
-                if area > 0:
-                    print(f"[전유부] ✅ {dong_no} {ho_no} 전용면적: {area}㎡")
-                    return area
             except (ValueError, AttributeError):
-                pass
+                area = 0.0
+            main_purps = (
+                it.findtext("mainPurpsCdNm", "")
+                or it.findtext("etcPurps", "")
+                or it.findtext("purpsCdNm", "")
+            ).strip()
+            # 일부 전유부 응답은 면적 없이 용도만 제공한다. 유형 판정에는 여전히
+            # 유효하므로 둘 중 하나라도 있으면 정보 객체를 반환한다.
+            if area > 0 or main_purps:
+                result = {
+                    "exclusive_area": area,
+                    "main_purps": main_purps,
+                    "dong_name": (it.findtext("dongNm", "") or "").strip(),
+                    "ho_name": (it.findtext("hoNm", "") or "").strip(),
+                }
+                print(
+                    f"[전유부] ✅ {dong_no} {ho_no} 전용면적: {area}㎡"
+                    + (f" / 용도: {main_purps}" if main_purps else "")
+                )
+                return result
 
-        print(f"[전유부] 면적 파싱 실패 ({dong_no} {ho_no})")
+        print(f"[전유부] 면적·용도 파싱 실패 ({dong_no} {ho_no})")
         return None
 
     except requests.Timeout:
@@ -349,6 +368,21 @@ def fetch_unit_area(
     except Exception as e:
         print(f"[전유부] 오류: {e}")
     return None
+
+
+def fetch_unit_area(
+    sigungu_cd: str,
+    bjdong_cd: str,
+    bun: str,
+    ji: str = "",
+    dong_no: str = "",
+    ho_no: str = "",
+) -> Optional[float]:
+    """기존 호출부를 위한 전유부 전용면적 호환 인터페이스."""
+    info = fetch_unit_info(sigungu_cd, bjdong_cd, bun, ji, dong_no, ho_no)
+    if not info:
+        return None
+    return float(info.get("exclusive_area", 0.0)) or None
 
 
 def get_building_area(

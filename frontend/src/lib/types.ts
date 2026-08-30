@@ -199,8 +199,34 @@ export interface CaseProperty {
   status: "reviewing" | "shortlisted" | "rejected" | "selected";
   notes: string;
   history_id: number | null;
-  appraisal: CaseAppraisalSummary | null;
+    appraisal: CaseAppraisalSummary | null;
+    analyses: CandidateAnalysis[];
+    checklist: CandidateChecklistItem[];
+    review_progress: number;
   created: string;
+  updated: string;
+}
+
+export interface CandidateAnalysis {
+  id: number;
+  analysis_type: "appraisal" | "simulation" | "rights";
+  reference_id: number | null;
+  status: "pending" | "completed" | "failed" | "stale";
+  summary: Record<string, unknown>;
+  analyzed_at: string | null;
+  expires_at: string | null;
+  updated: string;
+}
+
+export interface CandidateChecklistItem {
+  id: number;
+  category: "price" | "funding" | "rights" | "site" | "contract";
+  title: string;
+  status: "todo" | "done" | "warning" | "blocked";
+  source: string;
+  evidence: string;
+  sort_order: number;
+  completed_at: string | null;
   updated: string;
 }
 
@@ -232,6 +258,13 @@ export interface PurchaseCase {
   property_count: number;
   properties?: CaseProperty[];
   regions?: CaseRegion[];
+  workspace?: {
+    checklist_total: number;
+    checklist_done: number;
+    warning_count: number;
+    blocked_count: number;
+    progress_percent: number;
+  };
 }
 
 export type ConciergeIntent =
@@ -297,6 +330,8 @@ export interface RecommendationRequest {
 }
 
 export interface SimulationRequest {
+  case_id?: number;
+  candidate_id?: number;
   purchase_price: number;
   loan_ratio: number;
   annual_interest_rate: number;

@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from api import activity_db
+from api import activity_db, case_db
 from api.deps import get_optional_user
 from api.rate_limit import limiter
 
@@ -28,6 +28,8 @@ PRIVACY_NOTICE = "업로드된 문서는 분석 후 즉시 파기되며 서버�
 
 class RightsAnalyzeRequest(BaseModel):
     """PDF는 base64 인코딩 문자열로 전달 (multipart 불필요)"""
+    case_id: int | None = None
+    candidate_id: int | None = None
     registry_pdf_b64: Optional[str] = None   # 등기사항전부증명서
     building_pdf_b64: Optional[str] = None   # 건축물대장
     my_deposit: int = Field(0, ge=0, description="내 보증금 (원)")
@@ -65,6 +67,10 @@ async def analyze_rights_endpoint(
 ):
     from backend.services.rights_analysis_service import analyze_rights
 
+    if req.case_id is not None or req.candidate_id is not None:
+        if req.case_id is None or req.candidate_id is None or not user or not case_db.validate_candidate(req.case_id, req.candidate_id, user["id"]):
+            raise HTTPException(status_code=404, detail="검토 후보가 없습니다")
+
     registry = _decode(req.registry_pdf_b64, "등기부등본")
     building = _decode(req.building_pdf_b64, "건축물대장")
     if registry is None and building is None:
@@ -97,4 +103,14 @@ async def analyze_rights_endpoint(
 
     if isinstance(result, dict):
         result["privacy_notice"] = PRIVACY_NOTICE
+        if not result.get("error") and req.case_id is not None and req.candidate_id is not None and user:
+            grade = result.get("risk_grade")
+            case_db.link_candidate_analysis(
+                req.case_id, req.candidate_id, user["id"], "rights",
+                {"risk_grade": grade, "risk_label": result.get("risk_label"),
+                 "risk_score": result.get("risk_score"), "reasons": result.get("reasons") or [],
+                 "registry_supplied": registry is not None, "building_supplied": building is not None},
+                checklist_status="done" if grade == "safe" else "warning",
+                evidence=f"업로드 문서 기반 권리분석 완료 · {result.get('risk_label') or grade}",
+            )
     return result

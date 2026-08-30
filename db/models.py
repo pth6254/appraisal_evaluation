@@ -139,6 +139,47 @@ class CaseProperty(Base):
     )
 
 
+class CandidateAnalysis(Base):
+    """후보 매물에 연결된 기능별 최신 분석 결과."""
+
+    __tablename__ = "candidate_analyses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("case_properties.id", ondelete="CASCADE"), nullable=False, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    reference_id: Mapped[int | None] = mapped_column(Integer, default=None)
+    status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    analyzed_at: Mapped[str | None] = mapped_column(String(32), default=None)
+    expires_at: Mapped[str | None] = mapped_column(String(32), default=None)
+    created: Mapped[str] = mapped_column(String(32), default=_now_str)
+    updated: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+    __table_args__ = (Index("uq_candidate_analysis_type", "property_id", "analysis_type", unique=True),)
+
+
+class CandidateChecklistItem(Base):
+    """후보별 의사결정 누락을 막는 검토 항목."""
+
+    __tablename__ = "candidate_checklist_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("case_properties.id", ondelete="CASCADE"), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="todo", nullable=False)
+    source: Mapped[str] = mapped_column(String(30), default="system", nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    completed_at: Mapped[str | None] = mapped_column(String(32), default=None)
+    created: Mapped[str] = mapped_column(String(32), default=_now_str)
+    updated: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+    __table_args__ = (Index("uq_candidate_checklist_item", "property_id", "category", "title", unique=True),)
+
+
 class CaseRegion(Base):
     """매수 검토 케이스에 저장한 관심 지역과 저장 당시 판단 근거."""
 

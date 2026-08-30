@@ -53,7 +53,11 @@ def _geo_val(geo, key: str, default=None):
 #  analysis_result dict → AppraisalResult 변환
 # ─────────────────────────────────────────
 
-def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":
+def _dict_to_appraisal_result(
+    result: dict,
+    *,
+    additional_warnings: list[str] | None = None,
+) -> "AppraisalResult":
     from schemas.appraisal_result import AppraisalResult, ValuationMethodResult
 
     manwon = 10_000
@@ -124,7 +128,7 @@ def _dict_to_appraisal_result(result: dict) -> "AppraisalResult":
         comparables          = comparables_out,
         legal_restrictions   = result.get("legal_restrictions", []) or [],
         development_plans    = result.get("development_plans", []) or [],
-        warnings             = [],
+        warnings             = list(additional_warnings or []),
         data_source          = [result["valuation_method"]] if result.get("valuation_method") else [],
         raw                  = result,
     )
@@ -188,6 +192,10 @@ def report_node(state: dict) -> dict:
     official_lp         = _geo_val(geo, "official_land_price", 0) or result.get("official_land_price", 0) or 0
     legal_restrictions  = result.get("legal_restrictions", []) or []
     development_plans   = result.get("development_plans", []) or []
+    geocoding_warnings = []
+    category_conflict_message = _geo_val(geo, "category_conflict_message", "") or ""
+    if category_conflict_message:
+        geocoding_warnings.append(category_conflict_message)
 
     # 공시가격 대비 비율
     official_ratio_str = ""
@@ -276,6 +284,12 @@ def report_node(state: dict) -> dict:
             lines.append(f"- {item}")
         lines.append("")
 
+    if geocoding_warnings:
+        lines += ["## 유형 확인 필요"]
+        for warning in geocoding_warnings:
+            lines.append(f"- ⚠️ {warning}")
+        lines.append("")
+
     # ── AI 분석 의견 ──────────────────────────────────────────────────────
     lines += [
         "## AI 분석 의견",
@@ -296,7 +310,10 @@ def report_node(state: dict) -> dict:
     state["final_report"] = markdown
 
     state["report_output"] = AppraisalReport(
-        structured=_dict_to_appraisal_result(result),
+        structured=_dict_to_appraisal_result(
+            result,
+            additional_warnings=geocoding_warnings,
+        ),
         markdown=markdown,
     )
 

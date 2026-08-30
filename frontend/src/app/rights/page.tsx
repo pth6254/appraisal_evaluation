@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { removeSessionValue, useSessionValue } from "@/lib/sessionStore";
 
 type RightsResult = Awaited<ReturnType<typeof api.rightsAnalyze>>;
 
@@ -32,11 +33,20 @@ const GRADE_STYLE: Record<string, string> = {
   safe:    "bg-emerald-50 border-emerald-300 text-emerald-800",
 };
 
+type CandidateSeed = { case_id?: number; candidate_id?: number; market_price?: number; address?: string };
+
 export default function RightsPage() {
+  const rawSeed = useSessionValue("rightsCandidate");
+  return <RightsForm key={rawSeed ?? "no-seed"} rawSeed={rawSeed ?? null} />;
+}
+
+function RightsForm({ rawSeed }: { rawSeed: string | null }) {
+  const seed = useMemo<CandidateSeed>(() => rawSeed ? JSON.parse(rawSeed) as CandidateSeed : {}, [rawSeed]);
+  useEffect(() => () => removeSessionValue("rightsCandidate"), []);
   const [registryFile, setRegistryFile] = useState<File | null>(null);
   const [buildingFile, setBuildingFile] = useState<File | null>(null);
   const [depositStr, setDepositStr] = useState("");
-  const [priceStr, setPriceStr] = useState("");
+  const [priceStr, setPriceStr] = useState(seed.market_price ? String(Math.round(seed.market_price / 10_000)) + "만" : "");
   const [result, setResult] = useState<RightsResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,6 +58,8 @@ export default function RightsPage() {
     setResult(null);
     try {
       const res = await api.rightsAnalyze({
+        case_id: seed.case_id,
+        candidate_id: seed.candidate_id,
         registry_pdf_b64: registryFile ? await fileToB64(registryFile) : undefined,
         building_pdf_b64: buildingFile ? await fileToB64(buildingFile) : undefined,
         my_deposit: parsePrice(depositStr),
@@ -64,6 +76,7 @@ export default function RightsPage() {
 
   return (
     <div className="max-w-3xl mx-auto">
+      {seed.address && <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">검토 후보: {seed.address} · 문서를 업로드해야 분석 결과가 연결됩니다.</div>}
       <h1 className="text-2xl font-bold mb-1">권리관계 위험 점검</h1>
       <p className="text-slate-500 text-sm mb-2">
         등기부등본·건축물대장 PDF를 업로드하면 가압류·근저당·깡통전세 등 위험 신호를 점검합니다.

@@ -152,6 +152,9 @@ export default function AppraisalPage() {
 
     try {
       const userInput = buildUserInput();
+      const linkParams = new URLSearchParams(window.location.search);
+      const linkedCaseId = Number(linkParams.get("caseId")) || undefined;
+      const linkedCandidateId = Number(linkParams.get("candidateId")) || undefined;
 
       // 1) 작업 시작 → job_id
       const { job_id } = await api.appraisalJobStart(
@@ -163,6 +166,8 @@ export default function AppraisalPage() {
         selectedAddress,
         selectedType?.category ?? "",
         selectedType?.detail ?? "",
+        linkedCaseId,
+        linkedCandidateId,
       );
 
       // 2) 완료까지 폴링 (진행 단계 표시)

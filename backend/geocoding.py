@@ -11,7 +11,8 @@ geocoding.py — 좌표 변환 + 건물명·부동산 유형 자동 판단 v2.4
          → 입력값 그대로 키워드검색
          → place_name + category_name 한 번에 획득
 
-  3순위) 전부 실패 → LLM category 폴백
+  3순위) 사용자 선택·전유부·건축물대장·검증된 규칙으로 유형 확정
+           (LLM category는 검색 후보로만 사용)
 """
 
 from __future__ import annotations
@@ -40,6 +41,26 @@ KAKAO_KWD_URL  = "https://dapi.kakao.com/v2/local/search/keyword.json"
 #  1. 결과 데이터 모델
 # ─────────────────────────────────────────
 
+class CategoryResolution(BaseModel):
+    """최종 유형과 그 근거, 사용자 선택과 공식 용도의 충돌 정보."""
+
+    category: str = ""
+    detail: str = ""
+    source: str = "unknown"
+    confidence: float = 0.0
+    evidence: str = ""
+    kakao_category: str = ""
+    selected_category: str = ""
+    selected_detail: str = ""
+    official_category: str = ""
+    official_detail: str = ""
+    official_source: str = ""
+    building_main_use: str = ""
+    unit_use: str = ""
+    conflict: bool = False
+    conflict_message: str = ""
+
+
 class GeocodingResult(BaseModel):
     lat: float = Field(description="위도 (WGS84)")
     lng: float = Field(description="경도 (WGS84)")
@@ -59,13 +80,23 @@ class GeocodingResult(BaseModel):
     category_detail:   str = Field(default="", description="아파트/오피스텔/상가 등")
     category_source:   str = Field(
         default="",
-        description="user | building_register | building_name_rule | kakao_exact | unknown",
+        description="user | unit_register | building_register | building_name_rule | kakao_exact | unknown",
     )
+    category_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    category_evidence: str = Field(default="")
+    selected_category: str = Field(default="")
+    official_category: str = Field(default="")
+    official_detail: str = Field(default="")
+    building_main_use: str = Field(default="")
+    unit_use: str = Field(default="")
+    category_conflict: bool = Field(default=False)
+    category_conflict_message: str = Field(default="")
 
     # 토지 전용
     land_use_zone:       str   = Field(default="")
     land_area:           float = Field(default=0.0)
     official_land_price: int   = Field(default=0)
+    land_info_status:     str   = Field(default="not_requested")
 
     # 건축물대장 조회용 지번 정보
     sigungu_cd: str = Field(default="", description="시군구코드 5자리")
@@ -350,18 +381,20 @@ def _get_category_from_exact_place(
     expected_address: str,
     lat: float,
     lng: float,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, int]:
     """주소와 건물명이 모두 맞는 카카오 장소만 유형 보조 근거로 사용한다.
 
     키워드 검색의 첫 결과는 건물 내부 상점이나 인근 중개업소일 수 있다. 따라서
     동일 시군구·건물명 유사·300m 이내 조건을 모두 통과하지 않으면 버린다.
     """
     if not building_name:
-        return "", "", ""
+        return "", "", "", 0
 
     expected_region = expected_address.split()[:2]
     expected_name = re.sub(r"[^0-9A-Za-z가-힣]", "", building_name).lower()
+    expected_address_compact = re.sub(r"\s+", "", expected_address)
     docs = _keyword_search(building_name, size=5)
+    candidates: list[tuple[int, str, str, str]] = []
     for doc in docs:
         doc_address = doc.get("road_address_name") or doc.get("address_name", "")
         if expected_region and doc_address.split()[:2] != expected_region:
@@ -382,9 +415,33 @@ def _get_category_from_exact_place(
         cat_name = doc.get("category_name", "")
         prop_cat, detail = _map_kakao_category(cat_name)
         if prop_cat:
-            print(f"[category] 정확한 장소 일치: '{building_name}' → {cat_name} → {prop_cat}/{detail}")
-            return cat_name, prop_cat, detail
-    return "", "", ""
+            score = 20  # 시군구 일치
+            score += 35 if expected_name == place_name else 20
+            if expected_address_compact == re.sub(r"\s+", "", doc_address):
+                score += 35
+            distance = _distance_m(lat, lng, float(doc["y"]), float(doc["x"]))
+            score += 20 if distance <= 50 else (10 if distance <= 150 else 5)
+            if any(word in cat_name for word in ("중개업소", "음식점", "의류판매")):
+                score -= 50
+            candidates.append((score, cat_name, prop_cat, detail))
+
+    if not candidates:
+        return "", "", "", 0
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    best = candidates[0]
+    if best[0] < 55:
+        return "", "", "", best[0]
+    # 점수가 비슷한 후보가 서로 다른 부동산 유형이면 임의 선택하지 않는다.
+    if len(candidates) > 1 and best[0] - candidates[1][0] < 10 and best[2] != candidates[1][2]:
+        print(f"[category] 장소 후보 경합으로 자동 확정 보류: {candidates[:2]}")
+        return "", "", "", best[0]
+
+    print(
+        f"[category] 정확한 장소 일치({best[0]}점): "
+        f"'{building_name}' → {best[1]} → {best[2]}/{best[3]}"
+    )
+    return best[1], best[2], best[3], best[0]
 
 
 def _resolve_property_category(
@@ -392,14 +449,16 @@ def _resolve_property_category(
     *,
     confirmed_category: str = "",
     confirmed_detail: str = "",
-) -> tuple[str, str, str, str]:
-    """사용자 확정값과 공식·결정론적 데이터만으로 최종 유형을 정한다.
-
-    반환값은 (category, detail, source, kakao_category)다. LLM이 추출한
-    category는 검색 힌트일 뿐 이 함수에 전달하지 않는다.
-    """
-    if confirmed_category in VALID_PROPERTY_CATEGORIES:
-        return confirmed_category, confirmed_detail, "user", ""
+    dong_no: str = "",
+    ho_no: str = "",
+) -> CategoryResolution:
+    """사용자 확정값과 공식·결정론적 데이터만으로 최종 유형을 정한다."""
+    resolution = CategoryResolution(
+        selected_category=(
+            confirmed_category if confirmed_category in VALID_PROPERTY_CATEGORIES else ""
+        ),
+        selected_detail=confirmed_detail,
+    )
 
     sigungu_cd = addr_info.get("sigungu_cd", "")
     bjdong_cd = addr_info.get("bjdong_cd", "")
@@ -407,32 +466,90 @@ def _resolve_property_category(
     ji = addr_info.get("ji", "")
     if sigungu_cd and bjdong_cd and bun:
         try:
-            from building_info import fetch_building_info
+            from building_info import fetch_building_info, fetch_unit_info
+
+            if dong_no or ho_no:
+                unit = fetch_unit_info(
+                    sigungu_cd, bjdong_cd, bun, ji, dong_no, ho_no
+                )
+                if unit:
+                    resolution.unit_use = unit.get("main_purps", "") or ""
+                    unit_category, unit_detail = _map_building_use(resolution.unit_use)
+                    if unit_category:
+                        resolution.official_category = unit_category
+                        resolution.official_detail = unit_detail
+                        resolution.official_source = "unit_register"
 
             building = fetch_building_info(sigungu_cd, bjdong_cd, bun, ji)
             if building:
-                category, detail = _map_building_use(building.get("main_purps", ""))
-                if category:
-                    return category, detail, "building_register", ""
+                resolution.building_main_use = building.get("main_purps", "") or ""
+                building_category, building_detail = _map_building_use(
+                    resolution.building_main_use
+                )
+                if building_category and not resolution.official_category:
+                    resolution.official_category = building_category
+                    resolution.official_detail = building_detail
+                    resolution.official_source = "building_register"
         except Exception as exc:
             print(f"[category] 건축물대장 유형 조회 오류: {exc}")
+
+    if resolution.selected_category:
+        resolution.category = resolution.selected_category
+        resolution.detail = resolution.selected_detail
+        resolution.source = "user"
+        resolution.confidence = 1.0
+        resolution.evidence = f"사용자 직접 선택: {resolution.category}/{resolution.detail}"
+        if (
+            resolution.official_category
+            and resolution.official_category != resolution.selected_category
+        ):
+            resolution.conflict = True
+            resolution.conflict_message = (
+                f"선택한 유형({resolution.selected_category})과 "
+                f"건축물대장 확인 유형({resolution.official_category})이 다릅니다. "
+                "복합용도 건물 또는 개별 호실 용도를 확인해주세요."
+            )
+        return resolution
+
+    if resolution.official_category:
+        resolution.category = resolution.official_category
+        resolution.detail = resolution.official_detail
+        if resolution.official_source == "unit_register":
+            resolution.source = "unit_register"
+            resolution.confidence = 1.0
+            resolution.evidence = f"건축물대장 전유부 용도: {resolution.unit_use}"
+        else:
+            resolution.source = "building_register"
+            resolution.confidence = 0.95
+            resolution.evidence = f"건축물대장 주용도: {resolution.building_main_use}"
+        return resolution
 
     building_name = addr_info.get("building_name", "")
     category, detail = _map_building_name(building_name)
     if category:
-        return category, detail, "building_name_rule", ""
+        resolution.category = category
+        resolution.detail = detail
+        resolution.source = "building_name_rule"
+        resolution.confidence = 0.8
+        resolution.evidence = f"명확한 건물명 규칙: {building_name}"
+        return resolution
 
     lat = float(addr_info.get("y") or 0)
     lng = float(addr_info.get("x") or 0)
-    kakao_cat, category, detail = _get_category_from_exact_place(
+    kakao_cat, category, detail, place_score = _get_category_from_exact_place(
         building_name,
         expected_address=addr_info.get("address_name", ""),
         lat=lat,
         lng=lng,
     )
     if category:
-        return category, detail, "kakao_exact", kakao_cat
-    return "", "", "unknown", ""
+        resolution.category = category
+        resolution.detail = detail
+        resolution.source = "kakao_exact"
+        resolution.confidence = 0.7
+        resolution.evidence = f"검증된 카카오 장소 카테고리: {kakao_cat} ({place_score}점)"
+        resolution.kakao_category = kakao_cat
+    return resolution
 
 def _parse_region(address_name: str) -> tuple[str, str, str]:
     """
@@ -455,6 +572,17 @@ def _parse_region(address_name: str) -> tuple[str, str, str]:
     return r1, " ".join(r2_parts), r3
 
 
+def _print_geocoding_metric(result: GeocodingResult) -> None:
+    """주소 원문 없이 운영 품질을 집계할 수 있는 구조화 로그를 남긴다."""
+    print(
+        "[geocode-metric] "
+        f"method={result.method} source={result.category_source} "
+        f"category={result.property_category or 'unknown'} "
+        f"conflict={str(result.category_conflict).lower()} "
+        f"land_status={result.land_info_status}"
+    )
+
+
 # ─────────────────────────────────────────
 #  6. 통합 지오코딩 진입점
 # ─────────────────────────────────────────
@@ -466,6 +594,8 @@ def geocode(
     *,
     confirmed_category: str = "",
     confirmed_detail: str = "",
+    dong_no: str = "",
+    ho_no: str = "",
 ) -> Optional[GeocodingResult]:
     """
     주소 입력 → 좌표 + 건물명 + 부동산 유형 획득.
@@ -547,14 +677,6 @@ def geocode(
         if building_name:
             print(f"[geocode] building_name: '{building_name}'")
 
-        # LLM category는 후보일 뿐이다. 사용자 선택·건축물대장·주소와 정확히
-        # 일치한 장소만 최종 부동산 유형의 근거로 사용한다.
-        prop_cat, detail, category_source, kakao_cat = _resolve_property_category(
-            addr_info,
-            confirmed_category=confirmed_category,
-            confirmed_detail=confirmed_detail,
-        )
-
         # 지번 보완 우선순위: hint_jibun > addr_info (addr_info는 이미 역지오코딩 포함)
         if hint_jibun:
             final_sigungu = hint_jibun.get("sigungu_cd", "")
@@ -568,6 +690,23 @@ def geocode(
             final_bun     = addr_info.get("bun",        "")
             final_ji      = addr_info.get("ji",         "")
 
+        # LLM category는 후보일 뿐이다. 사용자 선택·전유부·건물대장·검증된
+        # 장소 규칙만 최종 부동산 유형의 근거로 사용한다.
+        category_addr_info = {
+            **addr_info,
+            "sigungu_cd": final_sigungu,
+            "bjdong_cd": final_bjdong,
+            "bun": final_bun,
+            "ji": final_ji,
+        }
+        resolution = _resolve_property_category(
+            category_addr_info,
+            confirmed_category=confirmed_category,
+            confirmed_detail=confirmed_detail,
+            dong_no=dong_no,
+            ho_no=ho_no,
+        )
+
         result = GeocodingResult(
             lat=lat,
             lng=lng,
@@ -578,10 +717,19 @@ def geocode(
             method="address",
             confidence=1.0,
             place_name=building_name,
-            kakao_category=kakao_cat,
-            property_category=prop_cat,
-            category_detail=detail,
-            category_source=category_source,
+            kakao_category=resolution.kakao_category,
+            property_category=resolution.category,
+            category_detail=resolution.detail,
+            category_source=resolution.source,
+            category_confidence=resolution.confidence,
+            category_evidence=resolution.evidence,
+            selected_category=resolution.selected_category,
+            official_category=resolution.official_category,
+            official_detail=resolution.official_detail,
+            building_main_use=resolution.building_main_use,
+            unit_use=resolution.unit_use,
+            category_conflict=resolution.conflict,
+            category_conflict_message=resolution.conflict_message,
             sigungu_cd=final_sigungu,
             bjdong_cd =final_bjdong,
             bun       =final_bun,
@@ -595,6 +743,7 @@ def geocode(
         print(f"[geocode] ✅ 완료: '{result.place_name}' / "
               f"{result.property_category}/{result.category_detail} "
               f"({result.category_source})")
+        _print_geocoding_metric(result)
         return result
 
     # ── 2순위: 키워드검색 폴백 ───────────────────────────────────────────
@@ -616,9 +765,15 @@ def geocode(
                 confirmed_detail,
                 "user",
             )
+            category_confidence = 1.0
+            category_evidence = f"사용자 직접 선택: {prop_cat}/{detail}"
         else:
             prop_cat, detail = _map_building_name(doc.get("place_name", ""))
             category_source = "building_name_rule" if prop_cat else "unknown"
+            category_confidence = 0.8 if prop_cat else 0.0
+            category_evidence = (
+                f"명확한 건물명 규칙: {doc.get('place_name', '')}" if prop_cat else ""
+            )
             # 건물명을 직접 검색한 경우에만 카카오 장소 유형을 허용한다.
             if not prop_cat and building_hint:
                 expected = re.sub(r"[^0-9A-Za-z가-힣]", "", building_hint).lower()
@@ -626,6 +781,10 @@ def geocode(
                 if expected and actual and (expected in actual or actual in expected):
                     prop_cat, detail = _map_kakao_category(cat_name)
                     category_source = "kakao_exact" if prop_cat else "unknown"
+                    category_confidence = 0.7 if prop_cat else 0.0
+                    category_evidence = (
+                        f"검증된 카카오 장소 카테고리: {cat_name}" if prop_cat else ""
+                    )
 
         r1, r2, r3 = _parse_region(doc.get("address_name", ""))
         result = GeocodingResult(
@@ -642,6 +801,11 @@ def geocode(
             property_category=prop_cat,
             category_detail=detail,
             category_source=category_source,
+            category_confidence=category_confidence,
+            category_evidence=category_evidence,
+            selected_category=(
+                confirmed_category if confirmed_category in VALID_PROPERTY_CATEGORIES else ""
+            ),
         )
 
         # 토지·산업용·업무용·상업용 → Vworld 공시지가 조회
@@ -650,6 +814,7 @@ def geocode(
 
         print(f"[geocode] ✅ 키워드 완료: '{result.place_name}' / "
               f"{result.property_category}/{result.category_detail}")
+        _print_geocoding_metric(result)
         return result
 
     # ── 3순위: 전부 실패 ─────────────────────────────────────────────────
@@ -665,7 +830,8 @@ VWORLD_LAND_URL = "https://api.vworld.kr/req/data"
 
 
 def _attach_land_info(result: GeocodingResult):
-    info = get_land_info_vworld(result.lat, result.lng)
+    info, status = _fetch_land_info_vworld(result.lat, result.lng)
+    result.land_info_status = status
     if info:
         result.land_use_zone        = info.get("land_use_zone", "")
         result.land_area            = info.get("land_area", 0.0)
@@ -673,9 +839,9 @@ def _attach_land_info(result: GeocodingResult):
         print(f"[vworld] 용도지역: {result.land_use_zone}")
 
 
-def get_land_info_vworld(lat: float, lng: float) -> Optional[dict]:
+def _fetch_land_info_vworld(lat: float, lng: float) -> tuple[Optional[dict], str]:
     if not VWORLD_API_KEY:
-        return None
+        return None, "not_configured"
     params = {
         "service": "data", "request": "GetFeature",
         "data": "LT_C_LHBLPN", "key": VWORLD_API_KEY,
@@ -686,23 +852,31 @@ def get_land_info_vworld(lat: float, lng: float) -> Optional[dict]:
     try:
         res = requests.get(VWORLD_LAND_URL, params=params, timeout=8)
         res.raise_for_status()
+        response = res.json().get("response", {})
+        api_status = response.get("status", "")
         features = (
-            res.json().get("response", {})
+            response
                .get("result", {})
                .get("featureCollection", {})
                .get("features", [])
         )
         if not features:
-            return None
+            return None, "not_found" if api_status == "NOT_FOUND" else "api_error"
         props = features[0].get("properties", {})
         return {
             "land_use_zone":       props.get("prpos_area1_nm", ""),
             "land_area":           float(props.get("lndpcp_ar", 0)),
             "official_land_price": int(props.get("pblntf_pric", 0)),
-        }
+        }, "found"
     except Exception as e:
         print(f"[vworld] 오류: {e}")
-        return None
+        return None, "request_error"
+
+
+def get_land_info_vworld(lat: float, lng: float) -> Optional[dict]:
+    """기존 호출부를 유지하면서 상세 상태는 GeocodingResult에 기록한다."""
+    info, _ = _fetch_land_info_vworld(lat, lng)
+    return info
 
 
 # ─────────────────────────────────────────
@@ -743,6 +917,8 @@ def geocoding_node(state):
               f"(LLM 파싱: '{getattr(intent, 'location_normalized', '')}')")
 
     llm_category  = getattr(intent, "category", "")
+    dong_no = getattr(intent, "dong_no", "") or ""
+    ho_no = getattr(intent, "ho_no", "") or ""
     building_hint = _g(state, "building_name", "") or ""
     result = geocode(
         location,
@@ -750,6 +926,8 @@ def geocoding_node(state):
         building_hint=building_hint,
         confirmed_category=confirmed_category,
         confirmed_detail=confirmed_detail,
+        dong_no=dong_no,
+        ho_no=ho_no,
     )
 
     if not result:
@@ -801,6 +979,7 @@ def geocoding_node(state):
 # ─────────────────────────────────────────
 
 _GEOCODE_TTL = 60 * 60 * 24 * 7  # 7일
+_GEOCODE_ALGORITHM_VERSION = "v4"
 
 
 def geocode_cached(
@@ -810,6 +989,8 @@ def geocode_cached(
     *,
     confirmed_category: str = "",
     confirmed_detail: str = "",
+    dong_no: str = "",
+    ho_no: str = "",
 ) -> Optional[GeocodingResult]:
     cached = cache_get(
         "geocode",
@@ -818,6 +999,9 @@ def geocode_cached(
         building_hint=building_hint,
         confirmed_category=confirmed_category,
         confirmed_detail=confirmed_detail,
+        dong_no=dong_no,
+        ho_no=ho_no,
+        algorithm_version=_GEOCODE_ALGORITHM_VERSION,
     )
     if cached is not None:
         print(f"[cache] geocode 히트: '{location}'")
@@ -828,11 +1012,15 @@ def geocode_cached(
         building_hint,
         confirmed_category=confirmed_category,
         confirmed_detail=confirmed_detail,
+        dong_no=dong_no,
+        ho_no=ho_no,
     )
     if result:
         cache_set(result.model_dump(), ttl=_GEOCODE_TTL, namespace="geocode",
                   location=location, category=category, building_hint=building_hint,
-                  confirmed_category=confirmed_category, confirmed_detail=confirmed_detail)
+                  confirmed_category=confirmed_category, confirmed_detail=confirmed_detail,
+                  dong_no=dong_no, ho_no=ho_no,
+                  algorithm_version=_GEOCODE_ALGORITHM_VERSION)
     return result
 
 
