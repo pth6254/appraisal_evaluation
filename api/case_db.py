@@ -9,6 +9,8 @@ from db.models import (
     HistoryRecord, LegalRegion, PurchaseCase,
 )
 from db.models import _now_str
+from backend.services.analysis_freshness import analysis_freshness, expiry_for
+from backend.services.candidate_next_actions import candidate_next_actions
 
 
 def _case_dict(case: PurchaseCase, property_count: int = 0) -> dict:
@@ -16,6 +18,8 @@ def _case_dict(case: PurchaseCase, property_count: int = 0) -> dict:
         "id": case.id, "title": case.title, "status": case.status, "purpose": case.purpose,
         "budget_min": case.budget_min, "budget_max": case.budget_max,
         "target_regions": case.target_regions or [], "notes": case.notes,
+        "selected_property_id": case.selected_property_id,
+        "decision_reason": case.decision_reason or "", "decided_at": case.decided_at,
         "created": case.created, "updated": case.updated, "property_count": property_count,
     }
 
@@ -73,6 +77,8 @@ def get_case(case_id: int, user_id: int) -> dict | None:
             for item in properties
         ]
         result["regions"] = [_region_dict(item) for item in regions]
+        for candidate in result["properties"]:
+            candidate["next_actions"] = candidate_next_actions(result, candidate)
         all_checks = [check for checks in checklist_by_property.values() for check in checks]
         done = sum(check["status"] == "done" for check in all_checks)
         result["workspace"] = {
@@ -134,6 +140,7 @@ def add_property(case_id: int, user_id: int, data: dict) -> dict | None:
             session.add(CandidateAnalysis(
                 case_id=case.id, property_id=item.id, analysis_type="appraisal",
                 reference_id=history.id, analyzed_at=history.created,
+                expires_at=expiry_for("appraisal", history.created),
                 summary={
                     "history_id": history.id,
                     "estimated_value": analysis_result.get("estimated_value") or history.result.get("estimated_value"),
@@ -162,6 +169,36 @@ def update_property(case_id: int, property_id: int, user_id: int, data: dict) ->
         return _property_dict(item)
 
 
+def select_final_candidate(case_id: int, property_id: int, user_id: int, reason: str) -> dict | None:
+    """최종 후보와 선택 근거를 같은 트랜잭션에서 저장한다."""
+    with session_scope() as session:
+        case = session.scalar(select(PurchaseCase).where(
+            PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
+        ))
+        if not case:
+            return None
+        selected = session.scalar(select(CaseProperty).where(
+            CaseProperty.id == property_id, CaseProperty.case_id == case.id,
+        ))
+        if not selected:
+            return None
+        now = _now_str()
+        properties = session.scalars(select(CaseProperty).where(CaseProperty.case_id == case.id)).all()
+        for item in properties:
+            if item.id == selected.id:
+                item.status = "selected"
+            elif item.status == "selected":
+                item.status = "shortlisted"
+            item.updated = now
+        case.selected_property_id = selected.id
+        case.decision_reason = reason
+        case.decided_at = now
+        case.status = "decided"
+        case.updated = now
+        session.flush()
+        return _case_dict(case, len(properties))
+
+
 def update_checklist(case_id: int, property_id: int, checklist_id: int, user_id: int, data: dict) -> dict | None:
     with session_scope() as session:
         case = session.scalar(select(PurchaseCase).where(PurchaseCase.id == case_id, PurchaseCase.user_id == user_id))
@@ -185,7 +222,9 @@ def update_checklist(case_id: int, property_id: int, checklist_id: int, user_id:
 
 def validate_candidate(case_id: int, property_id: int, user_id: int) -> bool:
     with session_scope() as session:
-        return session.scalar(select(CaseProperty.id).join(PurchaseCase).where(
+        return session.scalar(select(CaseProperty.id).join(
+            PurchaseCase, PurchaseCase.id == CaseProperty.case_id
+        ).where(
             PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
             CaseProperty.id == property_id, CaseProperty.case_id == case_id,
         )) is not None
@@ -194,7 +233,9 @@ def validate_candidate(case_id: int, property_id: int, user_id: int) -> bool:
 def link_appraisal(case_id: int, property_id: int, history_id: int, user_id: int, result: dict) -> bool:
     """분석 완료 시 후보·분석·가격 체크 항목을 하나의 트랜잭션으로 갱신한다."""
     with session_scope() as session:
-        item = session.scalar(select(CaseProperty).join(PurchaseCase).where(
+        item = session.scalar(select(CaseProperty).join(
+            PurchaseCase, PurchaseCase.id == CaseProperty.case_id
+        ).where(
             PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
             CaseProperty.id == property_id, CaseProperty.case_id == case_id,
         ))
@@ -211,8 +252,9 @@ def link_appraisal(case_id: int, property_id: int, history_id: int, user_id: int
         if analysis:
             analysis.reference_id, analysis.status, analysis.summary = history_id, "completed", summary
             analysis.analyzed_at = analysis.updated = now
+            analysis.expires_at = expiry_for("appraisal", now)
         else:
-            session.add(CandidateAnalysis(case_id=case_id, property_id=property_id, analysis_type="appraisal", reference_id=history_id, summary=summary, analyzed_at=now))
+            session.add(CandidateAnalysis(case_id=case_id, property_id=property_id, analysis_type="appraisal", reference_id=history_id, summary=summary, analyzed_at=now, expires_at=expiry_for("appraisal", now)))
         item.history_id, item.updated = history_id, now
         check = session.scalar(select(CandidateChecklistItem).where(
             CandidateChecklistItem.property_id == property_id, CandidateChecklistItem.category == "price"
@@ -233,7 +275,9 @@ def link_candidate_analysis(case_id: int, property_id: int, user_id: int, analys
     if not category:
         raise ValueError("지원하지 않는 후보 분석 유형")
     with session_scope() as session:
-        item = session.scalar(select(CaseProperty).join(PurchaseCase).where(
+        item = session.scalar(select(CaseProperty).join(
+            PurchaseCase, PurchaseCase.id == CaseProperty.case_id
+        ).where(
             PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
             CaseProperty.id == property_id, CaseProperty.case_id == case_id,
         ))
@@ -246,9 +290,11 @@ def link_candidate_analysis(case_id: int, property_id: int, user_id: int, analys
         if analysis:
             analysis.status, analysis.summary = "completed", summary
             analysis.analyzed_at = analysis.updated = now
+            analysis.expires_at = expiry_for(analysis_type, now)
         else:
             session.add(CandidateAnalysis(case_id=case_id, property_id=property_id,
-                        analysis_type=analysis_type, status="completed", summary=summary, analyzed_at=now))
+                        analysis_type=analysis_type, status="completed", summary=summary, analyzed_at=now,
+                        expires_at=expiry_for(analysis_type, now)))
         check = session.scalar(select(CandidateChecklistItem).where(
             CandidateChecklistItem.property_id == property_id, CandidateChecklistItem.category == category,
         ))
@@ -334,9 +380,13 @@ def _property_dict(item: CaseProperty, history: HistoryRecord | None = None, ana
 
 
 def _analysis_dict(item: CandidateAnalysis) -> dict:
+    freshness = analysis_freshness(
+        item.analysis_type, item.analyzed_at, item.expires_at, item.status,
+    )
     return {"id": item.id, "analysis_type": item.analysis_type, "reference_id": item.reference_id,
-            "status": item.status, "summary": item.summary or {}, "analyzed_at": item.analyzed_at,
-            "expires_at": item.expires_at, "updated": item.updated}
+            "status": freshness["status"], "summary": item.summary or {}, "analyzed_at": item.analyzed_at,
+            "expires_at": freshness["expires_at"], "days_remaining": freshness["days_remaining"],
+            "updated": item.updated}
 
 
 def _checklist_dict(item: CandidateChecklistItem) -> dict:

@@ -187,6 +187,7 @@ export interface CaseAppraisalSummary {
 }
 
 export interface CaseProperty {
+  next_actions?: CandidateNextAction[];
   id: number;
   case_id: number;
   name: string;
@@ -207,6 +208,15 @@ export interface CaseProperty {
   updated: string;
 }
 
+export interface CandidateNextAction {
+  code: string;
+  title: string;
+  reason: string;
+  target: "price" | "appraisal" | "simulation" | "rights" | "checklist";
+  priority: "warning" | "input" | "normal";
+  checklist_id: number | null;
+}
+
 export interface CandidateAnalysis {
   id: number;
   analysis_type: "appraisal" | "simulation" | "rights";
@@ -215,6 +225,7 @@ export interface CandidateAnalysis {
   summary: Record<string, unknown>;
   analyzed_at: string | null;
   expires_at: string | null;
+  days_remaining: number | null;
   updated: string;
 }
 
@@ -256,6 +267,9 @@ export interface PurchaseCase {
   created: string;
   updated: string;
   property_count: number;
+  selected_property_id: number | null;
+  decision_reason: string;
+  decided_at: string | null;
   properties?: CaseProperty[];
   regions?: CaseRegion[];
   workspace?: {
@@ -264,6 +278,88 @@ export interface PurchaseCase {
     warning_count: number;
     blocked_count: number;
     progress_percent: number;
+  };
+}
+
+export interface CaseCandidateComparisonRow {
+  property_id: number;
+  name: string;
+  address: string;
+  status: CaseProperty["status"];
+  asking_price: number | null;
+  area_sqm: number | null;
+  estimated_value: number | null;
+  price_gap: number | null;
+  price_gap_ratio: number | null;
+  funding: Record<string, unknown> | null;
+  rights: Record<string, unknown> | null;
+  analysis_status: Record<"appraisal" | "simulation" | "rights", "completed" | "stale" | "missing" | "pending" | "failed">;
+  review_progress: number;
+  missing: string[];
+  warnings: string[];
+  highlights: string[];
+  decision_ready: boolean;
+}
+
+export interface CaseCandidateComparison {
+  case_id: number;
+  case_title: string;
+  budget_min: number | null;
+  budget_max: number | null;
+  selected_property_id: number | null;
+  decision_reason: string;
+  decided_at: string | null;
+  rows: CaseCandidateComparisonRow[];
+}
+
+export type ExecutionPhase = "before_contract" | "before_closing" | "closing_day" | "after_closing";
+export type ExecutionTaskStatus = "scheduled" | "in_progress" | "waiting_external" | "done" | "problem" | "not_applicable";
+export type ExecutionActor = "self" | "bank" | "broker" | "legal_agent" | "tax_agent" | "other";
+
+export interface CaseExecutionTask {
+  id: number;
+  plan_id: number;
+  phase: ExecutionPhase;
+  template_key: string | null;
+  title: string;
+  description: string;
+  actor_type: ExecutionActor;
+  status: ExecutionTaskStatus;
+  required: boolean;
+  due_date: string | null;
+  overdue: boolean;
+  completed_at: string | null;
+  checked_by: string;
+  outcome: string;
+  evidence_note: string;
+  follow_up: string;
+  source: "system" | "user";
+  sort_order: number;
+  created: string;
+  updated: string;
+}
+
+export interface CaseExecution {
+  case_id: number;
+  requires_selection: boolean;
+  plan: {
+    id: number;
+    property_id: number | null;
+    contract_planned_date: string | null;
+    closing_planned_date: string | null;
+    status: string;
+    created: string;
+    updated: string;
+  } | null;
+  tasks: CaseExecutionTask[];
+  summary: {
+    progress_percent: number;
+    total: number;
+    done: number;
+    overdue: number;
+    problems: number;
+    waiting_external: number;
+    blockers: { task_id: number; title: string; reason: string }[];
   };
 }
 

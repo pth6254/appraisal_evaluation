@@ -1,4 +1,4 @@
-import type { ActivityItem, ConciergeResponse, PurchaseCase, RecommendationRequest, SimulationRequest } from "./types";
+import type { ActivityItem, CaseCandidateComparison, CaseExecution, ConciergeResponse, ExecutionActor, ExecutionPhase, ExecutionTaskStatus, PurchaseCase, RecommendationRequest, SimulationRequest } from "./types";
 
 const BASE = "/api";
 
@@ -173,6 +173,36 @@ export const api = {
 
   caseOne: (id: number) => req<PurchaseCase>(`/cases/${id}`),
 
+  caseComparison: (id: number, propertyIds: number[]) => {
+    const query = new URLSearchParams();
+    propertyIds.forEach((propertyId) => query.append("property_id", String(propertyId)));
+    return req<CaseCandidateComparison>(`/cases/${id}/comparison?${query.toString()}`);
+  },
+
+  selectCaseCandidate: (caseId: number, propertyId: number, reason: string) =>
+    req<PurchaseCase>(`/cases/${caseId}/decision`, {
+      method: "POST", body: JSON.stringify({ property_id: propertyId, reason }),
+    }),
+
+  caseExecution: (caseId: number) => req<CaseExecution>(`/cases/${caseId}/execution`),
+
+  updateCaseExecution: (caseId: number, data: {
+    contract_planned_date?: string | null; closing_planned_date?: string | null;
+  }) => req<CaseExecution>(`/cases/${caseId}/execution`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  addExecutionTask: (caseId: number, data: {
+    phase: ExecutionPhase; title: string; description?: string; actor_type?: ExecutionActor;
+    required?: boolean; due_date?: string | null;
+  }) => req(`/cases/${caseId}/execution/tasks`, { method: "POST", body: JSON.stringify(data) }),
+
+  updateExecutionTask: (caseId: number, taskId: number, data: {
+    status?: ExecutionTaskStatus; actor_type?: ExecutionActor; due_date?: string | null;
+    checked_by?: string; outcome?: string; evidence_note?: string; follow_up?: string;
+  }) => req(`/cases/${caseId}/execution/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  deleteExecutionTask: (caseId: number, taskId: number) =>
+    req<void>(`/cases/${caseId}/execution/tasks/${taskId}`, { method: "DELETE" }),
+
   updateCase: (id: number, data: Partial<Pick<PurchaseCase,
     "title" | "status" | "budget_min" | "budget_max" | "target_regions" | "notes"
   >>) => req<PurchaseCase>(`/cases/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -189,6 +219,7 @@ export const api = {
     req<void>(`/cases/${caseId}/properties/${propertyId}`, { method: "DELETE" }),
 
   updateCaseProperty: (caseId: number, propertyId: number, data: {
+    asking_price?: number | null;
     status?: "reviewing" | "shortlisted" | "rejected" | "selected"; notes?: string;
   }) => req(`/cases/${caseId}/properties/${propertyId}`, { method: "PATCH", body: JSON.stringify(data) }),
 

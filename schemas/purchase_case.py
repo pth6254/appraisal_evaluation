@@ -11,6 +11,9 @@ MarketPropertyType = Literal[
     "all", "apartment", "row_house", "detached", "officetel",
     "non_residential", "industrial", "land",
 ]
+ExecutionPhase = Literal["before_contract", "before_closing", "closing_day", "after_closing"]
+ExecutionActor = Literal["self", "bank", "broker", "legal_agent", "tax_agent", "other"]
+ExecutionTaskStatus = Literal["scheduled", "in_progress", "waiting_external", "done", "problem", "not_applicable"]
 
 
 class PurchaseCaseCreate(BaseModel):
@@ -50,6 +53,7 @@ class CasePropertyCreate(BaseModel):
 
 
 class CasePropertyUpdate(BaseModel):
+    asking_price: int | None = Field(default=None, ge=0)
     status: PropertyStatus | None = None
     notes: str | None = Field(default=None, max_length=5000)
 
@@ -57,6 +61,41 @@ class CasePropertyUpdate(BaseModel):
 class ChecklistItemUpdate(BaseModel):
     status: ChecklistStatus
     evidence: str | None = Field(default=None, max_length=5000)
+
+
+class CaseDecisionCreate(BaseModel):
+    property_id: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=5000)
+
+
+class ExecutionPlanUpdate(BaseModel):
+    contract_planned_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    closing_planned_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.contract_planned_date and self.closing_planned_date and self.contract_planned_date > self.closing_planned_date:
+            raise ValueError("잔금 예정일은 계약 예정일보다 빠를 수 없습니다")
+        return self
+
+
+class ExecutionTaskCreate(BaseModel):
+    phase: ExecutionPhase
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=5000)
+    actor_type: ExecutionActor = "self"
+    required: bool = False
+    due_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class ExecutionTaskUpdate(BaseModel):
+    status: ExecutionTaskStatus | None = None
+    actor_type: ExecutionActor | None = None
+    due_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    checked_by: str | None = Field(default=None, max_length=150)
+    outcome: str | None = Field(default=None, max_length=5000)
+    evidence_note: str | None = Field(default=None, max_length=5000)
+    follow_up: str | None = Field(default=None, max_length=5000)
 
 
 class CaseRegionCreate(BaseModel):

@@ -106,6 +106,11 @@ class PurchaseCase(Base):
     budget_max: Mapped[int | None] = mapped_column(BigInteger, default=None)
     target_regions: Mapped[list] = mapped_column(JSON, default=list)
     notes: Mapped[str] = mapped_column(Text, default="")
+    selected_property_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("case_properties.id", ondelete="SET NULL"), default=None, index=True
+    )
+    decision_reason: Mapped[str] = mapped_column(Text, default="")
+    decided_at: Mapped[str | None] = mapped_column(String(32), default=None)
     created: Mapped[str] = mapped_column(String(32), default=_now_str, index=True)
     updated: Mapped[str] = mapped_column(String(32), default=_now_str)
 
@@ -178,6 +183,51 @@ class CandidateChecklistItem(Base):
     updated: Mapped[str] = mapped_column(String(32), default=_now_str)
 
     __table_args__ = (Index("uq_candidate_checklist_item", "property_id", "category", "title", unique=True),)
+
+
+class CaseExecutionPlan(Base):
+    """최종 후보 선택 이후의 계약·잔금 준비 계획."""
+
+    __tablename__ = "case_execution_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_cases.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    property_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("case_properties.id", ondelete="SET NULL"), default=None, index=True)
+    contract_planned_date: Mapped[str | None] = mapped_column(String(10), default=None)
+    closing_planned_date: Mapped[str | None] = mapped_column(String(10), default=None)
+    status: Mapped[str] = mapped_column(String(20), default="preparing", nullable=False)
+    created: Mapped[str] = mapped_column(String(32), default=_now_str)
+    updated: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+
+class CaseExecutionTask(Base):
+    """외부 수행 여부와 확인 근거를 기록하는 거래 준비 항목."""
+
+    __tablename__ = "case_execution_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("case_execution_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    property_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("case_properties.id", ondelete="SET NULL"), default=None, index=True)
+    template_key: Mapped[str | None] = mapped_column(String(80), default=None)
+    phase: Mapped[str] = mapped_column(String(30), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    actor_type: Mapped[str] = mapped_column(String(30), default="self", nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="scheduled", nullable=False)
+    required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    due_date: Mapped[str | None] = mapped_column(String(10), default=None, index=True)
+    completed_at: Mapped[str | None] = mapped_column(String(32), default=None)
+    checked_by: Mapped[str] = mapped_column(String(150), default="")
+    outcome: Mapped[str] = mapped_column(Text, default="")
+    evidence_note: Mapped[str] = mapped_column(Text, default="")
+    follow_up: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(20), default="system", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created: Mapped[str] = mapped_column(String(32), default=_now_str)
+    updated: Mapped[str] = mapped_column(String(32), default=_now_str)
+
+    __table_args__ = (Index("uq_case_execution_task_template", "plan_id", "template_key", unique=True),)
 
 
 class CaseRegion(Base):
