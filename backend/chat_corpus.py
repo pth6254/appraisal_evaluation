@@ -199,19 +199,32 @@ def _keyword_score(query: str, text: str) -> float:
     return sum(text.count(t) for t in tokens) / len(tokens)
 
 
-def search(query: str, k: int = 4) -> list[dict]:
+def search(query: str, k: int = 4, *, trace: dict | None = None) -> list[dict]:
     """관련 청크 상위 k개. [{title, source, text, score}]"""
     ensure_corpus()
     with session_scope() as session:
         rows = list(session.scalars(select(ChatChunk)))
 
     if not rows:
+        if trace is not None:
+            trace.update(mode="empty", corpus_count=0)
         return []
 
     q_vec = None
     if any(r.embedding for r in rows):
         vecs = _try_embed([query])
         q_vec = vecs[0] if vecs else None
+
+    if trace is not None:
+        import hashlib
+        import json
+        embedded_count = sum(bool(row.embedding) for row in rows)
+        mode = "keyword" if q_vec is None else "embedding" if embedded_count == len(rows) else "mixed"
+        trace.update(mode=mode, corpus_count=len(rows), embedded_count=embedded_count,
+                     embedding_fallback=bool(embedded_count and q_vec is None),
+                     corpus_sha256=hashlib.sha256(json.dumps(
+                         [(r.id, r.title, r.source, r.text, r.embedding) for r in sorted(rows, key=lambda r: r.id)],
+                         ensure_ascii=False, sort_keys=True).encode()).hexdigest())
 
     scored = []
     for r in rows:

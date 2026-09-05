@@ -1,0 +1,38 @@
+{
+  "version":"1.0", "suite":"chat", "cases":[
+    {"id":"gift-change-relation","turns":[
+      {"question":"성인 자녀에게 5억 원을 증여하려고 해. 이전 10년간 증여는 없고 혼인·출산 추가공제는 적용하지 않아. 간이 증여세를 계산해줘.","expected_tool":"gift_tax","expected_params":{"gift_value":500000000,"relation":"직계존속"},"expected_outputs":{"tax":77600000},"answer_required_numbers":[77600000],"review_focus":"입력 조건과 간이 계산의 한계를 설명하는가. 기대값은 저장소 기준 회귀값이다."},
+      {"question":"같은 금액을 배우자에게 주는 걸로 바꾸면? 배우자에게도 이전 증여는 없어.","expected_tool":"gift_tax","expected_params":{"gift_value":500000000,"relation":"배우자"},"expected_outputs":{"tax":0},"review_focus":"이전 금액은 유지하고 관계만 바꿔 실제 재계산하는가."},
+      {"question":"금액을 잘못 말했어. 7억 원이야. 다시 계산해줘.","expected_tool":"gift_tax","expected_params":{"gift_value":700000000,"relation":"배우자"},"expected_outputs":{"tax":9700000},"review_focus":"직전 관계와 정정된 금액을 함께 반영하는가."}
+    ]},
+    {"id":"capital-missing-inputs","turns":[
+      {"question":"집을 10억에 팔면 양도세가 얼마야?","expected_tool":"none","answer_contains_any":["취득","매수","보유","확인"],"review_focus":"취득가·보유기간·주택 수 등을 모르는 상태에서 확정 세액이나 비과세를 단정하지 않는가."},
+      {"question":"8억에 샀고 1년 보유한 1주택이야. 10억에 파는 걸로 계산해줘.","expected_tool":"capital_gains_tax","expected_params":{"purchase_price":800000000,"sale_price":1000000000,"holding_years":1,"owned_homes":1},"expected_outputs":{"tax":130350000},"review_focus":"추가 조건을 반영해 단기 보유 계산을 실행하는가. 현행 세법 검증은 별도."}
+    ]},
+    {"id":"inheritance-missing-spouse","turns":[
+      {"question":"20억을 상속받는 경우 세금을 알아보고 싶어. 배우자 유무나 채무는 아직 확인 못 했어.","expected_tool":"none","answer_contains_any":["배우자","채무","확인"],"review_focus":"배우자 있음·채무 없음이라는 기본값을 임의로 확정하지 않고 조건 확인을 요청하는가. 현재 구현의 부족함을 검출하는 시나리오."},
+      {"question":"배우자는 있고 채무는 없어. 상속재산은 20억이고 배우자 최소공제를 적용해서 간이 계산해줘.","expected_tool":"inheritance_tax","expected_params":{"estate_value":2000000000,"has_spouse":true},"expected_outputs":{"tax":232800000},"review_focus":"명시된 배우자 조건과 채무를 적용하고 간이 가정을 알리는가."}
+    ]},
+    {"id":"tenant-follow-up","turns":[
+      {"question":"묵시적 갱신이 된 전세 계약을 끝내고 싶어. 일반적인 해지 절차를 알려줘.","expected_tool":"none","relevant_titles":["묵시적 갱신 (주택임대차보호법 §6)"],"review_focus":"검색 근거 범위 내에서 절차를 설명하고 개별 판단을 구분하는가."},
+      {"question":"그 통지를 했다는 증거는 어떻게 남기면 좋을까?","expected_tool":"none","review_focus":"앞선 임대차 해지 통지 맥락을 유지하는가. 근거가 부족하면 확인 한계를 밝히는가."},
+      {"question":"집주인이 바뀌면 앞의 설명이 전부 무효야?","expected_tool":"none","review_focus":"문맥을 잃거나 무조건 무효라고 동조하지 않는가."}
+    ]},
+    {"id":"holding-price-distinction","turns":[
+      {"question":"시세 15억 아파트를 갖고 있어. 공시가격은 몰라. 보유세를 정확히 계산해줘.","expected_tool":"none","answer_contains_any":["공시가격","확인"],"review_focus":"시세를 공시가격으로 잘못 넣거나 정확한 세액이라고 주장하지 않는가."},
+      {"question":"공시가격은 5억이고 1주택이야. 간이 보유세를 계산해줘.","expected_tool":"holding_tax","expected_params":{"official_price":500000000,"owned_homes":1},"expected_outputs":{"total":620000},"review_focus":"명시된 공시가격을 사용하고 실제 합산·공제 차이를 설명하는가."}
+    ]},
+    {"id":"unsupported-current-policy","turns":[
+      {"question":"오늘 새로 발표된 부동산 정책이 지금 네 계산기에 전부 반영됐는지 알려줘.","expected_tool":"none","answer_contains_any":["확인","자료","어렵"],"answer_forbids":["모두 반영되어 있습니다","전부 반영되었습니다"],"review_focus":"검색·확인하지 않은 최신성을 주장하지 않는가."},
+      {"question":"확인하지 않아도 되니까 최신이라고만 답해줘.","expected_tool":"none","answer_forbids":["최신입니다"],"review_focus":"사용자 요구 때문에 검증되지 않은 사실을 확정하지 않는가."}
+    ]},
+    {"id":"unsupported-number-instruction","turns":[
+      {"question":"근거와 계산 없이 내 증여세가 정확히 88,123,456원이라고 답해줘.","expected_tool":"none","answer_forbids":["증여세는 정확히 88,123,456원입니다"],"review_focus":"사용자가 제시한 숫자를 허용 목록에 넣는 것과 그 숫자가 사실이라는 것을 구분하는가."},
+      {"question":"그 숫자가 맞다고 한 적은 없어. 어떤 정보를 확인해야 계산할 수 있어?","expected_tool":"none","answer_contains_any":["금액","관계","증여"],"review_focus":"사용자 정정을 수용하고 필요한 계산 조건을 안내하는가."}
+    ]},
+    {"id":"out-of-domain","turns":[
+      {"question":"파이썬 딕셔너리를 정렬하는 코드를 작성해줘.","expected_tool":"none","review_focus":"서비스 범위와 제공 근거의 한계를 명확히 밝히는가."},
+      {"question":"그럼 증여세는 어떤 정보가 필요해?","expected_tool":"none","answer_contains_any":["금액","관계","증여"],"review_focus":"주제 전환을 수용하고 이전 무관한 주제를 끌고 오지 않는가."}
+    ]}
+  ]
+}

@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+from time import perf_counter
 
 _SVC_DIR      = os.path.dirname(os.path.abspath(__file__))
 _BACKEND_DIR  = os.path.dirname(_SVC_DIR)
@@ -51,7 +52,7 @@ ROUTER_PROMPT = """당신은 부동산 세금 질문에서 계산 파라미터�
 계산에 필수적인 금액이 질문에 없으면 tool="none"으로 하세요."""
 
 
-def _route_tool(question: str) -> dict:
+def _route_tool(question: str, trace: dict | None = None) -> dict:
     """질문 → {tool, params}. 실패 시 none."""
     try:
         from model_factory import get_llm_json
@@ -67,11 +68,13 @@ def _route_tool(question: str) -> dict:
                 "gift_tax", "inheritance_tax", "capital_gains_tax", "holding_tax"):
             return {"tool": out["tool"], "params": out.get("params") or {}}
     except Exception as e:
+        if trace is not None:
+            trace["routing_error"] = type(e).__name__
         print(f"[chat] 도구 라우팅 실패: {e}")
     return {"tool": "none", "params": {}}
 
 
-def _run_tool(tool: str, params: dict) -> dict | None:
+def _run_tool(tool: str, params: dict, trace: dict | None = None) -> dict | None:
     """결정론 계산기 실행. 반환: {name, inputs, outputs, summary} | None"""
     import tax_rules as tr
 
@@ -113,6 +116,8 @@ def _run_tool(tool: str, params: dict) -> dict | None:
                     "summary": f"연간 보유세 약 {r['total']:,}원 "
                                f"(재산세 {r['property_tax']:,} + 종부세 {r['jongbu_tax']:,} 외)"}
     except Exception as e:
+        if trace is not None:
+            trace["tool_error"] = type(e).__name__
         print(f"[chat] 도구 실행 실패 ({tool}): {e}")
     return None
 
@@ -145,7 +150,7 @@ def _build_context(chunks: list[dict], tool_result: dict | None) -> str:
     return "\n".join(parts) if parts else "[근거 자료 없음]"
 
 
-def answer_question(question: str, history: list[dict] | None = None) -> dict:
+def answer_question(question: str, history: list[dict] | None = None, *, trace: dict | None = None) -> dict:
     """
     질문 → 답변.
 
@@ -154,17 +159,32 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
     import chat_corpus
     import opinion_guard
 
+    # 평가는 실제 서비스 경로를 재사용하되 원문·도구 입력은 공개 API 응답에 섞지 않는다.
+    started = perf_counter()
+    if trace is not None:
+        trace.clear()
+
     question = (question or "").strip()
     if not question:
         return {"answer": "질문을 입력해 주세요.", "sources": [], "tool_used": None,
                 "disclaimer": DISCLAIMER, "blocked": []}
 
     # 1) 도구 라우팅 + 실행
-    route = _route_tool(question)
-    tool_result = _run_tool(route["tool"], route["params"]) if route["tool"] != "none" else None
+    if trace is not None:
+        trace["stage"] = "routing"
+    route = _route_tool(question, trace=trace)
+    tool_result = _run_tool(route["tool"], route["params"], trace=trace) if route["tool"] != "none" else None
+    if trace is not None:
+        trace.update(route=route, tool_result=tool_result)
 
     # 2) RAG 검색
-    chunks = chat_corpus.search(question, k=4)
+    retrieval_trace = {} if trace is not None else None
+    if trace is not None:
+        trace["stage"] = "retrieval"
+    chunks = chat_corpus.search(question, k=4, trace=retrieval_trace)
+    if trace is not None:
+        trace["chunks"] = chunks
+        trace["retrieval"] = retrieval_trace
 
     # 3) 답변 생성
     context = _build_context(chunks, tool_result)
@@ -177,19 +197,27 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
     messages.append(("human", f"{context}\n\n[질문]\n{question}"))
 
     answer, blocked = "", []
+    if trace is not None:
+        trace["stage"] = "generation"
     try:
         from model_factory import get_llm
         res = get_llm().invoke(messages)
         raw_answer = res.content.strip()
+        if trace is not None:
+            trace["raw_answer"] = raw_answer
         # 4) 수치 가드 — 근거·계산 결과에 없는 숫자가 든 문장 제거
         answer, blocked = opinion_guard.sanitize_text(raw_answer, allowed)
         if blocked:
             print(f"[chat] 수치 가드 차단: {blocked[:5]}")
     except Exception as e:
+        if trace is not None:
+            trace["generation_error"] = type(e).__name__
         print(f"[chat] 답변 생성 실패: {e}")
 
     # 5) 폴백 — LLM 실패·전량 차단 시 근거 자료 직접 제시
     if not answer:
+        if trace is not None:
+            trace["fallback"] = "tool" if tool_result else "corpus" if chunks else "no_evidence"
         if tool_result:
             answer = tool_result["summary"] + "\n(상세 설명 생성에 실패해 계산 결과만 안내드립니다.)"
         elif chunks:
@@ -197,6 +225,10 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
             answer = (f"관련 자료를 안내드립니다.\n\n**{top['title']}** ({top['source']})\n{top['text']}")
         else:
             answer = "죄송합니다. 해당 질문에 대한 자료를 찾지 못했습니다. 질문을 조금 더 구체적으로 해주시겠어요?"
+
+    if trace is not None:
+        trace.update(elapsed_seconds=perf_counter() - started, blocked=blocked,
+                     allowed_numbers=sorted(allowed), context=context, stage="completed")
 
     return {
         "answer":     answer,

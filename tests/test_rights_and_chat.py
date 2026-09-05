@@ -173,3 +173,29 @@ class TestChatService:
         monkeypatch.setattr(model_factory, "get_llm", boom)
         out = cs.answer_question("전세 보증금 못 받으면?")
         assert out["answer"] and out["disclaimer"]
+
+    def test_evaluation_trace_is_opt_in_and_not_exposed_in_response(self, monkeypatch):
+        import model_factory
+        import services.chat_service as cs
+        monkeypatch.setattr(model_factory, "get_llm_json", lambda: _FakeLLM('{"tool":"none","params":{}}'))
+        monkeypatch.setattr(model_factory, "get_llm", lambda: _FakeLLM("관련 자료를 확인하세요."))
+        trace = {}
+        output = cs.answer_question("묵시적 갱신", trace=trace)
+        assert set(output) == {"answer", "sources", "tool_used", "disclaimer", "blocked"}
+        assert trace["raw_answer"] == output["answer"]
+        assert trace["retrieval"]["mode"] == "keyword"
+        assert trace["retrieval"]["corpus_sha256"]
+        assert trace["route"]["tool"] == "none"
+
+    def test_evaluation_trace_marks_llm_failure_even_with_fallback_answer(self, monkeypatch):
+        import model_factory
+        import services.chat_service as cs
+        def boom():
+            raise RuntimeError("down")
+        monkeypatch.setattr(model_factory, "get_llm_json", boom)
+        monkeypatch.setattr(model_factory, "get_llm", boom)
+        trace = {}
+        output = cs.answer_question("묵시적 갱신", trace=trace)
+        assert output["answer"]
+        assert trace["routing_error"] == trace["generation_error"] == "RuntimeError"
+        assert trace["fallback"] == "corpus"

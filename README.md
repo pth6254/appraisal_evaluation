@@ -708,11 +708,26 @@ pytest tests/test_geocoding_rules.py      # LLM 후보와 결정론적 주소·�
 pytest tests/test_purchase_cases.py       # 케이스·후보 비교·최종 선택·거래 실행 계획
 ```
 
-전체 743개 테스트 중 DB에 접근하지 않는 나머지는 Postgres·Redis 없이도 동작한다 —
+DB에 접근하지 않는 테스트는 Postgres·Redis 없이도 동작한다 —
 `db/base.py`가 엔진을 지연 생성해 실제로 DB를 쓰는 시점에만 `DATABASE_URL`을 확인하기 때문이다.
 
 GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 서비스 컨테이너와
 함께 전체 스위트를 실행한다.
+
+### 별도 평가·검증 도구
+
+`evaluation/`에서 계산기 고정 기대값, RAG 검색 순위, 실제 챗봇의 여러 턴 대화를 공통 JSON·HTML 보고서로 평가한다.
+기존 회귀 테스트와 함께 사용하며, 자동 검사와 사람 채점을 구분한다. [실행·데이터셋·결과 해석 안내](evaluation/README.md)를 참고한다.
+
+```bash
+./venv-wsl/bin/python -m evaluation run --suite all                   # 외부 호출 없는 계산·시드 키워드 검색
+./venv-wsl/bin/python -m evaluation run --suite chat --live --max-cases 1 --timeout 300
+./venv-wsl/bin/python -m evaluation run --suite rag --live            # 설정된 실제 코퍼스 검색
+```
+
+결과는 `evaluation-results/<실행ID>/report.html`에서 확인한다. `--live`는 설정된 모델·임베딩을 실제 호출한다.
+초기 계산 기대값은 기존 수기 회귀값으로, 현행 법령이나 외부기관 계산기 대조 완료를 의미하지 않는다.
+CI에는 외부 호출 없는 계산·시드 검색 평가만 포함한다.
 
 > **주의**: `AppraisalResult`는 pydantic 기본 설정상 **모르는 필드를 조용히 무시**한다.
 > 제거된 `judgement`·`gap_rate` 같은 인자를 테스트에서 넘겨도 오류 없이 통과하므로

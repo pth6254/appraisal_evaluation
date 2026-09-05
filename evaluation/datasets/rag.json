@@ -1,0 +1,11 @@
+{
+  "version":"1.0", "suite":"rag", "cases":[
+    {"id":"tenant-opposability","question":"대항력 전입신고 근저당","relevant_titles":["대항력 (주택임대차보호법 §3)"]},
+    {"id":"fixed-date","question":"확정일자 우선변제권","relevant_titles":["우선변제권과 확정일자 (주택임대차보호법 §3-2)"]},
+    {"id":"implicit-renewal","question":"묵시적 갱신 해지","relevant_titles":["묵시적 갱신 (주택임대차보호법 §6)"]},
+    {"id":"gift-deduction","question":"증여세 공제 세율","relevant_titles":["증여세 공제와 세율"]},
+    {"id":"inheritance-deduction","question":"상속세 배우자 공제","relevant_titles":["상속세 공제와 세율"]},
+    {"id":"holding-tax","question":"보유세 재산세 종합부동산세","relevant_titles":["보유세 개요 (재산세·종합부동산세)"]},
+    {"id":"out-of-domain","question":"파이썬 딕셔너리 정렬","relevant_titles":[],"expect_no_results":true}
+  ]
+}
