@@ -1,0 +1,1664 @@
+{
+  "version": "1.0",
+  "suite": "decision",
+  "cases": [
+    {
+      "id": "review-progression",
+      "rationale": "??? ???? ????? ??? ??? ?? ??? ???? ???.",
+      "steps": [
+        {
+          "name": "?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": null,
+              "analyses": [],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "asking_price",
+                "appraisal",
+                "simulation",
+                "rights",
+                "checklist_4",
+                "checklist_5"
+              ]
+            },
+            "first_actions": {
+              "1": "asking_price"
+            },
+            "execution_summary": {
+              "total": 0
+            }
+          }
+        },
+        {
+          "name": "?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "forbidden_actions": {
+              "1": [
+                "asking_price"
+              ]
+            },
+            "required_actions": {
+              "1": [
+                "appraisal",
+                "simulation",
+                "rights"
+              ]
+            }
+          }
+        },
+        {
+          "name": "?? ? ????? ???",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "todo"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "checklist_4",
+                "checklist_5"
+              ]
+            }
+          }
+        },
+        {
+          "name": "?? ?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "cheap-but-risky",
+      "rationale": "?? ??? ?? ??? ???? ??? ?? ??? ???? ????.",
+      "steps": [
+        {
+          "name": "??? ??? ??? ?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 800000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 800000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "danger",
+                    "risk_label": "???"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            },
+            {
+              "id": 2,
+              "name": "?? B",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              2
+            ],
+            "first_actions": {
+              "1": "rights_risk"
+            },
+            "comparison_values": {
+              "1": {
+                "price_gap": -100000000
+              },
+              "2": {
+                "price_gap": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 850000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 800000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 800000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "danger",
+                    "risk_label": "???"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            },
+            {
+              "id": 2,
+              "name": "?? B",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "rights_risk"
+              ],
+              "2": [
+                "budget"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "analysis-expiry",
+      "rationale": "?? ???? 7?14?30? ??? ????. ????? ??? ??? ?? ???.",
+      "steps": [
+        {
+          "name": "???? ?? ??",
+          "as_of": "2026-09-08T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ]
+          }
+        },
+        {
+          "name": "???? ?? ??",
+          "as_of": "2026-09-08T12:00:01",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "rights"
+              ]
+            },
+            "forbidden_actions": {
+              "1": [
+                "simulation",
+                "appraisal"
+              ]
+            }
+          }
+        },
+        {
+          "name": "???? ?? ??",
+          "as_of": "2026-09-15T12:00:01",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "rights",
+                "simulation"
+              ]
+            },
+            "forbidden_actions": {
+              "1": [
+                "appraisal"
+              ]
+            }
+          }
+        },
+        {
+          "name": "????? ??",
+          "as_of": "2026-10-01T12:00:01",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "rights",
+                "simulation",
+                "appraisal"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "price-change-funding",
+      "rationale": "?? ?? ? ???? ??? ????? ????? ???? ????.",
+      "steps": [
+        {
+          "name": "?? ?? ? ?? ????",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 920000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "simulation_price"
+              ]
+            }
+          }
+        },
+        {
+          "name": "? ???? ?? ???",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 920000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 920000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ],
+            "forbidden_actions": {
+              "1": [
+                "simulation_price"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "failed-analysis",
+      "rationale": "?? ?????? ???? ????? ? ??? ????.",
+      "steps": [
+        {
+          "name": "?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  },
+                  "status": "failed"
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  },
+                  "status": "pending"
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "appraisal",
+                "simulation"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "rejected-candidate",
+      "rationale": "?? ??? ?? ???? ?? ?? ?? ???? ?? ???.",
+      "steps": [
+        {
+          "name": "?? ?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "danger",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ],
+              "status": "rejected"
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "forbidden_actions": {
+              "1": [
+                "rights_risk",
+                "rights",
+                "budget"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "selection-to-execution",
+      "rationale": "?? ????? ????? ??? ?? ?? ?? ??? ???? ????. ??? ????? ?? ??? ?????.",
+      "steps": [
+        {
+          "name": "?? ?",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ],
+            "execution_summary": {
+              "total": 0
+            }
+          }
+        },
+        {
+          "name": "?? ? ?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ],
+            "execution_summary": {
+              "total": 18,
+              "done": 0,
+              "overdue": 0
+            },
+            "due_dates": {
+              "site_visit": null,
+              "closing_payment": null
+            }
+          },
+          "selected_property_id": 1
+        },
+        {
+          "name": "????? ?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ],
+            "execution_summary": {
+              "total": 18,
+              "overdue": 0
+            },
+            "due_dates": {
+              "site_visit": "2026-09-08",
+              "rights_check": "2026-09-14",
+              "loan_approval": "2026-10-16",
+              "closing_payment": "2026-10-30",
+              "registration_complete": "2026-11-29"
+            }
+          },
+          "selected_property_id": 1,
+          "contract_date": "2026-09-15",
+          "closing_date": "2026-10-30"
+        },
+        {
+          "name": "??? ??? ?? ??",
+          "as_of": "2026-09-20T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "execution_summary": {
+              "total": 18,
+              "done": 1,
+              "overdue": 6,
+              "problems": 1,
+              "waiting_external": 1,
+              "progress_percent": 6
+            }
+          },
+          "selected_property_id": 1,
+          "contract_date": "2026-09-15",
+          "closing_date": "2026-10-30",
+          "execution_tasks": [
+            {
+              "template_key": "site_visit",
+              "status": "done"
+            },
+            {
+              "template_key": "contract_review",
+              "status": "problem"
+            },
+            {
+              "template_key": "loan_approval",
+              "status": "waiting_external"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "price-premium",
+      "rationale": "?? ?? ??? ??? ?? ? ??? ??? ??? ???.",
+      "steps": [
+        {
+          "name": "?? ?? ?? ??",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 960000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 960000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "price_gap"
+              ]
+            },
+            "comparison_values": {
+              "1": {
+                "price_gap": 60000000,
+                "price_gap_ratio": 6.7
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

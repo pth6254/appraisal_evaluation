@@ -11,13 +11,21 @@ from evaluation import suites
 
 
 def _execute(suite, payload, live, k, on_progress=None):
+    from evaluation.decision_schema import DecisionCase, AvmCase, IntentCase
+    from evaluation import decision_suites
+    if suite == "decision":
+        return decision_suites.decision(DecisionCase.model_validate(payload))
+    if suite == "avm":
+        return decision_suites.avm(AvmCase.model_validate(payload), live=live)
+    if suite == "intent" and live:
+        return decision_suites.intent(IntentCase.model_validate(payload), on_progress=on_progress)
     if suite == "calculator":
         return suites.calculator(CalculatorCase.model_validate(payload))
     if suite == "rag":
         return suites.rag(RagCase.model_validate(payload), live=live, k=k)
     if suite == "chat" and live:
         return suites.chat(ChatCase.model_validate(payload), on_progress=on_progress)
-    raise ValueError("대화 평가는 --live가 필요합니다")
+    raise ValueError("대화·의도 평가는 --live가 필요합니다")
 
 
 def _worker(connection, suite, payload, live, k):

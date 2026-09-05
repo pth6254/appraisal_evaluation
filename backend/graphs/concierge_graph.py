@@ -20,6 +20,7 @@ class ConciergeState(TypedDict, total=False):
     tool_result: ConciergeToolResult
     answer: str
     blocked: list[str]
+    routing_error: str
 
 
 ROUTER_PROMPT = """당신은 종합 부동산 컨시어지의 의도 분류기입니다.
@@ -50,12 +51,13 @@ def decide_node(state: ConciergeState) -> ConciergeState:
     try:
         response = get_llm_json().invoke([("system", ROUTER_PROMPT), ("human", prompt)])
         decision = ConciergeDecision.model_validate(_parse_json(str(response.content)))
-    except Exception:
+    except Exception as exc:
         # LLM 장애 시 숫자나 지역을 추측하지 않고 보완 입력을 받는 안전한 폴백이다.
         decision = ConciergeDecision(
             intent=ConciergeIntent.FIND_REGION,
             criteria=ConciergeCriteria.model_validate(previous),
         )
+        return {**state, "decision": decision, "routing_error": type(exc).__name__}
     return {**state, "decision": decision}
 
 

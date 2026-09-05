@@ -69,11 +69,13 @@ class ChatCase(StrictModel):
 
 class Dataset(StrictModel):
     version: str = Field(min_length=1)
-    suite: Literal["calculator", "rag", "chat"]
+    suite: Literal["decision", "avm", "intent", "calculator", "rag", "chat"]
     cases: list[dict] = Field(min_length=1)
 
     def validated_cases(self):
-        model = {"calculator": CalculatorCase, "rag": RagCase, "chat": ChatCase}[self.suite]
+        from evaluation.decision_schema import DecisionCase, AvmCase, IntentCase
+        model = {"calculator": CalculatorCase, "rag": RagCase, "chat": ChatCase,
+                 "decision": DecisionCase, "avm": AvmCase, "intent": IntentCase}[self.suite]
         cases = [model.model_validate(case) for case in self.cases]
         ids = [case.id for case in cases]
         if len(ids) != len(set(ids)):

@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "suite": "avm",
+  "cases": [
+    {
+      "id": "apartment-holdout",
+      "region_name": "???",
+      "lawd_cd": "11650",
+      "target_months": 1,
+      "window": 6,
+      "min_samples": 1,
+      "min_coverage": 1,
+      "max_mape": 0.2,
+      "months": {
+        "202601": [
+          {
+            "apt_name": "???? A",
+            "dong": "???",
+            "area_sqm": 84,
+            "price_manwon": 90000
+          }
+        ],
+        "202602": [
+          {
+            "apt_name": "???? A",
+            "dong": "???",
+            "area_sqm": 84,
+            "price_manwon": 90200
+          }
+        ],
+        "202603": [
+          {
+            "apt_name": "???? A",
+            "dong": "???",
+            "area_sqm": 84,
+            "price_manwon": 90400
+          }
+        ]
+      }
+    }
+  ]
+}

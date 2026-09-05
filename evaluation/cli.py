@@ -59,7 +59,11 @@ def metadata(args, paths):
             "prompt_sha256": hashlib.sha256((chat_service.ROUTER_PROMPT + chat_service.ANSWER_PROMPT).encode()).hexdigest(),
             "evaluator_sha256": hashlib.sha256(b"".join(path.read_bytes() for path in sorted(Path(__file__).parent.glob("*.py")))).hexdigest(),
             "implementation_sha256": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in [ROOT / "backend/services/chat_service.py", ROOT / "backend/chat_corpus.py", ROOT / "backend/tax_rules.py"]}}
+                for path in [ROOT / "backend/services/chat_service.py", ROOT / "backend/chat_corpus.py", ROOT / "backend/tax_rules.py",
+                             ROOT / "backend/services/analysis_freshness.py", ROOT / "backend/services/case_comparison_service.py",
+                             ROOT / "backend/services/candidate_next_actions.py", ROOT / "backend/services/execution_plan_service.py",
+                             ROOT / "backend/tools/backtest_avm.py", ROOT / "backend/price_engine.py",
+                             ROOT / "backend/graphs/concierge_graph.py", ROOT / "backend/concierge/tools.py"]}}
 
 
 def compare_reports(baseline: Path, current: Path):
@@ -79,7 +83,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="부동산 컨시어지 계산·검색·대화 평가")
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="평가 실행과 JSON·HTML 보고서 생성")
-    run.add_argument("--suite", choices=["calculator", "rag", "chat", "all"], default="calculator")
+    run.add_argument("--suite", choices=["decision", "avm", "intent", "calculator", "rag", "chat", "all"], default="calculator")
     run.add_argument("--dataset", type=Path)
     run.add_argument("--live", action="store_true", help="실제 모델·설정된 검색 저장소 사용 (외부 호출 가능)")
     run.add_argument("--repeat", type=positive_int, default=1)
@@ -125,11 +129,11 @@ def main(argv=None):
             result = compare_reports(args.baseline, args.current)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 1 if result["regressions"] or result["removed"] or not result["comparable_configuration"] else 0
-        if args.suite == "chat" and not args.live:
-            parser.error("대화 품질 평가에는 실제 모델을 사용하는 --live를 지정하세요")
+        if args.suite in {"chat", "intent"} and not args.live:
+            parser.error("대화·의도 평가에는 실제 모델을 사용하는 --live를 지정하세요")
         if args.dataset and args.suite == "all":
             parser.error("사용자 데이터셋은 개별 --suite와 함께 지정하세요")
-        suites = (["calculator", "rag", "chat"] if args.live else ["calculator", "rag"]) if args.suite == "all" else [args.suite]
+        suites = (["decision", "avm", "calculator", "rag", "intent", "chat"] if args.live else ["decision", "avm", "calculator", "rag"]) if args.suite == "all" else [args.suite]
         paths = [args.dataset or DATASETS / f"{suite}.json" for suite in suites]
         jobs = []
         for suite, path in zip(suites, paths):
@@ -147,7 +151,7 @@ def main(argv=None):
         meta["omitted_cases"] = omitted
         meta["selected_cases"] = [{"suite": suite, "id": case.id} for suite, case in jobs]
         results = []
-        print(f"{len(jobs)}개 사례 × {args.repeat}회. {'실제 모델·검색 평가' if args.live else '계산·시드 키워드 평가 (실제 대화 미평가)'}", flush=True)
+        print(f"{len(jobs)}개 사례 × {args.repeat}회. {'설정된 실제 자원 사용 (실행 영역별 범위는 보고서 참조)' if args.live else '고정·가상 입력 평가 (실거래 정확도·실제 대화 미평가)'}", flush=True)
         if omitted:
             print(f"--max-cases 제한으로 {omitted}개 사례는 실행하지 않습니다.", flush=True)
         for repetition in range(1, args.repeat + 1):

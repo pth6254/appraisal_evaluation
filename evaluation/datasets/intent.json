@@ -1,0 +1,75 @@
+{
+  "version": "1.0",
+  "suite": "intent",
+  "cases": [
+    {
+      "id": "budget-and-area-correction",
+      "turns": [
+        {
+          "message": "???? ???? ???? ?? ??. ??? 10? ??, ??? 84???? ????. ???? ????.",
+          "expected_intent": "find_region",
+          "expected_criteria": {
+            "property_type": "apartment",
+            "budget_max_won": 1000000000,
+            "area_min_sqm": 84.0,
+            "purpose": "residence"
+          }
+        },
+        {
+          "message": "??? 8??? ???. ?? ??? ????.",
+          "expected_intent": "find_region",
+          "expected_criteria": {
+            "budget_max_won": 800000000,
+            "area_min_sqm": 84.0,
+            "property_type": "apartment",
+            "purpose": "residence"
+          }
+        }
+      ]
+    },
+    {
+      "id": "request-appraisal",
+      "turns": [
+        {
+          "message": "??? ???? ??? ????.",
+          "expected_intent": "appraise",
+          "expected_criteria": {
+            "property_type": "apartment"
+          }
+        }
+      ]
+    },
+    {
+      "id": "request-comparison",
+      "turns": [
+        {
+          "message": "? ?? ?? ? ?? ????.",
+          "expected_intent": "compare",
+          "expected_criteria": {}
+        }
+      ]
+    },
+    {
+      "id": "request-funding",
+      "turns": [
+        {
+          "message": "9??? ???? ?? ??? ????? ?? ???? ???????.",
+          "expected_intent": "simulate",
+          "expected_criteria": {
+            "property_type": "apartment"
+          }
+        }
+      ]
+    },
+    {
+      "id": "request-rights",
+      "turns": [
+        {
+          "message": "?????? ?? ???? ???? ??? ????.",
+          "expected_intent": "rights_check",
+          "expected_criteria": {}
+        }
+      ]
+    }
+  ]
+}

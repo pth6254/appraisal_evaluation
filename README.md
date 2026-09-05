@@ -716,11 +716,14 @@ GitHub Actions(`.github/workflows/ci.yml`)에서 push·PR마다 postgres·redis 
 
 ### 별도 평가·검증 도구
 
-`evaluation/`에서 계산기 고정 기대값, RAG 검색 순위, 실제 챗봇의 여러 턴 대화를 공통 JSON·HTML 보고서로 평가한다.
+`evaluation/`에서 핵심 매수 의사결정 상태·AVM 백테스트·종합 컨시어지 의도 추출과 계산기·RAG·법률 챗봇을 공통 JSON·HTML 보고서로 평가한다.
 기존 회귀 테스트와 함께 사용하며, 자동 검사와 사람 채점을 구분한다. [실행·데이터셋·결과 해석 안내](evaluation/README.md)를 참고한다.
 
 ```bash
-./venv-wsl/bin/python -m evaluation run --suite all                   # 외부 호출 없는 계산·시드 키워드 검색
+./venv-wsl/bin/python -m evaluation run --suite all                   # 의사결정·가상 AVM·계산·시드 검색
+./venv-wsl/bin/python -m evaluation run --suite decision              # 후보별 위험·비교·거래 준비 상태
+./venv-wsl/bin/python -m evaluation run --suite avm --live            # 저장소 실거래 홀드아웃 (보정 파일 미갱신)
+./venv-wsl/bin/python -m evaluation run --suite intent --live --max-cases 1
 ./venv-wsl/bin/python -m evaluation run --suite chat --live --max-cases 1 --timeout 300
 ./venv-wsl/bin/python -m evaluation run --suite rag --live            # 설정된 실제 코퍼스 검색
 ```

@@ -134,22 +134,36 @@ def run_backtest(region_name: str, lawd_cd: str,
               f" 먼저 ingest_transactions.py 로 수집하세요.")
         return []
 
+    return evaluate_months(months_data, region_name=region_name, target_months=target_months,
+                           window=window, time_factor=_make_time_factor(region_name))["cases"]
+
+
+def evaluate_months(months_data: dict[str, list[dict]], *, region_name: str,
+                    target_months: int, window: int, time_factor) -> dict:
+    """읽어온 거래를 시간순으로 분리한다. 저장·외부 조회 없이 기존 백테스트를 재사용한다."""
     all_yms = sorted(months_data)
     targets = all_yms[-target_months:]
-    time_factor = _make_time_factor(region_name)
-
     cases: list[dict] = []
+    eligible = 0
+    invalid = 0
+    cancelled = 0
     for T in targets:
         prior_yms = [ym for ym in all_yms if ym < T][-window:]
-        if not prior_yms:
-            continue
-        pool = [(ym, s) for ym in prior_yms for s in months_data[ym]]
+        # 해제 거래가 비교사례나 정답에 섞이면 실제 거래 성능을 왜곡한다.
+        pool = [(ym, s) for ym in prior_yms for s in months_data[ym]
+                if not s.get("is_cancelled") and (s.get("price") or 0) > 0 and (s.get("area_sqm") or 0) > 0]
 
         for deal in months_data[T]:
+            if deal.get("is_cancelled"):
+                cancelled += 1
+                continue
             price = deal.get("price") or 0
             area  = deal.get("area_sqm") or 0
             if price <= 0 or area <= 0:
+                invalid += 1
                 continue
+
+            eligible += 1
 
             comps, level = _match_comps(deal, pool)
             if not comps:
@@ -167,8 +181,11 @@ def run_backtest(region_name: str, lawd_cd: str,
             pred = mean(adj_per_sqm) * area
             ape  = abs(pred - price) / price
             cases.append({"region": region_name, "target_ym": T,
-                          "level": level, "n": len(adj_per_sqm), "ape": ape})
-    return cases
+                          "level": level, "n": len(adj_per_sqm), "ape": ape,
+                          "predicted_manwon": pred, "observed_manwon": price,
+                          "prior_months": prior_yms})
+    return {"cases": cases, "eligible": eligible, "invalid": invalid, "cancelled": cancelled,
+            "unestimated": eligible - len(cases), "coverage": len(cases) / eligible if eligible else 0}
 
 
 def summarize(cases: list[dict]) -> dict:

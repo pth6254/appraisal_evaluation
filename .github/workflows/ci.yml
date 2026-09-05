@@ -76,7 +76,7 @@ jobs:
         run: pytest tests/ -v
 
       # 실제 모델 호출은 수동 평가로 분리해 CI가 API 키·모델 응답에 의존하지 않게 한다.
-      - name: Evaluate calculators and seed retrieval
+      - name: Evaluate decision support and offline fixtures
         run: python -m evaluation run --suite all --timeout 30
 
   # ────────────────────────────────────────────
