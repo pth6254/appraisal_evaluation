@@ -905,6 +905,11 @@ def geocoding_node(state):
     raw_address = raw_inputs.get("address", "") if isinstance(raw_inputs, dict) else ""
     confirmed_category = raw_inputs.get("property_category", "") if isinstance(raw_inputs, dict) else ""
     confirmed_detail = raw_inputs.get("property_detail", "") if isinstance(raw_inputs, dict) else ""
+    confirmed_area = raw_inputs.get("area_sqm") if isinstance(raw_inputs, dict) else None
+    if isinstance(confirmed_area, (int, float)) and confirmed_area > 0:
+        # 사용자가 확인한 면적을 LLM의 재해석으로 바꾸지 않는다.
+        intent.area_min = intent.area_max = confirmed_area
+        intent.area_raw = f"{confirmed_area}㎡"
 
     location = (raw_address
                 or getattr(intent, "location_normalized", "")

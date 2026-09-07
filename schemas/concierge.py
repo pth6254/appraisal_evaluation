@@ -39,18 +39,20 @@ class ConciergeDecision(BaseModel):
 class ConciergeMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = None
+    case_id: int | None = Field(default=None, gt=0)
+    candidate_id: int | None = Field(default=None, gt=0)
 
 
 class ConciergeToolResult(BaseModel):
     tool: str
-    status: Literal["completed", "needs_input", "not_available", "error"]
+    status: Literal["completed", "needs_input", "not_available", "error", "queued"]
     data: dict[str, Any] = Field(default_factory=dict)
     missing_fields: list[str] = Field(default_factory=list)
 
 
 class ConciergeMessageResponse(BaseModel):
     conversation_id: str
-    status: Literal["completed", "needs_input", "not_available", "error"]
+    status: Literal["completed", "needs_input", "not_available", "error", "queued"]
     intent: ConciergeIntent
     answer: str
     criteria: ConciergeCriteria

@@ -26,6 +26,7 @@ import threading
 import time
 import uuid
 from typing import Any, Callable, Optional
+from fastapi.encoders import jsonable_encoder
 
 from db.redis_client import get_redis
 
@@ -41,7 +42,8 @@ def _key(job_id: str) -> str:
 
 
 def _save(job_id: str, job: dict, ttl: int) -> None:
-    get_redis().set(_key(job_id), json.dumps(job, ensure_ascii=False), ex=ttl)
+    # 실제 파이프라인 결과에는 Pydantic 의도·주소 모델이 포함된다.
+    get_redis().set(_key(job_id), json.dumps(jsonable_encoder(job), ensure_ascii=False), ex=ttl)
 
 
 def _load(job_id: str) -> Optional[dict]:
@@ -51,7 +53,7 @@ def _load(job_id: str) -> Optional[dict]:
 
 def create(runner: Callable[[Callable[[str], None]], dict],
            on_done: Optional[Callable[[dict], Any]] = None,
-           owner_id: Optional[int] = None) -> str:
+           owner_id: Optional[int] = None, *, require_on_done: bool = False) -> str:
     """
     작업 생성 및 백그라운드 실행.
 
@@ -105,6 +107,8 @@ def create(runner: Callable[[Callable[[str], None]], dict],
                     try:
                         extra = on_done(result) or {}
                     except Exception as e:
+                        if require_on_done:
+                            raise RuntimeError("분석 결과를 후보에 저장하지 못했습니다. 이력을 확인해주세요.") from e
                         # 부가 처리 실패(이력 저장 등)는 작업 실패로 만들지 않음
                         print(f"[jobs] on_done 오류: {e}")
 

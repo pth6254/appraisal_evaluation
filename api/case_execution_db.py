@@ -15,7 +15,7 @@ from db.models import _now_str
 def _owned_case(session, case_id: int, user_id: int) -> PurchaseCase | None:
     return session.scalar(select(PurchaseCase).where(
         PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
-    ))
+    ).with_for_update())
 
 
 def _seed_tasks(session, plan: CaseExecutionPlan) -> None:
@@ -38,27 +38,42 @@ def ensure_execution_plan(case_id: int, property_id: int, user_id: int) -> dict 
         case = _owned_case(session, case_id, user_id)
         if not case or case.selected_property_id != property_id:
             return None
-        plan = session.scalar(select(CaseExecutionPlan).where(CaseExecutionPlan.case_id == case.id))
-        if not plan:
-            plan = CaseExecutionPlan(case_id=case.id, property_id=property_id)
-            session.add(plan)
-            session.flush()
-        elif plan.property_id != property_id:
-            plan.property_id = property_id
-            plan.updated = _now_str()
-            session.execute(delete(CaseExecutionTask).where(
-                CaseExecutionTask.plan_id == plan.id,
-                CaseExecutionTask.source == "system",
-            ))
-            for task in session.scalars(select(CaseExecutionTask).where(
-                CaseExecutionTask.plan_id == plan.id, CaseExecutionTask.source == "user",
-            )):
-                task.property_id = property_id
-                task.updated = _now_str()
-            session.flush()
-        _seed_tasks(session, plan)
-        session.flush()
+        plan = sync_execution_plan(session, case)
         return _execution_dict(session, plan)
+
+
+def sync_execution_plan(session, case: PurchaseCase) -> CaseExecutionPlan:
+    """소유자를 확인한 호출자의 트랜잭션 안에서 선택 후보와 계획을 맞춘다."""
+    property_id = case.selected_property_id
+    plan = session.scalar(select(CaseExecutionPlan).where(CaseExecutionPlan.case_id == case.id))
+    if not plan:
+        plan = CaseExecutionPlan(case_id=case.id, property_id=property_id)
+        session.add(plan)
+        session.flush()
+    elif plan.property_id != property_id:
+        previous_property_id = plan.property_id
+        plan.property_id = property_id
+        plan.contract_planned_date = plan.closing_planned_date = None
+        plan.updated = _now_str()
+        session.execute(delete(CaseExecutionTask).where(
+            CaseExecutionTask.plan_id == plan.id,
+            CaseExecutionTask.source == "system",
+        ))
+        for task in session.scalars(select(CaseExecutionTask).where(
+            CaseExecutionTask.plan_id == plan.id, CaseExecutionTask.source == "user",
+        )):
+            # 이전 확인 내용을 메모로 보존하되 새 후보의 완료로 계산하지 않는다.
+            previous = f"이전 후보 #{previous_property_id} 기록: {task.checked_by or ''} / {task.outcome or ''} / {task.evidence_note or ''} / {task.follow_up or ''}"
+            task.property_id = property_id
+            task.evidence_note = previous
+            task.status = "scheduled"
+            task.checked_by = task.outcome = task.follow_up = ""
+            task.completed_at = task.due_date = None
+            task.updated = _now_str()
+        session.flush()
+    _seed_tasks(session, plan)
+    session.flush()
+    return plan
 
 
 def get_execution(case_id: int, user_id: int) -> dict | None:
@@ -68,13 +83,7 @@ def get_execution(case_id: int, user_id: int) -> dict | None:
             return None
         if not case.selected_property_id:
             return {"case_id": case.id, "requires_selection": True, "plan": None, "tasks": [], "summary": readiness_summary([])}
-        plan = session.scalar(select(CaseExecutionPlan).where(CaseExecutionPlan.case_id == case.id))
-        if not plan:
-            plan = CaseExecutionPlan(case_id=case.id, property_id=case.selected_property_id)
-            session.add(plan)
-            session.flush()
-        _seed_tasks(session, plan)
-        session.flush()
+        plan = sync_execution_plan(session, case)
         _sync_analysis_evidence(session, plan)
         session.flush()
         return _execution_dict(session, plan)
@@ -113,7 +122,7 @@ def update_plan(case_id: int, user_id: int, data: dict) -> dict | None:
 def add_task(case_id: int, user_id: int, data: dict) -> dict | None:
     with session_scope() as session:
         case = _owned_case(session, case_id, user_id)
-        if not case:
+        if not case or not case.selected_property_id:
             return None
         plan = session.scalar(select(CaseExecutionPlan).where(CaseExecutionPlan.case_id == case.id))
         if not plan:
@@ -130,7 +139,7 @@ def add_task(case_id: int, user_id: int, data: dict) -> dict | None:
 def update_task(case_id: int, task_id: int, user_id: int, data: dict) -> dict | None:
     with session_scope() as session:
         case = _owned_case(session, case_id, user_id)
-        if not case:
+        if not case or not case.selected_property_id:
             return None
         task = session.scalar(select(CaseExecutionTask).where(
             CaseExecutionTask.id == task_id, CaseExecutionTask.case_id == case.id,
@@ -153,7 +162,7 @@ def update_task(case_id: int, task_id: int, user_id: int, data: dict) -> dict | 
 def delete_task(case_id: int, task_id: int, user_id: int) -> bool | None:
     with session_scope() as session:
         case = _owned_case(session, case_id, user_id)
-        if not case:
+        if not case or not case.selected_property_id:
             return None
         task = session.scalar(select(CaseExecutionTask).where(
             CaseExecutionTask.id == task_id, CaseExecutionTask.case_id == case.id,

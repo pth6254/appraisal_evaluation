@@ -47,6 +47,7 @@ export const api = {
     propertyDetail = "",
     caseId?: number,
     candidateId?: number,
+    areaSqm?: number,
   ) =>
     req<{ job_id: string }>("/appraisal/jobs", {
       method: "POST",
@@ -61,6 +62,7 @@ export const api = {
         property_detail:   propertyDetail,
         case_id:            caseId,
         candidate_id:       candidateId,
+        area_sqm:           areaSqm,
       }),
     }),
 
@@ -186,6 +188,8 @@ export const api = {
 
   caseExecution: (caseId: number) => req<CaseExecution>(`/cases/${caseId}/execution`),
 
+  clearCaseDecision: (caseId: number) => req<PurchaseCase>(`/cases/${caseId}/decision`, { method: "DELETE" }),
+
   updateCaseExecution: (caseId: number, data: {
     contract_planned_date?: string | null; closing_planned_date?: string | null;
   }) => req<CaseExecution>(`/cases/${caseId}/execution`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -279,10 +283,10 @@ export const api = {
       disclaimer: string;
     }>("/chat", { method: "POST", body: JSON.stringify({ message, history }) }),
 
-  conciergeMessage: (message: string, conversationId: string | null) =>
+  conciergeMessage: (message: string, conversationId: string | null, candidate?: { case_id: number; candidate_id: number }) =>
     req<ConciergeResponse>("/concierge/messages", {
       method: "POST",
-      body: JSON.stringify({ message, conversation_id: conversationId }),
+      body: JSON.stringify({ message, conversation_id: conversationId, ...candidate }),
     }),
 
   addressSearch: (query: string, type: "keyword" | "address" = "keyword") =>

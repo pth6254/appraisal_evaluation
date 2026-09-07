@@ -13,6 +13,17 @@ from backend.services.analysis_freshness import analysis_freshness, expiry_for
 from backend.services.candidate_next_actions import candidate_next_actions
 
 
+def _appraisal_won(result: dict) -> int | None:
+    analysis = result.get("analysis_result") or {}
+    value = analysis.get("estimated_value")
+    if value is None:
+        value = result.get("estimated_value")
+    if value is None:
+        return None
+    # 기존 입력·스키마는 원, 실제 AVM ValuationResult는 value_unit=만원이다.
+    return round(value * 10_000) if analysis.get("value_unit", result.get("value_unit")) == "만원" else value
+
+
 def _case_dict(case: PurchaseCase, property_count: int = 0) -> dict:
     return {
         "id": case.id, "title": case.title, "status": case.status, "purpose": case.purpose,
@@ -66,7 +77,12 @@ def get_case(case_id: int, user_id: int) -> dict | None:
         checklist_by_property: dict[int, list] = {item.id: [] for item in properties}
         if property_ids:
             for row in session.scalars(select(CandidateAnalysis).where(CandidateAnalysis.property_id.in_(property_ids))):
-                analyses_by_property[row.property_id].append(_analysis_dict(row))
+                serialized = _analysis_dict(row)
+                history = histories.get(row.reference_id)
+                if row.analysis_type == "appraisal" and history:
+                    # 이전에 연결된 기록도 원본 이력의 단위로 읽어 비교값을 바로잡는다.
+                    serialized["summary"]["estimated_value"] = _appraisal_won(history.result or {})
+                analyses_by_property[row.property_id].append(serialized)
             for row in session.scalars(select(CandidateChecklistItem).where(
                 CandidateChecklistItem.property_id.in_(property_ids)
             ).order_by(CandidateChecklistItem.sort_order, CandidateChecklistItem.id)):
@@ -113,6 +129,8 @@ def add_property(case_id: int, user_id: int, data: dict) -> dict | None:
         case = session.scalar(select(PurchaseCase).where(PurchaseCase.id == case_id, PurchaseCase.user_id == user_id))
         if not case:
             return None
+        if data.get("status") == "selected":
+            raise ValueError("후보를 추가한 뒤 선택 근거와 함께 최종 선택해주세요")
         history = None
         history_id = data.get("history_id")
         if history_id:
@@ -143,7 +161,7 @@ def add_property(case_id: int, user_id: int, data: dict) -> dict | None:
                 expires_at=expiry_for("appraisal", history.created),
                 summary={
                     "history_id": history.id,
-                    "estimated_value": analysis_result.get("estimated_value") or history.result.get("estimated_value"),
+                    "estimated_value": _appraisal_won(history.result or {}),
                     "valuation_verdict": analysis_result.get("valuation_verdict") or history.result.get("valuation_verdict"),
                 },
             ))
@@ -162,6 +180,10 @@ def update_property(case_id: int, property_id: int, user_id: int, data: dict) ->
         item = session.scalar(select(CaseProperty).where(CaseProperty.id == property_id, CaseProperty.case_id == case.id))
         if not item:
             return None
+        if data.get("status") == "selected" and case.selected_property_id != item.id:
+            raise ValueError("최종 선택은 후보 검토 화면에서 선택 근거와 함께 저장해주세요")
+        if case.selected_property_id == item.id and data.get("status", "selected") != "selected":
+            raise ValueError("최종 선택된 후보입니다. 후보 검토 화면에서 다른 후보를 선택해주세요")
         for key, value in data.items():
             setattr(item, key, value)
         item.updated = case.updated = _now_str()
@@ -174,7 +196,7 @@ def select_final_candidate(case_id: int, property_id: int, user_id: int, reason:
     with session_scope() as session:
         case = session.scalar(select(PurchaseCase).where(
             PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
-        ))
+        ).with_for_update())
         if not case:
             return None
         selected = session.scalar(select(CaseProperty).where(
@@ -196,7 +218,31 @@ def select_final_candidate(case_id: int, property_id: int, user_id: int, reason:
         case.status = "decided"
         case.updated = now
         session.flush()
+        # 선택과 실행 계획이 따로 커밋되면 중간 실패 후 다른 후보의 작업이 노출된다.
+        from api.case_execution_db import sync_execution_plan
+        sync_execution_plan(session, case)
         return _case_dict(case, len(properties))
+
+
+def clear_final_candidate(case_id: int, user_id: int) -> dict | None:
+    """판단을 재검토할 수 있게 선택을 해제하되 기존 실행 기록은 보존한다."""
+    with session_scope() as session:
+        case = session.scalar(select(PurchaseCase).where(
+            PurchaseCase.id == case_id, PurchaseCase.user_id == user_id,
+        ).with_for_update())
+        if not case:
+            return None
+        for candidate in session.scalars(select(CaseProperty).where(
+            CaseProperty.case_id == case.id, CaseProperty.status == "selected",
+        )):
+            candidate.status = "shortlisted"
+            candidate.updated = _now_str()
+        case.selected_property_id = case.decided_at = None
+        case.decision_reason = ""
+        case.status = "reviewing"
+        case.updated = _now_str()
+        session.flush()
+        return _case_dict(case)
 
 
 def update_checklist(case_id: int, property_id: int, checklist_id: int, user_id: int, data: dict) -> dict | None:
@@ -243,7 +289,7 @@ def link_appraisal(case_id: int, property_id: int, history_id: int, user_id: int
             return False
         now = _now_str()
         analysis_result = result.get("analysis_result") or {}
-        estimated = analysis_result.get("estimated_value") or result.get("estimated_value")
+        estimated = _appraisal_won(result)
         verdict = analysis_result.get("valuation_verdict") or result.get("valuation_verdict")
         summary = {"history_id": history_id, "estimated_value": estimated, "valuation_verdict": verdict}
         analysis = session.scalar(select(CandidateAnalysis).where(
@@ -312,6 +358,8 @@ def delete_property(case_id: int, property_id: int, user_id: int) -> bool | None
         case = session.scalar(select(PurchaseCase).where(PurchaseCase.id == case_id, PurchaseCase.user_id == user_id))
         if not case:
             return None
+        if case.selected_property_id == property_id:
+            raise ValueError("최종 선택된 후보는 삭제할 수 없습니다. 먼저 다른 후보를 선택해주세요")
         result = session.execute(delete(CaseProperty).where(CaseProperty.id == property_id, CaseProperty.case_id == case.id))
         if result.rowcount:
             case.updated = _now_str()
@@ -364,7 +412,7 @@ def _property_dict(item: CaseProperty, history: HistoryRecord | None = None, ana
         analysis = (history.result or {}).get("analysis_result") or {}
         appraisal = {
             "history_id": history.id, "query": history.query,
-            "estimated_value": analysis.get("estimated_value") or history.result.get("estimated_value"),
+            "estimated_value": _appraisal_won(history.result or {}),
             "valuation_verdict": analysis.get("valuation_verdict") or history.result.get("valuation_verdict"),
             "created": history.created,
         }

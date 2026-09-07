@@ -398,11 +398,16 @@ export interface ConciergeRegionItem {
 
 export interface ConciergeResponse {
   conversation_id: string;
-  status: "completed" | "needs_input" | "not_available" | "error";
+  status: "completed" | "needs_input" | "not_available" | "error" | "queued";
   intent: ConciergeIntent;
   answer: string;
   criteria: ConciergeCriteria;
   data: {
+    job_id?: string;
+    case_id?: number;
+    candidate_id?: number;
+    candidate_name?: string;
+    input_url?: string;
     source?: string;
     price_unit?: string;
     period?: { from: string; to: string } | null;

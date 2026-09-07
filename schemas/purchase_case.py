@@ -67,6 +67,13 @@ class CaseDecisionCreate(BaseModel):
     property_id: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=5000)
 
+    @model_validator(mode="after")
+    def meaningful_reason(self):
+        self.reason = self.reason.strip()
+        if len(self.reason) < 3:
+            raise ValueError("선택 근거를 3자 이상 입력해주세요")
+        return self
+
 
 class ExecutionPlanUpdate(BaseModel):
     contract_planned_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")

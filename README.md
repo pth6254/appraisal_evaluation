@@ -303,7 +303,7 @@ property_concierge/
 |--------|------|------|
 | `GET` | `/health` | 헬스체크 |
 | `POST` | `/api/appraisal` | 시세추정 실행 (동기, 하위 호환) |
-| `POST` | `/api/appraisal/jobs` | 시세추정 작업 생성 → `{job_id}` (`address`·`property_category`·`property_detail` 구조화 입력 지원) |
+| `POST` | `/api/appraisal/jobs` | 시세추정 작업 생성 → `{job_id}` (`address`·`property_category`·`property_detail`·`area_sqm` 구조화 입력 지원) |
 | `GET` | `/api/appraisal/jobs/{id}` | 작업 상태 폴링 → `{status, step, history_id?, result?}` |
 | `POST` | `/api/auth/register` | 회원가입 (이메일/비밀번호) |
 | `POST` | `/api/auth/login` | 로그인 → JWT 쿠키 |

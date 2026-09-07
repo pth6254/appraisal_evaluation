@@ -14,10 +14,10 @@ class ToolDefinition:
     intent: ConciergeIntent
     description: str
     enabled: bool
-    handler: Callable[[ConciergeCriteria, int], ConciergeToolResult] | None = None
+    handler: Callable[..., ConciergeToolResult] | None = None
 
 
-def find_regions(criteria: ConciergeCriteria, user_id: int) -> ConciergeToolResult:
+def find_regions(criteria: ConciergeCriteria, user_id: int, candidate_context: dict | None = None) -> ConciergeToolResult:
     del user_id  # 조회 도구지만 모든 호출자가 같은 서명을 갖도록 유지한다.
     if not criteria.region_code and criteria.region_name:
         resolved = resolve_region_name(criteria.region_name)
@@ -52,6 +52,15 @@ def find_regions(criteria: ConciergeCriteria, user_id: int) -> ConciergeToolResu
     )
 
 
+def appraise_property(criteria: ConciergeCriteria, user_id: int, candidate_context: dict | None = None) -> ConciergeToolResult:
+    from api.candidate_appraisal import start_candidate_appraisal
+    if not candidate_context:
+        return ConciergeToolResult(tool="appraise_property", status="needs_input", missing_fields=["candidate"])
+    data = start_candidate_appraisal(user_id, candidate_context["case_id"], candidate_context["candidate_id"])
+    return ConciergeToolResult(tool="appraise_property", status="needs_input" if data.get("missing_fields") else "queued",
+                               data=data, missing_fields=data.get("missing_fields", []))
+
+
 TOOL_REGISTRY: dict[ConciergeIntent, ToolDefinition] = {
     ConciergeIntent.FIND_REGION: ToolDefinition(
         name="find_regions", intent=ConciergeIntent.FIND_REGION,
@@ -61,7 +70,7 @@ TOOL_REGISTRY: dict[ConciergeIntent, ToolDefinition] = {
         "select_properties", ConciergeIntent.SELECT_PROPERTY, "조건에 맞는 매물·단지 후보 선택", False,
     ),
     ConciergeIntent.APPRAISE: ToolDefinition(
-        "appraise_property", ConciergeIntent.APPRAISE, "AVM 기반 가격 추정", False,
+        "appraise_property", ConciergeIntent.APPRAISE, "AVM 기반 가격 추정", True, appraise_property,
     ),
     ConciergeIntent.COMPARE: ToolDefinition(
         "compare_properties", ConciergeIntent.COMPARE, "후보 부동산 비교", False,
@@ -81,11 +90,11 @@ TOOL_REGISTRY: dict[ConciergeIntent, ToolDefinition] = {
 }
 
 
-def execute_tool(intent: ConciergeIntent, criteria: ConciergeCriteria, user_id: int) -> ConciergeToolResult:
+def execute_tool(intent: ConciergeIntent, criteria: ConciergeCriteria, user_id: int, candidate_context: dict | None = None) -> ConciergeToolResult:
     definition = TOOL_REGISTRY[intent]
     if not definition.enabled or definition.handler is None:
         return ConciergeToolResult(
             tool=definition.name, status="not_available",
             data={"description": definition.description},
         )
-    return definition.handler(criteria, user_id)
+    return definition.handler(criteria, user_id, candidate_context)

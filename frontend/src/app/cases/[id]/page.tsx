@@ -55,6 +55,7 @@ export default function CaseDetailPage() {
   const [address, setAddress] = useState("");
   const [price, setPrice] = useState("");
   const [area, setArea] = useState("");
+  const [category, setCategory] = useState("");
   const [historyId, setHistoryId] = useState("");
   const [error, setError] = useState("");
   const load = async () => setItem(await api.caseOne(caseId));
@@ -77,6 +78,7 @@ export default function CaseDetailPage() {
         name: name.trim(), address: address.trim(),
         asking_price: price ? Number(price) * 10_000 : undefined,
         area_sqm: area ? Number(area) : undefined,
+        category,
         history_id: historyId ? Number(historyId) : undefined,
         source: historyId ? "appraisal" : "manual",
       });
@@ -93,7 +95,7 @@ export default function CaseDetailPage() {
     <Link href="/cases" className="text-sm font-medium text-primary hover:underline">← 매수 검토 목록</Link>
     <header className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
       <div><p className="mb-1 text-xs font-semibold uppercase tracking-wide text-primary">Purchase workspace</p><h1 className="text-2xl font-bold text-slate-900">{item.title}</h1><p className="mt-1 text-sm text-slate-500">{item.target_regions.join(", ") || "선호 지역 미정"} · 최대 예산 {won(item.budget_max)}</p></div>
-      <div className="flex flex-wrap gap-2">{item.selected_property_id && <Link href={`/cases/${caseId}/execution`} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">실행 계획</Link>}{properties.length >= 2 && <Link href={`/cases/${caseId}/comparison`} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">후보 비교</Link>}<select value={item.status} onChange={async (event) => { await api.updateCase(caseId, { status: event.target.value as PurchaseCaseStatus }); await load(); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">{CASE_STATUS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></div>
+      <div className="flex flex-wrap gap-2">{item.selected_property_id && <Link href={`/cases/${caseId}/execution`} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">실행 계획</Link>}{properties.length >= 1 && <Link href={`/cases/${caseId}/comparison`} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">후보 검토·최종 선택</Link>}<select value={item.status} onChange={async (event) => { await api.updateCase(caseId, { status: event.target.value as PurchaseCaseStatus }); await load(); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">{CASE_STATUS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></div>
     </header>
 
     <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
@@ -109,6 +111,7 @@ export default function CaseDetailPage() {
       {formOpen && <form onSubmit={addProperty} className="grid gap-3 border-b bg-slate-50 p-5 md:grid-cols-2">
         <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="후보명 또는 건물명" className="rounded-lg border px-3 py-2 text-sm" /><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="주소" className="rounded-lg border px-3 py-2 text-sm" />
         <input type="number" min="0" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="매도 희망가(만원)" className="rounded-lg border px-3 py-2 text-sm" /><input type="number" min="0" step="0.01" value={area} onChange={(event) => setArea(event.target.value)} placeholder="면적(㎡)" className="rounded-lg border px-3 py-2 text-sm" />
+        <select aria-label="후보 물건 종류" value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-lg border px-3 py-2 text-sm"><option value="">물건 종류 선택</option>{["아파트", "오피스텔", "연립다세대", "단독다가구", "상가", "사무실", "공장", "창고", "토지"].map((value) => <option key={value}>{value}</option>)}</select>
         <select value={historyId} onChange={(event) => setHistoryId(event.target.value)} className="rounded-lg border px-3 py-2 text-sm md:col-span-2"><option value="">시세추정 이력 연결 안 함</option>{histories.map((history) => <option key={history.id} value={history.id}>#{history.id} {history.query} · {won(history.estimated_value)}</option>)}</select><button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white md:col-span-2">후보 저장</button>
       </form>}
       {error && <p className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
@@ -120,7 +123,7 @@ export default function CaseDetailPage() {
 function CandidateCard({ property, caseId, reload }: { property: CaseProperty; caseId: number; reload: () => Promise<void> }) {
   const analyses = new Map(property.analyses.map((analysis) => [analysis.analysis_type, analysis]));
   return <article className={`rounded-xl border p-5 ${property.status === "rejected" ? "bg-slate-50 opacity-70" : "bg-white"}`}>
-    <div className="flex flex-col justify-between gap-3 md:flex-row"><div><div className="flex items-center gap-2"><h3 className="font-bold">{property.name}</h3><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">검토 {property.review_progress}%</span></div><p className="mt-1 text-sm text-slate-500">{property.address || "주소 미입력"}{property.area_sqm ? ` · ${property.area_sqm}㎡` : ""} · 희망가 {won(property.asking_price)}</p></div><div className="flex gap-2"><select value={property.status} onChange={async (event) => { await api.updateCaseProperty(caseId, property.id, { status: event.target.value as CaseProperty["status"] }); await reload(); }} className="rounded-lg border px-2 py-1 text-xs">{PROPERTY_STATUS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select><button onClick={async () => { await api.deleteCaseProperty(caseId, property.id); await reload(); }} aria-label="후보 삭제" className="text-slate-300 hover:text-red-500"><Trash2 size={16} /></button></div></div>
+    <div className="flex flex-col justify-between gap-3 md:flex-row"><div><div className="flex items-center gap-2"><h3 className="font-bold">{property.name}</h3><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">검토 {property.review_progress}%</span></div><p className="mt-1 text-sm text-slate-500">{property.address || "주소 미입력"}{property.area_sqm ? ` · ${property.area_sqm}㎡` : ""} · 희망가 {won(property.asking_price)}</p></div><div className="flex gap-2"><select disabled={property.status === "selected"} value={property.status} onChange={async (event) => { await api.updateCaseProperty(caseId, property.id, { status: event.target.value as CaseProperty["status"] }); await reload(); }} className="rounded-lg border px-2 py-1 text-xs">{PROPERTY_STATUS.map((status) => <option disabled={status.value === "selected"} key={status.value} value={status.value}>{status.label}</option>)}</select><button disabled={property.status === "selected"} title={property.status === "selected" ? "최종 선택을 변경한 뒤 삭제할 수 있습니다" : "후보 삭제"} onClick={async () => { await api.deleteCaseProperty(caseId, property.id); await reload(); }} aria-label="후보 삭제" className="text-slate-300 hover:text-red-500"><Trash2 size={16} /></button></div></div>
     <div className="mt-4 grid gap-2 md:grid-cols-3">{(["appraisal", "simulation", "rights"] as const).map((type) => {
       const analysis = analyses.get(type);
       const href = type === "appraisal" ? `/appraisal?caseId=${caseId}&candidateId=${property.id}` : `/${type}`;

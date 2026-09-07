@@ -115,6 +115,7 @@ def run_appraisal(
     address: str = "",
     property_category: str = "",
     property_detail: str = "",
+    area_sqm: float | None = None,
 ) -> dict:
     """
     감정평가(시세추정) 실행 — FastAPI 등 외부에서 호출하는 공개 API.
@@ -149,6 +150,7 @@ def run_appraisal(
             "address": address.strip(),
             "property_category": property_category.strip(),
             "property_detail": property_detail.strip(),
+            "area_sqm": area_sqm,
         },
         "error":             "",
         "retry_count":       0,

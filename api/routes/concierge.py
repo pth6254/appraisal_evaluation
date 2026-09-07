@@ -22,6 +22,9 @@ async def send_message(
         return await asyncio.to_thread(
             handle_message, user_id=user["id"], message=request.message,
             conversation_id=request.conversation_id,
+            case_id=request.case_id, candidate_id=request.candidate_id,
         )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="검토 후보가 없습니다") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="대화 ID가 올바르지 않습니다") from exc

@@ -42,8 +42,8 @@ def compare_candidates(
     if not case:
         raise HTTPException(status_code=404, detail="검토 케이스가 없습니다")
     result = compare_case_candidates(case, property_id)
-    if len(result["rows"]) < 2:
-        raise HTTPException(status_code=422, detail="비교할 후보를 2개 이상 선택해주세요")
+    if not result["rows"]:
+        raise HTTPException(status_code=422, detail="검토할 후보를 1개 이상 선택해주세요")
     return result
 
 
@@ -52,13 +52,20 @@ def select_final_candidate(case_id: int, body: CaseDecisionCreate, user: dict = 
     result = case_db.select_final_candidate(case_id, body.property_id, user["id"], body.reason)
     if not result:
         raise HTTPException(status_code=404, detail="검토 후보가 없습니다")
-    case_execution_db.ensure_execution_plan(case_id, body.property_id, user["id"])
     return result
 
 
 @router.get("/cases/{case_id}/execution")
 def get_execution_plan(case_id: int, user: dict = Depends(get_current_user)):
     result = case_execution_db.get_execution(case_id, user["id"])
+    if result is None:
+        raise HTTPException(status_code=404, detail="검토 케이스가 없습니다")
+    return result
+
+
+@router.delete("/cases/{case_id}/decision")
+def clear_final_candidate(case_id: int, user: dict = Depends(get_current_user)):
+    result = case_db.clear_final_candidate(case_id, user["id"])
     if result is None:
         raise HTTPException(status_code=404, detail="검토 케이스가 없습니다")
     return result
@@ -126,6 +133,8 @@ def add_property(case_id: int, body: CasePropertyCreate, user: dict = Depends(ge
         item = case_db.add_property(case_id, user["id"], body.model_dump())
     except LookupError:
         raise HTTPException(status_code=404, detail="연결할 시세추정 이력이 없습니다") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     if not item:
         raise HTTPException(status_code=404, detail="검토 케이스가 없습니다")
     return item
@@ -133,7 +142,10 @@ def add_property(case_id: int, body: CasePropertyCreate, user: dict = Depends(ge
 
 @router.delete("/cases/{case_id}/properties/{property_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_property(case_id: int, property_id: int, user: dict = Depends(get_current_user)):
-    deleted = case_db.delete_property(case_id, property_id, user["id"])
+    try:
+        deleted = case_db.delete_property(case_id, property_id, user["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     if not deleted:
         raise HTTPException(status_code=404, detail="후보 부동산이 없습니다")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -141,7 +153,10 @@ def delete_property(case_id: int, property_id: int, user: dict = Depends(get_cur
 
 @router.patch("/cases/{case_id}/properties/{property_id}")
 def update_property(case_id: int, property_id: int, body: CasePropertyUpdate, user: dict = Depends(get_current_user)):
-    item = case_db.update_property(case_id, property_id, user["id"], body.model_dump(exclude_unset=True))
+    try:
+        item = case_db.update_property(case_id, property_id, user["id"], body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     if not item:
         raise HTTPException(status_code=404, detail="후보 부동산이 없습니다")
     return item

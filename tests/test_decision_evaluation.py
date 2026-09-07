@@ -117,7 +117,7 @@ def test_intent_uses_actual_previous_criteria_and_reports_unconnected_tools(monk
     result = intent(case)
     assert result["status"] == "pass"
     assert inputs[1]["previous_criteria"]["budget_max_won"] == 800000000
-    assert result["metrics"]["unconnected_tools"] == 2
+    assert result["metrics"]["unconnected_tools"] == 0
 
 
 def test_intent_model_failure_is_error_not_a_successful_fallback(monkeypatch):

@@ -24,11 +24,12 @@ export default function CaseComparisonPage() {
   const [comparison, setComparison] = useState<CaseCandidateComparison | null>(null);
   const [decisionTarget, setDecisionTarget] = useState<number | null>(null);
   const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const compare = async (ids: number[]) => {
-    if (ids.length < 2) { setComparison(null); return; }
+    if (ids.length < 1) { setComparison(null); return; }
     setComparison(await api.caseComparison(caseId, ids));
   };
 
@@ -41,7 +42,7 @@ export default function CaseComparisonPage() {
         const defaults = (value.properties ?? []).filter((property) => property.status !== "rejected").slice(0, 4).map((property) => property.id);
         setCaseItem(value);
         setSelectedIds(defaults);
-        if (defaults.length >= 2) setComparison(await api.caseComparison(caseId, defaults));
+        if (defaults.length >= 1) { const result = await api.caseComparison(caseId, defaults); if (!cancelled) setComparison(result); }
       } catch { if (!cancelled) setError("후보 비교 정보를 불러오지 못했습니다."); }
       finally { if (!cancelled) setLoading(false); }
     })();
@@ -58,14 +59,29 @@ export default function CaseComparisonPage() {
   };
 
   const decide = async () => {
+    if (saving) return;
     if (decisionTarget == null || reason.trim().length < 3) { setError("선택 근거를 3자 이상 입력해주세요."); return; }
     try {
+      setSaving(true);
       await api.selectCaseCandidate(caseId, decisionTarget, reason.trim());
       const refreshed = await api.caseOne(caseId);
       setCaseItem(refreshed);
       await compare(selectedIds);
       setDecisionTarget(null); setReason(""); setError("");
     } catch { setError("최종 후보를 저장하지 못했습니다."); }
+    finally { setSaving(false); }
+  };
+
+  const clearDecision = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api.clearCaseDecision(caseId);
+      setCaseItem(await api.caseOne(caseId));
+      await compare(selectedIds);
+      setDecisionTarget(null); setReason(""); setError("");
+    } catch { setError("선택을 해제하지 못했습니다."); }
+    finally { setSaving(false); }
   };
 
   if (loading) return <div className="py-20 text-center text-slate-400">비교 정보를 불러오는 중...</div>;
@@ -78,8 +94,9 @@ export default function CaseComparisonPage() {
     <section className="rounded-2xl border bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between"><h2 className="font-bold">비교 후보 선택</h2><span className="text-xs text-slate-500">{selectedIds.length}/4개 선택</span></div>
       <div className="mt-3 flex flex-wrap gap-2">{properties.map((property) => <button key={property.id} onClick={() => toggleCandidate(property.id)} className={`rounded-full border px-3 py-1.5 text-sm ${selectedIds.includes(property.id) ? "border-primary bg-emerald-50 font-semibold text-primary" : "border-slate-200 text-slate-500"}`}>{property.name}{property.status === "rejected" ? " · 제외됨" : ""}</button>)}</div>
-      {selectedIds.length < 2 && <p className="mt-3 text-xs text-amber-700">비교하려면 후보를 2개 이상 선택해주세요.</p>}
+      {selectedIds.length < 1 && <p className="mt-3 text-xs text-amber-700">검토할 후보를 선택해주세요. 후보가 하나여도 최종 선택할 수 있습니다.</p>}
     </section>
+    {caseItem.selected_property_id && <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm">최종 선택과 근거가 저장되었습니다. 남은 확인 사항은 거래 준비에서 이어가세요.</p><Link href={`/cases/${caseId}/execution`} className="mt-2 inline-block font-semibold text-primary">거래 준비로 이동 →</Link><button disabled={saving} onClick={clearDecision} className="ml-4 text-sm underline">선택 해제하고 재검토</button></section>}
     {error && <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>}
 
     {comparison && <>
@@ -107,7 +124,7 @@ export default function CaseComparisonPage() {
         <button onClick={() => { setDecisionTarget(row.property_id); setReason(comparison.selected_property_id === row.property_id ? comparison.decision_reason : ""); }} className="mt-4 w-full rounded-lg border border-primary py-2 text-sm font-semibold text-primary hover:bg-emerald-50">이 후보를 최종 선택</button>
       </article>)}</section>
 
-      {decisionTarget != null && <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5"><h2 className="font-bold">최종 후보 선택 근거</h2><p className="mt-1 text-xs text-slate-600">미확인 항목이 있어도 선택할 수 있지만, 경고와 누락 자료를 확인한 근거를 남겨주세요.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} placeholder="예: 예산 범위 안이며 권리분석이 안전하고 출퇴근 조건이 가장 적합함" className="mt-3 w-full rounded-lg border border-emerald-200 p-3 text-sm" /><div className="mt-3 flex justify-end gap-2"><button onClick={() => { setDecisionTarget(null); setReason(""); }} className="rounded-lg border px-4 py-2 text-sm">취소</button><button onClick={decide} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">선택 저장</button></div></section>}
+      {decisionTarget != null && <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5"><h2 className="font-bold">최종 후보 선택 근거</h2><p className="mt-1 text-xs text-slate-600">미확인 항목이 있어도 선택할 수 있지만, 경고와 누락 자료를 확인한 근거를 남겨주세요.</p><textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} placeholder="예: 예산 범위 안이며 권리분석이 안전하고 출퇴근 조건이 가장 적합함" className="mt-3 w-full rounded-lg border border-emerald-200 p-3 text-sm" /><div className="mt-3 flex justify-end gap-2"><button onClick={() => { setDecisionTarget(null); setReason(""); }} className="rounded-lg border px-4 py-2 text-sm">취소</button><button disabled={saving} onClick={decide} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">선택 저장</button></div></section>}
     </>}
   </div>;
 }

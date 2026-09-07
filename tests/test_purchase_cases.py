@@ -197,11 +197,45 @@ def test_case_candidate_comparison_and_final_decision(client):
     }).status_code == 404
 
 
-def test_case_comparison_requires_two_candidates(client):
+def test_single_candidate_can_be_reviewed_before_final_selection(client):
     _register(client, "comparison-single@example.com")
     case_id = client.post("/api/cases", json={"title": "단일 후보"}).json()["id"]
     client.post(f"/api/cases/{case_id}/properties", json={"name": "후보 하나"})
-    assert client.get(f"/api/cases/{case_id}/comparison").status_code == 422
+    response = client.get(f"/api/cases/{case_id}/comparison")
+    assert response.status_code == 200
+    assert len(response.json()["rows"]) == 1
+    assert response.json()["rows"][0]["decision_ready"] is False
+
+
+def test_decision_and_execution_roll_back_together(client, monkeypatch):
+    from api import case_execution_db
+    _register(client, "atomic-decision@example.com")
+    case_id = client.post("/api/cases", json={"title": "원자적 선택"}).json()["id"]
+    candidate = client.post(f"/api/cases/{case_id}/properties", json={"name": "후보"}).json()
+    original = case_execution_db.sync_execution_plan
+    def fail_after_seed(session, case):
+        original(session, case)
+        raise RuntimeError("injected_failure")
+    monkeypatch.setattr(case_execution_db, "sync_execution_plan", fail_after_seed)
+    with pytest.raises(RuntimeError, match="injected_failure"):
+        client.post(f"/api/cases/{case_id}/decision", json={"property_id": candidate["id"], "reason": "선택 근거"})
+    value = client.get(f"/api/cases/{case_id}").json()
+    assert value["selected_property_id"] is None
+    assert value["properties"][0]["status"] == "reviewing"
+    assert client.get(f"/api/cases/{case_id}/execution").json()["requires_selection"] is True
+
+
+def test_selection_cannot_be_bypassed_or_damaged_by_candidate_crud(client):
+    _register(client, "decision-integrity@example.com")
+    case_id = client.post("/api/cases", json={"title": "선택 일관성"}).json()["id"]
+    candidate = client.post(f"/api/cases/{case_id}/properties", json={"name": "후보"}).json()
+    path = f"/api/cases/{case_id}/properties/{candidate['id']}"
+    assert client.patch(path, json={"status": "selected"}).status_code == 422
+    assert client.post(f"/api/cases/{case_id}/decision", json={"property_id": candidate["id"], "reason": "   "}).status_code == 422
+    assert client.post(f"/api/cases/{case_id}/decision", json={"property_id": candidate["id"], "reason": "추가 확인할 후보"}).status_code == 200
+    assert client.patch(path, json={"status": "rejected"}).status_code == 422
+    assert client.delete(path).status_code == 422
+    assert client.get(f"/api/cases/{case_id}/execution").json()["plan"]["property_id"] == candidate["id"]
 
 
 def _case_with_final_candidate(client, email: str) -> tuple[int, int]:
@@ -296,6 +330,77 @@ def test_execution_requires_final_candidate(client):
     assert client.patch(f"/api/cases/{case_id}/execution", json={
         "contract_planned_date": "2026-09-15",
     }).status_code == 404
+
+
+def test_candidate_switch_resets_preparation_and_retains_previous_custom_evidence(client):
+    case_id, first_id = _case_with_final_candidate(client, "switch-owner@example.com")
+    custom = client.post(f"/api/cases/{case_id}/execution/tasks", json={
+        "phase": "before_contract", "title": "추가 확인", "required": True,
+    }).json()
+    client.patch(f"/api/cases/{case_id}/execution/tasks/{custom['id']}", json={
+        "status": "done", "checked_by": "본인", "outcome": "첫 후보 방문 완료",
+    })
+    client.patch(f"/api/cases/{case_id}/execution", json={"contract_planned_date": "2026-12-01"})
+    second = client.post(f"/api/cases/{case_id}/properties", json={"name": "두 번째 후보"}).json()
+    response = client.post(f"/api/cases/{case_id}/decision", json={"property_id": second["id"], "reason": "두 번째 후보 재검토"})
+    assert response.status_code == 200
+    result = client.get(f"/api/cases/{case_id}/execution").json()
+    assert result["plan"]["property_id"] == second["id"]
+    assert result["plan"]["contract_planned_date"] is None
+    task = next(t for t in result["tasks"] if t["id"] == custom["id"])
+    assert task["status"] == "scheduled" and task["completed_at"] is None
+    assert "첫 후보 방문 완료" in task["evidence_note"]
+    assert str(first_id) in task["evidence_note"]
+    again = client.post(f"/api/cases/{case_id}/decision", json={"property_id": second["id"], "reason": "같은 후보 근거 보완"})
+    assert again.status_code == 200
+    assert len(client.get(f"/api/cases/{case_id}/execution").json()["tasks"]) == 19
+
+
+def test_clear_decision_reopen_and_reselect_preserves_same_candidate_work(client):
+    case_id, candidate_id = _case_with_final_candidate(client, "reconsider@example.com")
+    path = f"/api/cases/{case_id}"
+    task = client.get(f"{path}/execution").json()["tasks"][0]
+    assert client.patch(f"{path}/execution/tasks/{task['id']}", json={
+        "status": "done", "checked_by": "본인", "outcome": "현장 확인 완료",
+    }).status_code == 200
+    assert client.delete(f"{path}/decision").status_code == 200
+    assert client.get(f"{path}/execution").json()["requires_selection"] is True
+    assert client.patch(f"{path}/execution/tasks/{task['id']}", json={"status": "in_progress"}).status_code == 404
+    assert client.get(path).json()["status"] == "reviewing"
+    assert client.post(f"{path}/decision", json={"property_id": candidate_id, "reason": "조건 재확인 후 유지"}).status_code == 200
+    restored = client.get(f"{path}/execution").json()
+    assert next(t for t in restored["tasks"] if t["id"] == task["id"])["outcome"] == "현장 확인 완료"
+    client.cookies.clear()
+    _register(client, "reconsider-attacker@example.com")
+    assert client.delete(f"{path}/decision").status_code == 404
+
+
+def test_purchase_journey_from_budget_to_recorded_preparation_completion(client):
+    """가상 매수 조건을 실제 API·DB로 연결한다. 실거래 성과나 문서 정확도 평가는 아니다."""
+    _register(client, "journey@example.com")
+    case = client.post("/api/cases", json={"title": "매수 흐름 검증", "budget_max": 900_000_000}).json()
+    path = f"/api/cases/{case['id']}"
+    candidate = client.post(f"{path}/properties", json={"name": "가상 후보", "asking_price": 950_000_000}).json()
+    assert client.get(path).json()["properties"][0]["next_actions"][0]["code"] == "budget"
+    assert client.patch(f"{path}/properties/{candidate['id']}", json={"asking_price": 880_000_000}).status_code == 200
+    comparison = client.get(f"{path}/comparison").json()["rows"][0]
+    assert not comparison["decision_ready"]
+    assert "시세분석 필요" in comparison["missing"]
+    assert client.post(f"{path}/decision", json={"property_id": candidate["id"], "reason": "미확인 자료를 추가 검토할 우선 후보"}).status_code == 200
+    assert client.patch(f"{path}/execution", json={"contract_planned_date": "2026-12-01", "closing_planned_date": "2027-01-15"}).status_code == 200
+    for task in client.get(f"{path}/execution").json()["tasks"]:
+        response = client.patch(f"{path}/execution/tasks/{task['id']}", json={
+            "status": "done", "checked_by": "평가용 가상 확인자", "outcome": "가상 시나리오의 확인 기록",
+        })
+        assert response.status_code == 200
+    client.cookies.clear()
+    assert client.post("/api/auth/login", json={"email": "journey@example.com", "password": "test-password-1234"}).status_code == 200
+    result = client.get(f"{path}/execution").json()
+    assert result["plan"]["property_id"] == candidate["id"]
+    assert result["summary"]["done"] == result["summary"]["total"] == 18
+    assert result["summary"]["progress_percent"] == 100
+    # 실행 기록을 모두 완료해도 누락된 분석 자체가 완료로 바뀌지는 않는다.
+    assert client.get(f"{path}/comparison").json()["rows"][0]["decision_ready"] is False
 
 
 def test_next_actions_refresh_after_price_edit_and_enforce_ownership(client):

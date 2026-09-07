@@ -15,7 +15,11 @@ def _conversation_key(user_id: int, conversation_id: str) -> str:
     return f"concierge:{user_id}:{conversation_id}"
 
 
-def handle_message(*, user_id: int, message: str, conversation_id: str | None) -> ConciergeMessageResponse:
+def handle_message(*, user_id: int, message: str, conversation_id: str | None, case_id: int | None = None, candidate_id: int | None = None) -> ConciergeMessageResponse:
+    from api import case_db
+    if case_id is not None or candidate_id is not None:
+        if not case_id or not candidate_id or not case_db.validate_candidate(case_id, candidate_id, user_id):
+            raise LookupError("candidate_not_found")
     if conversation_id:
         # Redis 키 경계를 흔드는 임의 문자열을 받지 않고 UUID만 허용한다.
         conversation_id = str(UUID(conversation_id))
@@ -32,6 +36,7 @@ def handle_message(*, user_id: int, message: str, conversation_id: str | None) -
     state = run_concierge(
         user_id=user_id, message=message,
         previous_criteria=previous.get("criteria") or {},
+        candidate_context={"case_id": case_id, "candidate_id": candidate_id} if candidate_id else None,
     )
     decision = state["decision"]
     result = state["tool_result"]

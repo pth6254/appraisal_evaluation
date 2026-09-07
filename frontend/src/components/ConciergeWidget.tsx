@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { Bot, Database, MapPin, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { ConciergeRegionItem, ConciergeResponse, PurchaseCase } from "@/lib/types";
+import type { CaseProperty, ConciergeRegionItem, ConciergeResponse, PurchaseCase } from "@/lib/types";
+import Link from "next/link";
 
 type Message = {
   role: "user" | "assistant";
@@ -18,6 +19,7 @@ const HIDDEN_PATHS = [
 ];
 
 const SUGGESTIONS = [
+  "이 후보 시세를 추정해줘",
   "서울에서 10억 이하 아파트 동네 추천해줘",
   "실거주할 동네를 찾고 있어",
   "어떤 부동산 기능을 도와줄 수 있어?",
@@ -89,6 +91,34 @@ function RegionCards({ response, saved, onSave }: {
   );
 }
 
+function AppraisalProgress({ jobId, caseId }: { jobId: string; caseId?: number }) {
+  const [status, setStatus] = useState("시세추정 진행 중");
+  const [historyId, setHistoryId] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = Date.now() + 5 * 60 * 1000;
+    const poll = async () => {
+      try {
+        const job = await api.appraisalJob(jobId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (job.status === "done") {
+          setHistoryId(job.history_id ?? null);
+          setStatus(job.history_id ? "분석 결과를 후보에 저장했습니다." : "분석은 끝났지만 저장 결과를 확인하지 못했습니다.");
+          return;
+        }
+        if (job.status === "error") { setStatus(job.error || "시세추정에 실패했습니다."); return; }
+        if (Date.now() >= deadline) { setStatus("분석이 오래 걸리고 있습니다. 잠시 후 후보 또는 이력에서 결과를 확인해주세요."); return; }
+        setStatus(job.step ? `진행 중: ${job.step}` : "시세추정 대기 중");
+        timer = setTimeout(poll, 2000);
+      } catch { if (!controller.signal.aborted) setStatus("진행 상태를 확인하지 못했습니다. 후보와 이력에서 확인해주세요."); }
+    };
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [jobId]);
+  return <div className="mt-3 rounded-lg border border-emerald-100 p-3 text-xs"><p role="status">{status}</p>{historyId && <Link href={`/report/${historyId}`} className="mr-3 text-primary underline">시세추정 리포트</Link>}{caseId && <Link href={`/cases/${caseId}`} className="text-primary underline">후보 확인</Link>}</div>;
+}
+
 export default function ConciergeWidget() {
   const path = usePathname();
   const { user, loading: authLoading } = useAuth();
@@ -99,6 +129,8 @@ export default function ConciergeWidget() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [cases, setCases] = useState<PurchaseCase[]>([]);
   const [caseId, setCaseId] = useState("");
+  const [candidates, setCandidates] = useState<CaseProperty[]>([]);
+  const [candidateId, setCandidateId] = useState("");
   const [savedRegions, setSavedRegions] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -115,15 +147,24 @@ export default function ConciergeWidget() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !open) return;
     let cancelled = false;
     api.cases().then((result) => {
       if (cancelled) return;
       setCases(result.items);
-      if (result.items[0]) setCaseId(String(result.items[0].id));
+      setCaseId((current) => result.items.some((item) => String(item.id) === current) ? current : String(result.items[0]?.id ?? ""));
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user, open]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!caseId || !open) return;
+    api.caseOne(Number(caseId)).then((value) => {
+      if (!cancelled) setCandidates(value.properties ?? []);
+    }).catch(() => { if (!cancelled) setCandidates([]); });
+    return () => { cancelled = true; };
+  }, [caseId, open]);
 
   const saveRegion = async (response: ConciergeResponse, item: ConciergeRegionItem) => {
     try {
@@ -159,7 +200,9 @@ export default function ConciergeWidget() {
     setMessages((current) => [...current, { role: "user", content: message }]);
     setSending(true);
     try {
-      const response = await api.conciergeMessage(message, conversationId);
+      const selected = candidates.find((candidate) => String(candidate.id) === candidateId && candidate.case_id === Number(caseId));
+      const response = await api.conciergeMessage(message, conversationId,
+        selected ? { case_id: Number(caseId), candidate_id: selected.id } : undefined);
       setConversationId(response.conversation_id);
       setMessages((current) => [...current, {
         role: "assistant", content: response.answer, response,
@@ -211,7 +254,7 @@ export default function ConciergeWidget() {
                 <div className="pt-4 text-center">
                   <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-primary"><Sparkles size={22} /></span>
                   <h3 className="mt-3 text-base font-bold text-slate-800">어떤 부동산을 찾고 계세요?</h3>
-                  <p className="mx-auto mt-1 max-w-[310px] text-xs leading-5 text-slate-500">현재는 실거래 기반 동네 추천을 지원하며, 매물 선택·가격 추정·세금 기능으로 확장됩니다.</p>
+                  <p className="mx-auto mt-1 max-w-[310px] text-xs leading-5 text-slate-500">실거래 기반 동네 추천과 후보 AVM 시세추정을 지원합니다. 아래에서 후보를 선택하고 “이 후보 시세를 추정해줘”라고 요청하세요.</p>
                   <div className="mt-5 space-y-2 text-left">{SUGGESTIONS.map((suggestion) => (
                     <button key={suggestion} type="button" onClick={() => send(suggestion)} className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-xs text-slate-600 shadow-sm hover:border-emerald-300 hover:text-primary">{suggestion}</button>
                   ))}</div>
@@ -224,6 +267,8 @@ export default function ConciergeWidget() {
                     <p className="whitespace-pre-wrap">{message.content}</p>
                     {message.response && <CriteriaChips response={message.response} />}
                     {message.response && <RegionCards response={message.response} saved={savedRegions} onSave={saveRegion} />}
+                    {message.response?.data.job_id && <AppraisalProgress jobId={message.response.data.job_id} caseId={message.response.data.case_id} />}
+                    {message.response?.data.input_url && <Link href={message.response.data.input_url} className="text-primary underline">후보 정보 확인하고 시세추정</Link>}
                   </div>
                 </div>
               ))}
@@ -232,6 +277,7 @@ export default function ConciergeWidget() {
             </div>
 
             <footer className="border-t border-slate-200 bg-white p-3">
+              <label className="mb-2 block text-xs text-slate-500">분석할 후보<select aria-label="분석할 후보" value={candidateId} onChange={(event) => setCandidateId(event.target.value)} className="ml-2 rounded border p-1"><option value="">후보 선택</option>{candidates.filter((candidate) => candidate.case_id === Number(caseId)).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
               {cases.length > 0 && <div className="mb-2 flex items-center gap-2 px-1"><label className="shrink-0 text-[11px] text-slate-500">저장할 케이스</label><select value={caseId} onChange={(event) => setCaseId(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px]">{cases.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>}
               <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white p-1.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10">
                 <textarea

@@ -21,6 +21,7 @@ class ConciergeState(TypedDict, total=False):
     answer: str
     blocked: list[str]
     routing_error: str
+    candidate_context: dict
 
 
 ROUTER_PROMPT = """당신은 종합 부동산 컨시어지의 의도 분류기입니다.
@@ -45,6 +46,12 @@ def decide_node(state: ConciergeState) -> ConciergeState:
     from backend.model_factory import get_llm_json
 
     previous = state.get("previous_criteria") or {}
+    # 명확한 실행 명령은 모델 응답을 기다리지 않는다. 질문·부정문은 이 규칙에 포함하지 않는다.
+    command = re.sub(r"\s+", "", state["message"]).rstrip(".!?").lower()
+    if command in {"이후보시세를추정해줘", "이후보시세추정해줘", "선택한후보의avm시세를추정해줘",
+                   "선택한후보시세를추정해줘", "선택한후보의시세를추정해줘", "avm실행해줘"}:
+        return {**state, "decision": ConciergeDecision(intent=ConciergeIntent.APPRAISE,
+                criteria=ConciergeCriteria.model_validate(previous))}
     prompt = state["message"]
     if previous:
         prompt = f"이전 조건: {json.dumps(previous, ensure_ascii=False)}\n새 메시지: {prompt}"
@@ -63,11 +70,19 @@ def decide_node(state: ConciergeState) -> ConciergeState:
 
 def execute_node(state: ConciergeState) -> ConciergeState:
     decision = state["decision"]
-    result = execute_tool(decision.intent, decision.criteria, state["user_id"])
+    if state.get("routing_error"):
+        return {**state, "tool_result": ConciergeToolResult(tool="intent_router", status="error")}
+    result = execute_tool(decision.intent, decision.criteria, state["user_id"], state.get("candidate_context"))
     return {**state, "tool_result": result, "decision": decision}
 
 
 def _fallback_answer(result: ConciergeToolResult) -> str:
+    if result.status == "error":
+        return "요청 의도를 확인하지 못했습니다. 잠시 후 다시 요청해주세요."
+    if result.status == "queued":
+        return "선택한 후보의 AVM 시세추정을 시작했습니다. 완료되면 결과와 후보 연결 상태를 안내하겠습니다."
+    if result.tool == "appraise_property" and result.status == "needs_input":
+        return "분석할 케이스와 후보를 선택해주세요." if "candidate" in result.missing_fields else "후보의 주소·면적·물건 종류를 시세추정 화면에서 확인해주세요."
     if result.status == "needs_input":
         labels = {"region": "희망 지역", "region_code": "정확한 지역",
                   "property_type": "부동산 유형", "budget_max_won": "최대 예산"}
@@ -121,11 +136,12 @@ def build_concierge_graph():
 _GRAPH = None
 
 
-def run_concierge(*, user_id: int, message: str, previous_criteria: dict | None = None) -> ConciergeState:
+def run_concierge(*, user_id: int, message: str, previous_criteria: dict | None = None, candidate_context: dict | None = None) -> ConciergeState:
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_concierge_graph()
     return _GRAPH.invoke({
         "user_id": user_id, "message": message,
         "previous_criteria": previous_criteria or {},
+        "candidate_context": candidate_context or {},
     })

@@ -6,7 +6,7 @@ import logging
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api import case_db, history_db, jobs
 from api.deps import get_optional_user
@@ -24,6 +24,7 @@ class AppraisalRequest(BaseModel):
     property_detail: str = ""
     case_id: int | None = None
     candidate_id: int | None = None
+    area_sqm: float | None = Field(default=None, gt=0)
     save_history: bool = True
     appraisal_date: str = ""       # YYYYMMDD (빈 문자열 = 현재 시점)
     appraisal_purpose: str = ""    # 담보 / 경매 / 과세 / 매매 / 보상 / 임의
@@ -36,6 +37,8 @@ def _validate_candidate_link(req: AppraisalRequest, user: Optional[dict]) -> Non
         raise HTTPException(status_code=404, detail="검토 후보가 없습니다")
     if not case_db.validate_candidate(req.case_id, req.candidate_id, user["id"]):
         raise HTTPException(status_code=404, detail="검토 후보가 없습니다")
+    if not req.save_history:
+        raise HTTPException(status_code=422, detail="후보 연결 분석은 이력 저장이 필요합니다")
 
 
 def _save_history(req: AppraisalRequest, user: Optional[dict]):
@@ -47,7 +50,8 @@ def _save_history(req: AppraisalRequest, user: Optional[dict]):
             req.user_input, result, user_id=user["id"] if user else None
         )
         if req.case_id is not None and req.candidate_id is not None and user:
-            case_db.link_appraisal(req.case_id, req.candidate_id, history_id, user["id"], result)
+            if not case_db.link_appraisal(req.case_id, req.candidate_id, history_id, user["id"], result):
+                raise ValueError("candidate_link_failed")
         return {"history_id": history_id}
     return on_done
 
@@ -74,6 +78,7 @@ async def run_appraisal_endpoint(request: Request, req: AppraisalRequest, user: 
         address=req.address,
         property_category=req.property_category,
         property_detail=req.property_detail,
+        area_sqm=req.area_sqm,
     )
 
     if req.save_history and not result.get("error"):
@@ -113,12 +118,14 @@ async def create_appraisal_job(request: Request, req: AppraisalRequest, user: Op
             address=req.address,
             property_category=req.property_category,
             property_detail=req.property_detail,
+            area_sqm=req.area_sqm,
         )
 
     job_id = jobs.create(
         runner,
         on_done=_save_history(req, user),
         owner_id=user["id"] if user else None,
+        require_on_done=req.candidate_id is not None,
     )
     return {"job_id": job_id}
 
