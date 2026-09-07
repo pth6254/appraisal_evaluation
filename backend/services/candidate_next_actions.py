@@ -1,5 +1,6 @@
 """저장된 후보 정보로 다음 확인 행동을 정한다. 매수 안전성을 판정하지 않는다."""
 from __future__ import annotations
+from backend.services.candidate_funding import funding_issues
 
 
 def candidate_next_actions(case: dict, candidate: dict) -> list[dict]:
@@ -43,6 +44,10 @@ def candidate_next_actions(case: dict, candidate: dict) -> list[dict]:
 
     appraisal = analyses.get("appraisal") or {}
     simulation = analyses.get("simulation") or {}
+    if simulation.get("status") == "completed":
+        for code, title, reason, priority in funding_issues(simulation.get("summary") or {}):
+            unresolved.add("simulation")
+            add(code, title, reason, "simulation", priority)
     simulated_price = (simulation.get("summary") or {}).get("purchase_price")
     if simulation.get("status") == "completed" and asking is not None and simulated_price is not None and asking != simulated_price:
         unresolved.add("simulation")

@@ -19,6 +19,8 @@ class SimulationRequest(BaseModel):
     case_id: int | None = None
     candidate_id: int | None = None
     purchase_price: int = Field(..., gt=0)
+    cash_available: int | None = Field(None, ge=0)
+    monthly_payment_limit: int | None = Field(None, ge=0)
     loan_ratio: float = Field(0.5, ge=0.0, le=0.9)
     annual_interest_rate: float = Field(4.0, ge=0.0, le=30.0)
     loan_years: int = Field(30, ge=1, le=50)
@@ -64,6 +66,7 @@ async def run_simulation_endpoint(req: SimulationRequest, user: dict | None = De
 
     inp = SimulationInput(
         purchase_price              = req.purchase_price,
+        cash_available              = req.cash_available,
         loan_amount                 = loan_amount,
         annual_interest_rate        = req.annual_interest_rate,
         loan_years                  = req.loan_years,
@@ -88,14 +91,16 @@ async def run_simulation_endpoint(req: SimulationRequest, user: dict | None = De
     if req.case_id is not None and req.candidate_id is not None and user and isinstance(result, dict) and not result.get("error"):
         calculated_raw = result.get("result")
         calculated = calculated_raw.model_dump(mode="json") if hasattr(calculated_raw, "model_dump") else (calculated_raw or {})
-        base = calculated.get("scenario_base") or {}
-        case_db.link_candidate_analysis(
+        from backend.services.candidate_funding import funding_summary, funding_issues
+        summary = funding_summary(req, calculated)
+        issues = funding_issues(summary)
+        linked = case_db.link_candidate_analysis(
             req.case_id, req.candidate_id, user["id"], "simulation",
-            {"purchase_price": req.purchase_price, "loan_amount": loan_amount,
-             "annual_interest_rate": req.annual_interest_rate,
-             "monthly_payment": base.get("monthly_payment"),
-             "annual_equity_roi": base.get("annual_equity_roi"),
-             "dsr_ratio": calculated.get("dsr_ratio")},
+            summary,
+            checklist_status="warning" if issues else "done",
             evidence="사용자가 입력한 금융 조건으로 자금 시뮬레이션 완료",
         )
+        if not linked:
+            raise HTTPException(status_code=404, detail="계산 결과를 저장할 검토 후보가 없습니다")
+        result["candidate_funding"] = summary
     return result

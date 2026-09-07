@@ -171,6 +171,25 @@ python -m evaluation run --suite rag --dataset evaluation/datasets/rag_legacy.js
 
 ## 검증
 
+자금 의사결정 연결은 `tests/test_candidate_funding.py`에서 실제 계산 엔진 → API → PostgreSQL 저장 → 후보 비교를 검증한다.
+월 상환액·DSR의 원본 결과 일치, 취득비용만큼의 현금 부족, 상환 한도 경계, 재계산 시 경고 해소,
+희망가 변경 후 재검토, 계산 도중 후보가 없어지는 경우를 포함한다.
+`decision.json`의 `funding-feasibility`는 자금 부족·월 상환 초과가 검토 완료로 처리되는 회귀를 검사한다.
+기존 완료 시나리오에는 자금 판단에 필요한 고정 입력을 명시했으며, 계산기 결과로 정답을 생성하지 않는다.
+
+실제 브라우저 검증은 프론트와 API를 실행한 뒤 아래 명령으로 수행한다. 별도 Playwright 설치는
+`PLAYWRIGHT_MODULE_PATH`, 접속 주소는 `E2E_BASE_URL`로 지정할 수 있다 (기본 `http://localhost:3001`).
+
+```powershell
+node scripts/verify_candidate_funding_browser.cjs
+```
+
+2026-09-08(한국 시간) 최신 소스의 개발 서버에서 후보 가격·유형 자동 채움, 실제 계산·저장,
+비교 경고, 이전 금융 입력 복원, 소수 금액 입력, 재계산 경고 해소, 희망가 변경 후 재검토 안내를 확인했다.
+계산 엔진을 모킹하지 않았으며 임시 계정은 삭제했다. 결과는 `evaluation-results/funding-browser-result.json`과
+`funding-browser.png`에 저장한다. 이 검증은 연결의 정확성에 관한 것으로 현행 세법·금융기관 승인 검증은 아니다.
+기존 Docker 프론트 이미지는 자동으로 갱신되지 않으므로 최신 화면을 사용하려면 재빌드가 필요하다.
+
 ```bash
 python -m pytest tests/test_evaluation.py tests/test_rights_and_chat.py -q
 python -m pytest tests/test_decision_evaluation.py -q

@@ -431,6 +431,8 @@ export interface RecommendationRequest {
 }
 
 export interface SimulationRequest {
+  cash_available?: number;
+  monthly_payment_limit?: number;
   case_id?: number;
   candidate_id?: number;
   purchase_price: number;

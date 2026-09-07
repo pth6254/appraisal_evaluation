@@ -151,7 +151,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -228,7 +239,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -307,7 +329,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 800000000
+                    "purchase_price": 800000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -368,7 +401,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -452,7 +496,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 800000000
+                    "purchase_price": 800000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -513,7 +568,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -598,7 +664,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -671,7 +748,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -753,7 +841,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -835,7 +934,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -919,7 +1029,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -995,7 +1116,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 920000000
+                    "purchase_price": 920000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1080,7 +1212,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   },
                   "status": "pending"
                 },
@@ -1164,7 +1307,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1249,7 +1403,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1325,7 +1490,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1408,7 +1584,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1495,7 +1682,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 900000000
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1597,7 +1795,18 @@
                   "analysis_type": "simulation",
                   "analyzed_at": "2026-09-01T12:00:00",
                   "summary": {
-                    "purchase_price": 960000000
+                    "purchase_price": 960000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    }
                   }
                 },
                 {
@@ -1657,6 +1866,196 @@
               }
             }
           }
+        }
+      ]
+    },
+    {
+      "id": "funding-feasibility",
+      "rationale": "저렴한 후보라도 자금 부족이나 월 상환 한도 초과가 있으면 검토 완료로 표시하지 않는다.",
+      "steps": [
+        {
+          "name": "현금 부족과 월 상환 한도 초과",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 400000000,
+                    "cash_shortfall": 100000000,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 1000000,
+                    "monthly_payment_exceeded": true,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    },
+                    "loan_amount": 400000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [],
+            "required_actions": {
+              "1": [
+                "funding_shortfall",
+                "funding_payment"
+              ]
+            }
+          },
+          "selected_property_id": null,
+          "execution_tasks": []
+        },
+        {
+          "name": "현금 및 상환 기준 보완",
+          "as_of": "2026-09-02T12:00:00",
+          "budget_max_won": 1000000000,
+          "candidates": [
+            {
+              "id": 1,
+              "name": "?? A",
+              "asking_price": 900000000,
+              "analyses": [
+                {
+                  "analysis_type": "appraisal",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "estimated_value": 900000000
+                  }
+                },
+                {
+                  "analysis_type": "simulation",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "purchase_price": 900000000,
+                    "required_cash": 500000000,
+                    "cash_available": 500000000,
+                    "cash_shortfall": 0,
+                    "monthly_payment": 2000000,
+                    "monthly_payment_limit": 2000000,
+                    "monthly_payment_exceeded": false,
+                    "finance_check": {
+                      "dsr": 0.3,
+                      "ltv_exceeded": false,
+                      "dsr_exceeded": false
+                    },
+                    "loan_amount": 400000000
+                  }
+                },
+                {
+                  "analysis_type": "rights",
+                  "analyzed_at": "2026-09-01T12:00:00",
+                  "summary": {
+                    "risk_grade": "safe",
+                    "risk_label": "?? ?? ?? ??"
+                  }
+                }
+              ],
+              "checklist": [
+                {
+                  "id": 1,
+                  "category": "price",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 2,
+                  "category": "funding",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 3,
+                  "category": "rights",
+                  "title": "???? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 4,
+                  "category": "site",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                },
+                {
+                  "id": 5,
+                  "category": "contract",
+                  "title": "?? ?? ??",
+                  "status": "done"
+                }
+              ]
+            }
+          ],
+          "expected": {
+            "ready_ids": [
+              1
+            ],
+            "forbidden_actions": {
+              "1": [
+                "funding_shortfall",
+                "funding_payment"
+              ]
+            }
+          },
+          "selected_property_id": null,
+          "execution_tasks": []
         }
       ]
     }

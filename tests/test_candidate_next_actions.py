@@ -10,7 +10,10 @@ def reviewed_candidate():
         "id": 1, "name": "후보", "status": "reviewing", "asking_price": 900_000_000,
         "analyses": [
             {"analysis_type": "appraisal", "status": "completed", "summary": {"estimated_value": 900_000_000}},
-            {"analysis_type": "simulation", "status": "completed", "summary": {"purchase_price": 900_000_000}},
+            {"analysis_type": "simulation", "status": "completed", "summary": {
+                "purchase_price": 900_000_000, "loan_amount": 0, "required_cash": 920_000_000,
+                "monthly_payment": 0, "cash_available": 920_000_000, "cash_shortfall": 0,
+            }},
             {"analysis_type": "rights", "status": "completed", "summary": {"risk_grade": "safe"}},
         ],
         "checklist": [{"id": 1, "category": "site", "title": "현장 상태 확인", "status": "done"}],

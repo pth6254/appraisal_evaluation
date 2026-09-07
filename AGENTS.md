@@ -347,8 +347,9 @@ docker compose -f docker-compose.yml up -d --build   # 운영 (override 배제)
 
 ### 저장소 밖 산출물
 
-포트폴리오 문서는 커밋하지 않고 바탕화면에 둔다
-(`부동산컨시어지_포트폴리오.md`, `포트폴리오_Gamma_프롬프트.md`).
+포트폴리오 HTML은 사용자 요청에 따라 `docs/portfolio/`에서 원본·이미지·생성기·산출물을 함께 관리한다.
+수정·생성 방법은 `docs/portfolio/README.md`를 따른다. `index.html` 직접 수정 대신 `src/`를 수정하고 재생성한다.
+기존 바탕화면 문서(`부동산컨시어지_포트폴리오.md`, `포트폴리오_Gamma_프롬프트.md`)는 별도 참고 자료다.
 
 > ⚠️ **`docker compose config` 출력에는 실제 API 키가 그대로 찍힌다.** 로그·이슈·스크린샷에
 > 붙여넣지 말 것. 과거 세션 로그에 노출된 적이 있어 해당 키들은 교체 대상이다.

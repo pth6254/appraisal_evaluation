@@ -34,6 +34,7 @@ export default function CandidateNextActions({ property, caseId, reload }: {
   const prepare = (target: string) => {
     if (target === "simulation") setSessionValue("simFromListing", JSON.stringify({
       asking_price: property.asking_price, property_type: property.category,
+      inputs: property.analyses.find(analysis => analysis.analysis_type === "simulation")?.summary.inputs,
       case_id: caseId, candidate_id: property.id,
     }));
     if (target === "rights") setSessionValue("rightsCandidate", JSON.stringify({

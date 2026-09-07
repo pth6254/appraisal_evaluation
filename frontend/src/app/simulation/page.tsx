@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { removeSessionValue, useSessionValue } from "@/lib/sessionStore";
 import type { SimulationResult, SimulationRequest, ScenarioResult } from "@/lib/types";
 
-const PROP_TYPES   = ["아파트", "오피스텔", "상가", "오피스", "공장", "토지"];
+const PROP_TYPES   = ["아파트", "연립다세대", "단독다가구", "오피스텔", "상가", "오피스", "공장", "토지"];
 const REPAY_TYPES  = [
   { value: "equal_payment",   label: "원리금균등상환" },
   { value: "equal_principal", label: "원금균등상환" },
@@ -14,13 +15,12 @@ const RENTAL_MODES = ["없음", "전세", "월세"];
 
 function parsePrice(s: string): number {
   if (!s.trim()) return 0;
-  const n = s
-    .replace(/억/g, "00000000")
-    .replace(/천만/g, "0000000")
-    .replace(/천/g, "0000")
-    .replace(/만/g, "0000")
-    .replace(/[^0-9]/g, "");
-  return n ? parseInt(n) : 0;
+  const value = s.replace(/[\s,]/g, "").replace(/원$/, "");
+  if (/^\d+$/.test(value)) return Number(value);
+  const match = /^(?:(\d+(?:\.\d+)?)억)?(?:(\d+(?:\.\d+)?)천만)?(?:(\d+(?:\.\d+)?)만)?$/.exec(value);
+  if (!match || !match[0]) return NaN;
+  const total = Number(match[1] ?? 0) * 100000000 + Number(match[2] ?? 0) * 10000000 + Number(match[3] ?? 0) * 10000;
+  return Number.isSafeInteger(total) ? total : NaN;
 }
 
 function fmt(n?: number) { return n != null ? n.toLocaleString("ko-KR") + "원" : "—"; }
@@ -35,9 +35,12 @@ type ListingSeed = {
   maintenance_fee?: number;
   case_id?: number;
   candidate_id?: number;
+  inputs?: Partial<SimulationRequest>;
 };
 
 const LISTING_TYPE_TO_PROP: Record<string, string> = {
+  apartment: "아파트", officetel: "오피스텔", land: "토지",
+  row_house: "연립다세대", detached: "단독다가구",
   주거용: "아파트", 상업용: "상가", 업무용: "오피스", 산업용: "공장",
 };
 
@@ -56,6 +59,12 @@ const LISTING_TYPE_TO_PROP: Record<string, string> = {
 export default function SimulationPage() {
   const rawSeed = useSessionValue("simFromListing");
   const seed = rawSeed ?? null;
+  const cleanupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (cleanupTimer.current !== null) clearTimeout(cleanupTimer.current);
+    // StrictMode의 effect 재실행과 폼의 key 변경을 실제 페이지 이탈로 오인하지 않는다.
+    return () => { cleanupTimer.current = setTimeout(() => removeSessionValue("simFromListing"), 0); };
+  }, []);
   return <SimulationForm key={seed ?? "no-seed"} rawSeed={seed} />;
 }
 
@@ -64,14 +73,6 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
     () => (rawSeed ? (JSON.parse(rawSeed) as ListingSeed) : {}),
     [rawSeed],
   );
-
-  // 시드는 페이지를 떠날 때 지운다 — 나중에 /simulation 에 다시 들어왔을 때
-  // 예전 매물이 또 채워지지 않도록. 마운트 시점에 지우면 rawSeed 가 null 이
-  // 되면서 위 key 가 바뀌어 폼이 기본값으로 다시 마운트되므로(= 시드가 즉시
-  // 날아감) 반드시 언마운트에서 지워야 한다.
-  useEffect(() => {
-    return () => removeSessionValue("simFromListing");
-  }, []);
 
   // 입력 상태
   const [purchasePriceStr, setPurchasePriceStr] = useState(
@@ -82,28 +83,32 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
       ? (LISTING_TYPE_TO_PROP[seed.property_type] ?? seed.property_type)
       : "아파트",
   );
-  const [loanRatio, setLoanRatio]   = useState(50);
-  const [interestRate, setInterestRate] = useState(4.0);
-  const [loanYears, setLoanYears]   = useState(30);
-  const [repayType, setRepayType]   = useState("equal_payment");
-  const [holdingYears, setHoldingYears] = useState(3);
-  const [growthRate, setGrowthRate] = useState(0);
+  const previous = seed.inputs;
+  const [loanRatio, setLoanRatio]   = useState((previous?.loan_ratio ?? 0.5) * 100);
+  const [interestRate, setInterestRate] = useState(previous?.annual_interest_rate ?? 4.0);
+  const [loanYears, setLoanYears]   = useState(previous?.loan_years ?? 30);
+  const [repayType, setRepayType]   = useState<string>(previous?.repayment_type ?? "equal_payment");
+  const [holdingYears, setHoldingYears] = useState(previous?.holding_years ?? 3);
+  const [growthRate, setGrowthRate] = useState(previous?.expected_annual_growth_rate ?? 0);
   // 전세 보증금이 있는 매물이면 임대 모드를 전세로 맞춰서 시작한다
-  const [rentalMode, setRentalMode] = useState(seed.deposit_price ? "전세" : "없음");
+  const [rentalMode, setRentalMode] = useState(previous?.rent_fee ? "월세" : (previous?.rent_deposit ?? seed.deposit_price) ? "전세" : "없음");
   const [depositStr, setDepositStr] = useState(
-    seed.deposit_price ? String(Math.round(seed.deposit_price / 10000)) + "만" : "",
+    String(previous?.rent_deposit ?? seed.deposit_price ?? ""),
   );
-  const [rentFeeStr, setRentFeeStr] = useState("");
+  const [rentFeeStr, setRentFeeStr] = useState(String(previous?.rent_fee ?? ""));
   const [mgmtFeeStr, setMgmtFeeStr] = useState(
-    seed.maintenance_fee ? String(seed.maintenance_fee) : "",
+    String(previous?.monthly_management_fee ?? seed.maintenance_fee ?? ""),
   );
-  const [ownedHomes, setOwnedHomes] = useState(1);
+  const [ownedHomes, setOwnedHomes] = useState(previous?.owned_homes ?? 1);
 
   // 세금·규제 입력
-  const [annualIncomeStr, setAnnualIncomeStr] = useState("");   // 연소득 (DSR, 선택)
-  const [vacancyRate, setVacancyRate] = useState(5);
-  const [adjustedArea, setAdjustedArea] = useState(false);
-  const [officialPriceStr, setOfficialPriceStr] = useState(""); // 공시가격 (선택)
+  const [annualIncomeStr, setAnnualIncomeStr] = useState(String(previous?.annual_income ?? ""));
+  const [cashStr, setCashStr] = useState(String(previous?.cash_available ?? ""));
+  const [paymentLimitStr, setPaymentLimitStr] = useState(String(previous?.monthly_payment_limit ?? ""));
+  const [existingPaymentStr, setExistingPaymentStr] = useState(String(previous?.existing_loan_annual_payment ?? ""));
+  const [vacancyRate, setVacancyRate] = useState(previous?.vacancy_rate ?? 5);
+  const [adjustedArea, setAdjustedArea] = useState(previous?.adjusted_area ?? false);
+  const [officialPriceStr, setOfficialPriceStr] = useState(String(previous?.official_price ?? ""));
 
   const [rateSource, setRateSource] = useState("");             // ECOS 금리 출처
 
@@ -115,21 +120,27 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
 
   // 최신 주담대 평균금리 자동 세팅 (한국은행 ECOS)
   useEffect(() => {
+    let cancelled = false;
     api.marketRate()
       .then(r => {
-        if (r.is_live) {
+        if (!cancelled && r.is_live && previous?.annual_interest_rate == null) {
           setInterestRate(r.rate);
           setRateSource(r.source);
         }
       })
       .catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [previous?.annual_interest_rate]);
 
   // (넘겨받은 매물 정보는 위 useState 초기값으로 이미 반영돼 있다)
 
   const handleSubmit = async () => {
     const purchasePrice = parsePrice(purchasePriceStr);
     if (!purchasePrice) { setError("매수가를 입력해주세요."); return; }
+    if ([cashStr, paymentLimitStr, existingPaymentStr, annualIncomeStr, officialPriceStr, depositStr]
+      .some(value => value.trim() !== "" && !Number.isSafeInteger(parsePrice(value)))) {
+      setError("금액은 150000000, 1.5억, 1억 5000만처럼 입력해주세요."); return;
+    }
     setError("");
     setLoading(true);
     try {
@@ -137,6 +148,9 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
         case_id: seed.case_id,
         candidate_id: seed.candidate_id,
         purchase_price: purchasePrice,
+        cash_available: cashStr ? parsePrice(cashStr) : undefined,
+        monthly_payment_limit: paymentLimitStr ? parsePrice(paymentLimitStr) : undefined,
+        existing_loan_annual_payment: existingPaymentStr ? parsePrice(existingPaymentStr) : 0,
         loan_ratio: loanRatio / 100,
         annual_interest_rate: interestRate,
         loan_years: loanYears,
@@ -188,7 +202,7 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">매수가 *</label>
-                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="예: 7억5천, 750000만"
+                <input aria-label="매수가 (원)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="예: 7억 5000만, 75000만"
                   value={purchasePriceStr} onChange={e => setPurchasePriceStr(e.target.value)} />
               </div>
               <div>
@@ -309,6 +323,18 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
             </div>
           </div>
 
+          <div className="bg-white rounded-xl shadow p-5 space-y-3">
+            <h2 className="font-semibold">자금 판단 기준 (선택)</h2>
+            {[
+              { label: "보유 현금 (원)", value: cashStr, set: setCashStr },
+              { label: "월 대출 상환 한도 (원)", value: paymentLimitStr, set: setPaymentLimitStr },
+              { label: "기존 대출 연간 상환액 (원)", value: existingPaymentStr, set: setExistingPaymentStr },
+            ].map(field => <label key={field.label} className="block text-xs text-slate-500">
+              {field.label}<input aria-label={field.label} value={field.value} onChange={e => field.set(e.target.value)}
+                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="예: 1000000" />
+            </label>)}
+            <p className="text-xs text-slate-500">보유 현금은 취득비용을 포함해 비교합니다. 월 한도는 첫 달 대출 상환액 기준이며 생활비·관리비는 별도입니다.</p>
+          </div>
           {error && <p className="text-red-500 text-sm">⚠️ {error}</p>}
           <button onClick={handleSubmit} disabled={loading}
             className="w-full py-3 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-strong disabled:opacity-50">
@@ -320,6 +346,8 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
       {/* 결과 */}
       {result && (
         <div className="mt-6">
+          {seed.case_id && <p className="mb-4 rounded-xl bg-blue-50 p-4 text-sm">계산 결과를 후보에 저장했습니다. 입력을 바꾸면 다시 계산해야 반영됩니다. <Link className="underline" href={`/cases/${seed.case_id}/comparison`}>후보 비교·다음 행동 확인</Link></p>}
+          <p className="mb-4 text-xs text-slate-500">입력 조건과 계산기 기준에 따른 참고 결과이며 금융기관의 대출 승인을 의미하지 않습니다.</p>
           <div className="flex border-b border-slate-200 mb-4 gap-1">
             {["📊 대시보드", "📄 리포트"].map((t, i) => (
               <button key={i} onClick={() => setTab(i)}
@@ -339,7 +367,7 @@ function SimulationForm({ rawSeed }: { rawSeed: string | null }) {
                   <div className="font-semibold mb-1">
                     {result.finance_check.ltv_exceeded || result.finance_check.dsr_exceeded
                       ? "⛔ 대출 규제 한도 초과 — 이 조건의 대출은 실행이 어렵습니다"
-                      : "✅ 대출 규제 검증 통과"}
+                      : result.finance_check.dsr == null ? "연소득 미입력 — DSR 확인 필요" : "입력 조건이 계산기 기준 범위 이내입니다"}
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                     <span>
