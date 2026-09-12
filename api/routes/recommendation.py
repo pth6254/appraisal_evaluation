@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["recommendation"])
@@ -15,13 +15,25 @@ router = APIRouter(tags=["recommendation"])
 class RecommendationRequest(BaseModel):
     region: Optional[str] = None
     property_type: Optional[str] = None
-    budget_min: Optional[int] = None
-    budget_max: Optional[int] = None
-    area_m2: Optional[float] = None
-    purpose: Optional[str] = None
+    budget_min: Optional[int] = Field(None, ge=0)
+    budget_max: Optional[int] = Field(None, ge=0)
+    area_m2: Optional[float] = Field(None, gt=0)
+    purpose: Literal["live", "investment", "sell", "hold"] | None = None
     complex_name: Optional[str] = None
-    limit: int = 5
+    limit: int = Field(5, ge=1, le=50)
     run_appraisal: bool = False
+
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def normalize_purpose(cls, value):
+        # 기존 화면의 한글 선택값도 내부 의사결정 스키마와 같은 의도로 변환한다.
+        return {"실거주": "live", "투자": "investment", "매도": "sell", "보유": "hold", "전체": None}.get(value, value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_budget(self):
+        if self.budget_min is not None and self.budget_max is not None and self.budget_min > self.budget_max:
+            raise ValueError("최소 예산은 최대 예산보다 클 수 없습니다")
+        return self
 
 
 class ComplexRecommendRequest(BaseModel):
@@ -54,6 +66,7 @@ async def run_recommendation_endpoint(req: RecommendationRequest):
     from schemas.property_query import PropertyQuery
 
     query = PropertyQuery(
+        intent        = "recommendation",
         region        = req.region,
         property_type = req.property_type,
         budget_min    = req.budget_min,

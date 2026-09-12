@@ -12,8 +12,31 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, JSON, BigInteger, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
 
 from db.base import Base
+
+
+class LawCorpusDocument(Base):
+    __tablename__ = "law_corpus_documents"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    law_id: Mapped[str] = mapped_column(String(30), index=True)
+    model: Mapped[str] = mapped_column(String(100))
+    model_digest: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), default="loading")
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    chunk_count: Mapped[int] = mapped_column(Integer)
+    metadata_json: Mapped[dict] = mapped_column(JSON)
+
+
+class LawCorpusChunk(Base):
+    __tablename__ = "law_corpus_chunks"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("law_corpus_documents.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(JSON)
+    # qwen3-embedding:4b의 실측 차원. 기존 실거래 벡터(768차원)와 혼합하지 않는다.
+    embedding: Mapped[list] = mapped_column(Vector(2560))
 
 
 def _now_str() -> str:

@@ -2,6 +2,20 @@ import type { ActivityItem, CaseCandidateComparison, CaseExecution, ConciergeRes
 
 const BASE = "/api";
 
+async function conversationJob<T>(path: string, body: object): Promise<T> {
+  const started = await req<{ job_id: string }>(path, {
+    method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
+  });
+  const deadline = Date.now() + 240000;
+  while (Date.now() < deadline) {
+    const job = await req<{ status: string; result?: T; error?: string }>(`${path}/${started.job_id}`, { signal: AbortSignal.timeout(15000) });
+    if (job.status === "done" && job.result) return job.result;
+    if (job.status === "error") throw new Error(job.error || "답변 생성에 실패했습니다.");
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error("답변 대기 시간이 초과되었습니다. 잠시 후 다시 확인해주세요.");
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -17,6 +31,18 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  conciergeConversation: async (conversationId: string, signal?: AbortSignal) => {
+    const response = await fetch(`${BASE}/concierge/conversations/${encodeURIComponent(conversationId)}`, {
+      credentials: "include", cache: "no-store", signal,
+    });
+    if (response.status === 404 || response.status === 422) return null;
+    if (!response.ok) throw new Error("대화를 복원하지 못했습니다.");
+    return response.json() as Promise<{
+      conversation_id: string;
+      candidate_context: { case_id?: number; candidate_id?: number | null };
+      messages: { role: "user" | "assistant"; content: string; response?: ConciergeResponse }[];
+    }>;
+  },
   appraisal: (
     userInput: string,
     buildingName = "",
@@ -275,19 +301,30 @@ export const api = {
     }>("/rights/analyze", { method: "POST", body: JSON.stringify(params) }),
 
   /** 부동산 법률·세금 AI 정보 안내 챗봇 */
-  chat: (message: string, history: { role: string; content: string }[] = []) =>
-    req<{
+  chat: (message: string, history: { role: string; content: string }[] = [], conversationId: string | null = null) =>
+    conversationJob<{
       answer: string;
-      sources: { title: string; source: string }[];
+      sources: import("./types").ChatSource[];
       tool_used: string | null;
       disclaimer: string;
-    }>("/chat", { method: "POST", body: JSON.stringify({ message, history }) }),
+      conversation_id?: string;
+    }>("/chat/jobs", { message, history, conversation_id: conversationId }),
 
-  conciergeMessage: (message: string, conversationId: string | null, candidate?: { case_id: number; candidate_id: number }) =>
-    req<ConciergeResponse>("/concierge/messages", {
-      method: "POST",
-      body: JSON.stringify({ message, conversation_id: conversationId, ...candidate }),
-    }),
+  chatConversation: async (conversationId: string, signal?: AbortSignal) => {
+    const response = await fetch(`${BASE}/chat/conversations/${encodeURIComponent(conversationId)}`, {
+      credentials: "include", cache: "no-store", signal,
+    });
+    if (response.status === 404 || response.status === 422) return null;
+    if (!response.ok) throw new Error("대화를 복원하지 못했습니다.");
+    return response.json() as Promise<{
+      conversation_id: string;
+      messages: { role: "user" | "assistant"; content: string; sources?: import("./types").ChatSource[];
+        tool?: string | null; disclaimer?: string }[];
+    }>;
+  },
+
+  conciergeMessage: (message: string, conversationId: string | null, candidate?: { case_id?: number; candidate_id?: number; clear_context?: boolean }) =>
+    conversationJob<ConciergeResponse>("/concierge/jobs", { message, conversation_id: conversationId, ...candidate }),
 
   addressSearch: (query: string, type: "keyword" | "address" = "keyword") =>
     req<{ documents: object[]; meta: object }>(

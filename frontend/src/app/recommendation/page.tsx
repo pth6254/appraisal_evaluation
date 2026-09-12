@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { parseWon } from "@/lib/moneyInput";
 import { removeSessionValue, setSessionValue } from "@/lib/sessionStore";
 import type { RecommendationResult } from "@/lib/types";
 
@@ -11,13 +12,7 @@ const PURPOSES   = ["전체", "실거주", "투자", "매도", "보유"];
 
 function parsePrice(s: string): number | undefined {
   if (!s.trim()) return undefined;
-  const n = s
-    .replace(/억/g, "00000000")
-    .replace(/천만/g, "0000000")
-    .replace(/천/g, "0000")
-    .replace(/만/g, "0000")
-    .replace(/[^0-9]/g, "");
-  return n ? parseInt(n) : undefined;
+  return parseWon(s);
 }
 
 function ScoreBar({ score, max = 10 }: { score?: number; max?: number }) {
@@ -67,6 +62,9 @@ export default function RecommendationPage() {
 
   const handleComplexSubmit = async () => {
     if (!cxRegion.trim()) { setCxError("지역명을 입력하세요 (예: 춘천시, 해운대구)"); return; }
+    if ([cxBudgetMin, cxBudgetMax].some(value => value.trim() && !Number.isSafeInteger(parseWon(value)))) {
+      setCxError("예산은 250000000, 2.5억, 2억 5000만처럼 입력해주세요."); return;
+    }
     setCxError("");
     setCxLoading(true);
     setCxResults([]);
@@ -105,6 +103,9 @@ export default function RecommendationPage() {
   const [basket, setBasket]   = useState<RecommendationResult[]>([]);
 
   const handleSubmit = async () => {
+    if ([budgetMin, budgetMax].some(value => value.trim() && !Number.isSafeInteger(parseWon(value)))) {
+      setError("예산은 250000000, 2.5억, 2억 5000만처럼 입력해주세요."); return;
+    }
     setError("");
     setLoading(true);
     setResults([]);

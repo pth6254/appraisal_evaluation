@@ -369,7 +369,7 @@ export type ConciergeIntent =
 
 export interface ConciergeCriteria {
   property_type: string | null;
-  transaction_type: "purchase" | "rent" | "lease";
+  transaction_type: "purchase" | "rent" | "lease" | null;
   budget_max_won: number | null;
   region_name: string | null;
   region_code: string | null;
@@ -396,6 +396,15 @@ export interface ConciergeRegionItem {
   confidence: "high" | "medium" | "low";
 }
 
+export interface ChatSource {
+  title: string;
+  source: string;
+  url?: string;
+  effective_date?: string;
+  collected_at?: string;
+  origin?: string;
+}
+
 export interface ConciergeResponse {
   conversation_id: string;
   status: "completed" | "needs_input" | "not_available" | "error" | "queued";
@@ -403,6 +412,12 @@ export interface ConciergeResponse {
   answer: string;
   criteria: ConciergeCriteria;
   data: {
+    result_url?: string;
+    comparison?: CaseCandidateComparison;
+    funding_inputs?: Partial<SimulationRequest>;
+    candidate_funding?: { required_cash?: number; monthly_payment?: number; cash_shortfall?: number };
+    sources?: ChatSource[];
+    disclaimer?: string;
     job_id?: string;
     case_id?: number;
     candidate_id?: number;

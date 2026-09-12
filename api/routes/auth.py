@@ -319,6 +319,8 @@ def me(user: dict = Depends(get_current_user)):
 @router.delete("/auth/me")
 def withdraw(response: Response, user: dict = Depends(get_current_user)):
     """회원 탈퇴 — 시세추정 이력·활동 기록·계정을 즉시 삭제한다 (복구 불가)"""
+    from backend.services.chat_conversations import delete_user_conversations
+    delete_user_conversations(user["id"])
     history_db.delete_all(user_id=user["id"])
     activity_db.delete_all(user_id=user["id"])
     auth_db.delete_user(user["id"])

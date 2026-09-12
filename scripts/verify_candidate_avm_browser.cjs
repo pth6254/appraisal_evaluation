@@ -49,10 +49,19 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright')
     const dialog=page.getByRole('dialog',{name:'AI 부동산 컨시어지'});
     await dialog.getByRole('combobox',{name:'분석할 후보'}).selectOption(String(candidate.id));
     await dialog.getByPlaceholder('예산과 희망 지역을 말씀해 주세요').fill('선택한 후보의 AVM 시세를 추정해줘');
-    const replyPromise=page.waitForResponse(r=>r.url().includes('/concierge/messages')&&r.request().method()==='POST',{timeout:180000});
+    const replyPromise=page.waitForResponse(r=>r.url().endsWith('/concierge/jobs')&&r.request().method()==='POST',{timeout:180000});
     await dialog.getByRole('button',{name:'메시지 보내기'}).click();
     const reply=await replyPromise;
-    const data=await reply.json();
+    const accepted=await reply.json();
+    let conversationJob;
+    const conversationDeadline=Date.now()+180000;
+    while(Date.now()<conversationDeadline){
+      conversationJob=await (await context.request.get(`/api/concierge/jobs/${accepted.job_id}`)).json();
+      if(['done','error'].includes(conversationJob.status))break;
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    if(conversationJob?.status!=='done')throw Error('Concierge job did not complete');
+    const data=conversationJob.result;
     evidence.chat_status=data.status; evidence.intent=data.intent;
     if(!data.data?.job_id) throw Error(`chat ${data.status}: ${data.answer}`);
     evidence.stages.push('chat_queued'); console.log('PASS chat starts AVM');

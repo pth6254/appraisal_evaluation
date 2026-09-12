@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { CaseProperty, ConciergeRegionItem, ConciergeResponse, PurchaseCase } from "@/lib/types";
 import Link from "next/link";
+import LawSources from "./LawSources";
+import { useSessionValue, setSessionValue, removeSessionValue } from "@/lib/sessionStore";
 
 type Message = {
   role: "user" | "assistant";
@@ -20,6 +22,8 @@ const HIDDEN_PATHS = [
 
 const SUGGESTIONS = [
   "이 후보 시세를 추정해줘",
+  "이 후보 자금 분석해줘",
+  "후보 비교해줘",
   "서울에서 10억 이하 아파트 동네 추천해줘",
   "실거주할 동네를 찾고 있어",
   "어떤 부동산 기능을 도와줄 수 있어?",
@@ -30,6 +34,24 @@ const formatPrice = (manwon: number) => manwon >= 10_000
   : `${manwon.toLocaleString()}만원`;
 
 const formatYm = (ym: string) => ym.length === 6 ? `${ym.slice(0, 4)}.${ym.slice(4)}` : ym;
+
+function FundingConditions({ response }: { response: ConciergeResponse }) {
+  const values = response.data.funding_inputs;
+  if (!values) return null;
+  const lines = [
+    values.cash_available != null ? `보유 현금 ${values.cash_available.toLocaleString()}원` : null,
+    values.loan_ratio != null ? `대출 ${values.loan_ratio * 100}%` : null,
+    values.annual_interest_rate != null ? `연 금리 ${values.annual_interest_rate}%` : null,
+    values.loan_years != null ? `${values.loan_years}년` : null,
+    values.repayment_type ? { equal_payment: "원리금균등", equal_principal: "원금균등", interest_only: "만기일시" }[values.repayment_type] : null,
+    values.owned_homes != null ? `취득 후 ${values.owned_homes}주택` : null,
+    values.adjusted_area != null ? (values.adjusted_area ? "조정대상지역" : "비조정지역") : null,
+    values.annual_income != null ? `연소득 ${values.annual_income.toLocaleString()}원` : null,
+    values.existing_loan_annual_payment != null ? `기존 대출 연 상환 ${values.existing_loan_annual_payment.toLocaleString()}원` : null,
+    values.monthly_payment_limit != null ? `월 한도 ${values.monthly_payment_limit.toLocaleString()}원` : null,
+  ].filter(Boolean);
+  return lines.length > 0 ? <p className="mt-2 rounded-lg bg-slate-50 p-2 text-xs text-slate-600">반영한 조건: {lines.join(" · ")}</p> : null;
+}
 
 function CriteriaChips({ response }: { response: ConciergeResponse }) {
   const criteria = response.criteria;
@@ -120,6 +142,13 @@ function AppraisalProgress({ jobId, caseId }: { jobId: string; caseId?: number }
 }
 
 export default function ConciergeWidget() {
+  const { user, loading } = useAuth();
+  if (loading || !user) return null;
+  // 계정이 바뀌면 이전 사용자의 화면 상태와 진행 중 복원 요청을 함께 폐기한다.
+  return <UserConciergeWidget key={user.id} userId={user.id} />;
+}
+
+function UserConciergeWidget({ userId }: { userId: number }) {
   const path = usePathname();
   const { user, loading: authLoading } = useAuth();
   const [open, setOpen] = useState(false);
@@ -133,6 +162,40 @@ export default function ConciergeWidget() {
   const [candidateId, setCandidateId] = useState("");
   const [savedRegions, setSavedRegions] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const storageKey = `concierge-conversation:${userId}`;
+  const savedConversationId = useSessionValue(storageKey);
+  const [restoreError, setRestoreError] = useState("");
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const restoring = savedConversationId === undefined || Boolean(savedConversationId && savedConversationId !== conversationId);
+
+  useEffect(() => {
+    if (!savedConversationId || savedConversationId === conversationId) return;
+    const controller = new AbortController();
+    const restore = async () => {
+      try {
+        const restored = await api.conciergeConversation(savedConversationId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!restored) {
+          removeSessionValue(storageKey);
+          setRestoreError("이전 대화가 만료되었거나 후보가 삭제되어 새 대화를 시작합니다.");
+          return;
+        }
+        const selectedCase = restored.candidate_context.case_id;
+        const detail = selectedCase ? await api.caseOne(selectedCase) : null;
+        if (controller.signal.aborted) return;
+        setMessages(restored.messages);
+        setCaseId(String(selectedCase ?? ""));
+        setCandidateId(String(restored.candidate_context.candidate_id ?? ""));
+        setCandidates(detail?.properties ?? []);
+        setConversationId(restored.conversation_id);
+        setRestoreError("");
+      } catch {
+        if (!controller.signal.aborted) setRestoreError("이전 대화를 불러오지 못했습니다. 다시 시도하거나 새 대화를 시작해주세요.");
+      }
+    };
+    void restore();
+    return () => controller.abort();
+  }, [savedConversationId, conversationId, storageKey, restoreAttempt]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -195,15 +258,16 @@ export default function ConciergeWidget() {
 
   const send = async (suggestion?: string) => {
     const message = (suggestion ?? input).trim();
-    if (!message || sending) return;
+    if (!message || sending || restoring) return;
     setInput("");
     setMessages((current) => [...current, { role: "user", content: message }]);
     setSending(true);
     try {
       const selected = candidates.find((candidate) => String(candidate.id) === candidateId && candidate.case_id === Number(caseId));
       const response = await api.conciergeMessage(message, conversationId,
-        selected ? { case_id: Number(caseId), candidate_id: selected.id } : undefined);
+        caseId ? { case_id: Number(caseId), candidate_id: selected?.id } : { clear_context: true });
       setConversationId(response.conversation_id);
+      setSessionValue(storageKey, response.conversation_id);
       setMessages((current) => [...current, {
         role: "assistant", content: response.answer, response,
       }]);
@@ -250,11 +314,13 @@ export default function ConciergeWidget() {
             </header>
 
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {restoring && !restoreError && <p role="status" className="text-sm text-slate-500">이전 대화를 불러오고 있습니다…</p>}
+              {restoreError && <div role="status" className="text-sm text-slate-600">{restoreError}{restoring && <button type="button" onClick={() => { setRestoreError(""); setRestoreAttempt((value) => value + 1); }} className="ml-2 underline">다시 시도</button>}</div>}
               {messages.length === 0 && (
                 <div className="pt-4 text-center">
                   <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-primary"><Sparkles size={22} /></span>
                   <h3 className="mt-3 text-base font-bold text-slate-800">어떤 부동산을 찾고 계세요?</h3>
-                  <p className="mx-auto mt-1 max-w-[310px] text-xs leading-5 text-slate-500">실거래 기반 동네 추천과 후보 AVM 시세추정을 지원합니다. 아래에서 후보를 선택하고 “이 후보 시세를 추정해줘”라고 요청하세요.</p>
+                  <p className="mx-auto mt-1 max-w-[310px] text-xs leading-5 text-slate-500">동네 추천·후보 시세추정·자금 분석·후보 비교를 지원합니다. 후보를 선택하고 요청하세요. 같은 후보의 금융 조건은 이어서 사용할 수 있습니다.</p>
                   <div className="mt-5 space-y-2 text-left">{SUGGESTIONS.map((suggestion) => (
                     <button key={suggestion} type="button" onClick={() => send(suggestion)} className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-xs text-slate-600 shadow-sm hover:border-emerald-300 hover:text-primary">{suggestion}</button>
                   ))}</div>
@@ -265,10 +331,14 @@ export default function ConciergeWidget() {
                 <div key={`${message.role}-${index}`} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[90%] rounded-2xl px-3.5 py-3 text-sm leading-6 ${message.role === "user" ? "rounded-br-md bg-primary text-white" : "rounded-bl-md bg-white text-slate-700 shadow-sm"}`}>
                     <p className="whitespace-pre-wrap">{message.content}</p>
+                    <LawSources sources={message.response?.data.sources} />
+                    {message.response?.data.disclaimer && <p className="mt-2 text-xs text-amber-700">{message.response.data.disclaimer}</p>}
                     {message.response && <CriteriaChips response={message.response} />}
+                    {message.response && <FundingConditions response={message.response} />}
                     {message.response && <RegionCards response={message.response} saved={savedRegions} onSave={saveRegion} />}
                     {message.response?.data.job_id && <AppraisalProgress jobId={message.response.data.job_id} caseId={message.response.data.case_id} />}
                     {message.response?.data.input_url && <Link href={message.response.data.input_url} className="text-primary underline">후보 정보 확인하고 시세추정</Link>}
+                    {message.response?.data.result_url && <Link href={message.response.data.result_url} className="mt-2 block text-primary underline">케이스에서 분석·비교 결과 확인</Link>}
                   </div>
                 </div>
               ))}
@@ -277,8 +347,9 @@ export default function ConciergeWidget() {
             </div>
 
             <footer className="border-t border-slate-200 bg-white p-3">
-              <label className="mb-2 block text-xs text-slate-500">분석할 후보<select aria-label="분석할 후보" value={candidateId} onChange={(event) => setCandidateId(event.target.value)} className="ml-2 rounded border p-1"><option value="">후보 선택</option>{candidates.filter((candidate) => candidate.case_id === Number(caseId)).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
-              {cases.length > 0 && <div className="mb-2 flex items-center gap-2 px-1"><label className="shrink-0 text-[11px] text-slate-500">저장할 케이스</label><select value={caseId} onChange={(event) => setCaseId(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px]">{cases.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>}
+              <label className="mb-2 block text-xs text-slate-500">분석할 후보<select aria-label="분석할 후보" disabled={sending} value={candidateId} onChange={(event) => setCandidateId(event.target.value)} className="ml-2 rounded border p-1"><option value="">후보 선택</option>{candidates.filter((candidate) => candidate.case_id === Number(caseId)).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
+              {cases.length > 0 && <div className="mb-2 flex items-center gap-2 px-1"><label className="shrink-0 text-[11px] text-slate-500">검토 케이스</label><select aria-label="검토 케이스" disabled={sending} value={caseId} onChange={(event) => { setCaseId(event.target.value); setCandidateId(""); }} className="min-w-0 flex-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px]">{cases.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div>}
+              <button type="button" disabled={sending} onClick={() => { removeSessionValue(storageKey); setMessages([]); setConversationId(null); setRestoreError(""); }} className="mb-2 text-xs text-slate-500 underline">새 대화 시작 · 기억한 조건 초기화</button>
               <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white p-1.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10">
                 <textarea
                   rows={1}
@@ -290,7 +361,7 @@ export default function ConciergeWidget() {
                     }
                   }}
                   placeholder="예산과 희망 지역을 말씀해 주세요"
-                  disabled={sending}
+                  disabled={sending || restoring}
                   className="max-h-28 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400"
                 />
                 <button type="button" onClick={() => send()} disabled={sending || !input.trim()} aria-label="메시지 보내기" className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary text-white hover:bg-primary-strong disabled:opacity-35"><Send size={17} /></button>

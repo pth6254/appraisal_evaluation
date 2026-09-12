@@ -49,14 +49,16 @@ ROUTER_PROMPT = """당신은 부동산 세금 질문에서 계산 파라미터�
   }
 }
 금액은 원 단위 정수로 변환하세요 (예: "5억" → 500000000). 언급되지 않은 파라미터는 생략하세요.
-계산에 필수적인 금액이 질문에 없으면 tool="none"으로 하세요."""
+계산에 필수적인 금액이 질문에 없으면 tool="none"으로 하세요.
+이전 사용자 발언이 제공되면 현재 질문의 생략된 조건만 보완하세요. 현재 질문의 변경값이 우선입니다.
+현재 질문이 다른 주제이거나 계산을 요청하지 않으면 이전 계산을 다시 실행하지 마세요."""
 
 
 def _route_tool(question: str, trace: dict | None = None) -> dict:
     """질문 → {tool, params}. 실패 시 none."""
     try:
-        from model_factory import get_llm_json
-        llm = get_llm_json()
+        from model_factory import get_chat_llm
+        llm = get_chat_llm(json_mode=True)
         res = llm.invoke([("system", ROUTER_PROMPT), ("human", question)])
         raw = res.content.strip()
         try:
@@ -146,7 +148,8 @@ def _build_context(chunks: list[dict], tool_result: dict | None) -> str:
     if chunks:
         parts.append("\n[근거 자료]")
         for i, c in enumerate(chunks, 1):
-            parts.append(f"({i}) {c['title']} — 출처: {c['source']}\n{c['text']}")
+            provenance = f" / 시행일 {c['effective_date']} / 수집일 {c.get('collected_at', '')}" if c.get("effective_date") else ""
+            parts.append(f"({i}) {c['title']} — 출처: {c['source']}{provenance}\n{c['text']}")
     return "\n".join(parts) if parts else "[근거 자료 없음]"
 
 
@@ -172,7 +175,9 @@ def answer_question(question: str, history: list[dict] | None = None, *, trace: 
     # 1) 도구 라우팅 + 실행
     if trace is not None:
         trace["stage"] = "routing"
-    route = _route_tool(question, trace=trace)
+    user_context = "\n".join(str(h.get("content", ""))[:2000] for h in (history or [])[-6:] if h.get("role") == "user")
+    routing_question = f"[이전 사용자 발언 — 현재 질문의 조건 보완용]\n{user_context}\n[현재 질문]\n{question}" if user_context else question
+    route = _route_tool(routing_question, trace=trace)
     tool_result = _run_tool(route["tool"], route["params"], trace=trace) if route["tool"] != "none" else None
     if trace is not None:
         trace.update(route=route, tool_result=tool_result)
@@ -181,7 +186,18 @@ def answer_question(question: str, history: list[dict] | None = None, *, trace: 
     retrieval_trace = {} if trace is not None else None
     if trace is not None:
         trace["stage"] = "retrieval"
-    chunks = chat_corpus.search(question, k=4, trace=retrieval_trace)
+    from backend.services.law_retrieval import search_laws
+    # 지시어가 있는 후속 질문은 사용자 발언으로 검색을 보완한다. 과거 AI 답변은 검색 근거가 아니다.
+    followup = bool(re.match(r"^(그럼|그러면|그\s|그때|이\s*경우|이때|그것|그건|여기서|그렇다면|그러니까)", question))
+    search_question = f"{user_context}\n{question}" if followup and user_context else question
+    try:
+        chunks = search_laws(search_question, k=4, trace=retrieval_trace)
+        if chunks is None:
+            chunks = chat_corpus.search(search_question, k=4, trace=retrieval_trace)
+    except Exception as exc:
+        chunks = []
+        if trace is not None:
+            trace["retrieval_error"] = type(exc).__name__
     if trace is not None:
         trace["chunks"] = chunks
         trace["retrieval"] = retrieval_trace
@@ -200,8 +216,10 @@ def answer_question(question: str, history: list[dict] | None = None, *, trace: 
     if trace is not None:
         trace["stage"] = "generation"
     try:
-        from model_factory import get_llm
-        res = get_llm().invoke(messages)
+        from model_factory import get_chat_llm
+        if not chunks and not tool_result:
+            raise ValueError("확인 가능한 근거 없음")
+        res = get_chat_llm().invoke(messages)
         raw_answer = res.content.strip()
         if trace is not None:
             trace["raw_answer"] = raw_answer
@@ -232,7 +250,7 @@ def answer_question(question: str, history: list[dict] | None = None, *, trace: 
 
     return {
         "answer":     answer,
-        "sources":    [{"title": c["title"], "source": c["source"]} for c in chunks],
+        "sources":    [{key: c[key] for key in ("title", "source", "url", "effective_date", "collected_at", "origin") if key in c} for c in chunks],
         "tool_used":  tool_result["name"] if tool_result else None,
         "disclaimer": DISCLAIMER,
         "blocked":    blocked,

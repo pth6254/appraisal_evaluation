@@ -143,6 +143,17 @@ def get_embeddings():
                      " (ollama | openai | google)")
 
 
+def get_chat_llm(*, json_mode=False):
+    """대화 경로만 추론·출력 길이를 제한하고 AVM 모델 설정은 유지한다."""
+    llm = get_llm_json() if json_mode else get_llm()
+    from langchain_ollama import ChatOllama
+    if isinstance(llm, ChatOllama):
+        return ChatOllama(model=llm.model, base_url=llm.base_url, temperature=0,
+            format="json" if json_mode else "", reasoning=False, num_ctx=16384,
+            num_predict=256 if json_mode else 768, client_kwargs={"timeout": 90})
+    return llm
+
+
 def print_config():
     model_name = {
         "ollama":    os.getenv("OLLAMA_MODEL",    "qwen3.5:9b"),

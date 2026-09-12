@@ -1,12 +1,17 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import LawSources from "@/components/LawSources";
+import type { ChatSource } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { useSessionValue, setSessionValue, removeSessionValue } from "@/lib/sessionStore";
 
 type Msg = {
   role: "user" | "assistant";
   content: string;
-  sources?: { title: string; source: string }[];
+  sources?: ChatSource[];
   tool?: string | null;
+  disclaimer?: string;
 };
 
 const SUGGESTIONS = [
@@ -17,10 +22,44 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatPage() {
+  const { user, loading } = useAuth();
+  return <ChatConversation key={user?.id ?? "guest"} userId={user?.id} authLoading={loading} />;
+}
+
+function ChatConversation({ userId, authLoading }: { userId?: number; authLoading: boolean }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const storageKey = `law-chat-conversation:${userId ?? "guest"}`;
+  const savedId = useSessionValue(storageKey);
+  const [restoreError, setRestoreError] = useState("");
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const restoring = authLoading || Boolean(userId && (savedId === undefined || (savedId && savedId !== conversationId)));
+
+  useEffect(() => {
+    if (!userId || !savedId || savedId === conversationId) return;
+    const controller = new AbortController();
+    const restore = async () => {
+      try {
+        const result = await api.chatConversation(savedId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!result) {
+          removeSessionValue(storageKey);
+          setRestoreError("이전 대화가 만료되어 새 대화를 시작합니다.");
+          return;
+        }
+        setMessages(result.messages);
+        setConversationId(result.conversation_id);
+        setRestoreError("");
+      } catch {
+        if (!controller.signal.aborted) setRestoreError("대화를 불러오지 못했습니다. 다시 시도하거나 새 대화를 시작해주세요.");
+      }
+    };
+    void restore();
+    return () => controller.abort();
+  }, [userId, savedId, conversationId, storageKey, restoreAttempt]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -28,17 +67,21 @@ export default function ChatPage() {
 
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
-    if (!q || loading) return;
+    if (!q || loading || restoring) return;
     setInput("");
     const nextMsgs: Msg[] = [...messages, { role: "user", content: q }];
     setMessages(nextMsgs);
     setLoading(true);
     try {
       const history = nextMsgs.slice(0, -1).slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const res = await api.chat(q, history);
+      const res = await api.chat(q, history, conversationId);
+      if (res.conversation_id && userId) {
+        setConversationId(res.conversation_id);
+        setSessionValue(storageKey, res.conversation_id);
+      }
       setMessages([...nextMsgs, {
         role: "assistant", content: res.answer,
-        sources: res.sources, tool: res.tool_used,
+        sources: res.sources, tool: res.tool_used, disclaimer: res.disclaimer,
       }]);
     } catch (e: unknown) {
       setMessages([...nextMsgs, {
@@ -54,12 +97,18 @@ export default function ChatPage() {
   return (
     <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-3rem)]">
       <h1 className="text-2xl font-bold mb-1">부동산 법률·세금 AI 안내</h1>
+      <div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-500">
+        <span>{userId ? "이 탭에서 최근 20회 대화를 복원합니다 · 마지막 질문 후 24시간 보관" : "로그인하면 새로고침 후 대화를 복원할 수 있습니다"}</span>
+        <button type="button" disabled={loading} onClick={() => { removeSessionValue(storageKey); setConversationId(null); setMessages([]); setInput(""); setRestoreError(""); }} className="shrink-0 underline">새 대화 시작</button>
+      </div>
       <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-4">
         일반 정보 안내 서비스입니다. 법률·세무 상담이 아니며, 개별 사안은 변호사·세무사와 상담하세요.
       </p>
 
       {/* 메시지 목록 */}
       <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+        {restoring && !restoreError && <p role="status" className="text-sm text-slate-500">이전 대화를 불러오고 있습니다…</p>}
+        {restoreError && <p role="status" className="text-sm text-slate-600">{restoreError}{restoring && <button type="button" onClick={() => { setRestoreError(""); setRestoreAttempt(value => value + 1); }} className="ml-2 underline">다시 시도</button>}</p>}
         {messages.length === 0 && (
           <div className="text-center pt-10">
             <p className="text-slate-400 text-sm mb-5">
@@ -88,18 +137,8 @@ export default function ChatPage() {
                 </span>
               )}
               <div>{m.content}</div>
-              {m.sources && m.sources.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-slate-100">
-                  <p className="text-[10px] text-slate-400 mb-1">참고 자료</p>
-                  <div className="flex flex-wrap gap-1">
-                    {m.sources.map((s, j) => (
-                      <span key={j} className="text-[10px] bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-slate-500">
-                        {s.title}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <LawSources sources={m.sources} />
+              {m.disclaimer && <p className="mt-2 text-xs text-amber-700">{m.disclaimer}</p>}
             </div>
           </div>
         ))}
@@ -122,9 +161,9 @@ export default function ChatPage() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && !e.nativeEvent.isComposing && send()}
-          disabled={loading}
+          disabled={loading || restoring}
         />
-        <button onClick={() => send()} disabled={loading || !input.trim()}
+        <button onClick={() => send()} disabled={loading || restoring || !input.trim()}
           className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-strong disabled:opacity-40">
           전송
         </button>

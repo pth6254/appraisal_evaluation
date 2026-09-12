@@ -1,7 +1,7 @@
 """POST /api/chat — 부동산 법률·세금 AI 정보 안내 챗봇
 
 개인정보 처리 원칙:
-  - 질문 원문은 저장하지 않는다. 활동 피드에는 앞 20자만 축약 기록 (개인 사정 노출 최소화).
+  - 로그인 대화는 복원을 위해 Redis에 24시간 보관한다. 활동 피드에는 앞 20자만 기록한다.
   - 남용 방지: IP 기준 분당 10회 + 사용자별 일일 50회 상한.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api import activity_db
-from api.deps import get_optional_user
+from api.deps import get_optional_user, get_current_user
 from api.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     history: list[ChatMessage] = Field(default_factory=list, max_length=20)
+    conversation_id: str | None = None
 
 
 def _truncate_question(q: str, limit: int = 20) -> str:
@@ -38,13 +39,7 @@ def _truncate_question(q: str, limit: int = 20) -> str:
     return q if len(q) <= limit else q[:limit] + "…"
 
 
-@router.post("/chat")
-@limiter.limit("10/minute")
-async def chat_endpoint(
-    request: Request,
-    req: ChatRequest,
-    user: Optional[dict] = Depends(get_optional_user),
-):
+async def _answer(req: ChatRequest, user: Optional[dict]):
     from backend.services.chat_service import answer_question
 
     if user and activity_db.count_today("chat", user["id"]) >= DAILY_CHAT_LIMIT:
@@ -53,12 +48,18 @@ async def chat_endpoint(
             detail=f"오늘 상담 횟수({DAILY_CHAT_LIMIT}회)를 모두 사용했습니다. 내일 다시 이용해주세요.",
         )
 
-    logger.info("챗봇 질문 — %s", req.message[:80])
-    result = await asyncio.to_thread(
-        answer_question,
-        req.message,
-        [m.model_dump() for m in req.history],
-    )
+    if user:
+        from backend.services.chat_conversations import answer_in_conversation
+        try:
+            result = await asyncio.to_thread(answer_in_conversation, user["id"], req.message, req.conversation_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="대화가 만료되었습니다. 새 대화를 시작해주세요.") from None
+        except ValueError:
+            raise HTTPException(status_code=422, detail="대화 ID가 올바르지 않습니다") from None
+    else:
+        if req.conversation_id:
+            raise HTTPException(status_code=401, detail="대화 복원에는 로그인이 필요합니다")
+        result = await asyncio.to_thread(answer_question, req.message, [m.model_dump() for m in req.history])
 
     # 홈 '최근 활동' 피드용 기록 (실패해도 답변 반환에는 영향 없음)
     # 개인정보 최소화: 질문 원문 대신 앞 20자만 저장
@@ -74,3 +75,45 @@ async def chat_endpoint(
         logger.warning("상담 활동 기록 실패", exc_info=True)
 
     return result
+
+
+@router.get("/chat/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str, user: dict = Depends(get_current_user)):
+    from backend.services.chat_conversations import load_conversation
+    try:
+        return await asyncio.to_thread(load_conversation, user["id"], conversation_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="복원할 대화가 없습니다") from None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="대화 ID가 올바르지 않습니다") from None
+
+
+@router.post("/chat")
+@limiter.limit("10/minute")
+async def chat_endpoint(request: Request, req: ChatRequest, user: Optional[dict] = Depends(get_optional_user)):
+    return await _answer(req, user)
+
+
+@router.post("/chat/jobs")
+@limiter.limit("10/minute")
+async def create_chat_job(request: Request, req: ChatRequest, user: Optional[dict] = Depends(get_optional_user)):
+    from api import jobs
+    def runner(set_step):
+        set_step("법령 검색 및 답변 생성")
+        try:
+            return asyncio.run(_answer(req, user))
+        except HTTPException as exc:
+            return {"error": exc.detail}
+        except Exception:
+            return {"error": "답변 생성 중 오류가 발생했습니다."}
+    return {"job_id": jobs.create(runner, owner_id=user["id"] if user else None)}
+
+
+@router.get("/chat/jobs/{job_id}")
+@router.get("/concierge/jobs/{job_id}")
+def get_chat_job(job_id: str, user: Optional[dict] = Depends(get_optional_user)):
+    from api import jobs
+    job = jobs.get(job_id, requester_id=user["id"] if user else None)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    return job

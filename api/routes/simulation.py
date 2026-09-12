@@ -56,6 +56,11 @@ async def get_market_rate():
 
 @router.post("/simulation")
 async def run_simulation_endpoint(req: SimulationRequest, user: dict | None = Depends(get_optional_user)):
+    return await asyncio.to_thread(execute_simulation, req, user)
+
+
+def execute_simulation(req: SimulationRequest, user: dict | None):
+    """화면과 대화가 동일한 계산 및 후보 저장 경로를 사용한다."""
     from backend.router import run_simulation
     from schemas.simulation import SimulationInput
 
@@ -87,7 +92,7 @@ async def run_simulation_endpoint(req: SimulationRequest, user: dict | None = De
     )
 
     logger.info("시뮬레이션 요청 — 매수가 %s원, 대출비율 %.0f%%", req.purchase_price, req.loan_ratio * 100)
-    result = await asyncio.to_thread(run_simulation, inp)
+    result = run_simulation(inp)
     if req.case_id is not None and req.candidate_id is not None and user and isinstance(result, dict) and not result.get("error"):
         calculated_raw = result.get("result")
         calculated = calculated_raw.model_dump(mode="json") if hasattr(calculated_raw, "model_dump") else (calculated_raw or {})
