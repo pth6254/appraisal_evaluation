@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Bot, Database, MapPin, MessageCircle, Send, Sparkles, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ConversationJobError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { CaseProperty, ConciergeRegionItem, ConciergeResponse, PurchaseCase } from "@/lib/types";
 import Link from "next/link";
@@ -271,10 +271,10 @@ function UserConciergeWidget({ userId }: { userId: number }) {
       setMessages((current) => [...current, {
         role: "assistant", content: response.answer, response,
       }]);
-    } catch {
+    } catch (error: unknown) {
       setMessages((current) => [...current, {
         role: "assistant",
-        content: "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        content: error instanceof ConversationJobError ? error.message : "요청을 처리하지 못했습니다. 로그인 상태와 네트워크 연결을 확인하고 다시 시도해주세요.",
       }]);
     } finally {
       setSending(false);

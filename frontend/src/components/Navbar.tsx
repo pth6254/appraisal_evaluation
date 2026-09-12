@@ -20,7 +20,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "의사결정",
     items: [
-      { href: "/explore", label: "동네·단지 탐색", icon: SearchCheck },
+      { href: "/explore", label: "동네 탐색", icon: SearchCheck },
       { href: "/cases", label: "매수 검토 케이스", icon: BriefcaseBusiness },
     ],
   },

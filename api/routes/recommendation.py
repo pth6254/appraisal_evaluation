@@ -37,6 +37,7 @@ class RecommendationRequest(BaseModel):
 
 
 class ComplexRecommendRequest(BaseModel):
+    region_code: str | None = Field(default=None, pattern=r"^\d{10}$")
     """실거래 기반 단지 추천 (전국) — 금액 단위: 만원"""
     region: str
     budget_min: int = 0
@@ -56,7 +57,7 @@ async def recommend_complexes_endpoint(req: ComplexRecommendRequest):
     return await asyncio.to_thread(
         recommend_complexes,
         req.region, req.budget_min, req.budget_max,
-        req.area_m2, req.months, req.limit,
+        req.area_m2, req.months, req.limit, region_code=req.region_code,
     )
 
 

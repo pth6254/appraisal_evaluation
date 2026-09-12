@@ -2,6 +2,8 @@ import type { ActivityItem, CaseCandidateComparison, CaseExecution, ConciergeRes
 
 const BASE = "/api";
 
+export class ConversationJobError extends Error {}
+
 async function conversationJob<T>(path: string, body: object): Promise<T> {
   const started = await req<{ job_id: string }>(path, {
     method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
@@ -10,10 +12,10 @@ async function conversationJob<T>(path: string, body: object): Promise<T> {
   while (Date.now() < deadline) {
     const job = await req<{ status: string; result?: T; error?: string }>(`${path}/${started.job_id}`, { signal: AbortSignal.timeout(15000) });
     if (job.status === "done" && job.result) return job.result;
-    if (job.status === "error") throw new Error(job.error || "답변 생성에 실패했습니다.");
+    if (job.status === "error") throw new ConversationJobError(job.error || "답변 생성에 실패했습니다.");
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
-  throw new Error("답변 대기 시간이 초과되었습니다. 잠시 후 다시 확인해주세요.");
+  throw new ConversationJobError("답변 대기 시간이 초과되었습니다. 잠시 후 다시 확인해주세요.");
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -114,6 +116,7 @@ export const api = {
   /** 실거래 기반 단지 추천 (전국) — 금액 단위: 만원 */
   recommendComplexes: (params: {
     region: string;
+    region_code?: string;
     budget_min?: number;
     budget_max?: number;
     area_m2?: number;
@@ -166,19 +169,20 @@ export const api = {
 
   cases: () => req<{ items: PurchaseCase[] }>("/cases"),
 
-  marketRegions: (params: { level?: "sido" | "sigungu" | "eupmyeondong" | "ri"; parent_code?: string } = {}) => {
+  marketRegions: (params: { level?: "sido" | "sigungu" | "eup_myeon_dong" | "eupmyeondong" | "ri"; parent_code?: string } = {}) => {
     const query = new URLSearchParams();
     query.set("level", params.level ?? "sido");
     if (params.parent_code) query.set("parent_code", params.parent_code);
     return req<{ items: {
       code: string; parent_code: string | null; name: string; full_name: string;
-      level: "sido" | "sigungu" | "eupmyeondong" | "ri"; lawd_code: string | null;
+      level: "sido" | "sigungu" | "eup_myeon_dong" | "eupmyeondong" | "ri"; lawd_code: string | null;
     }[] }>(`/market/regions?${query.toString()}`);
   },
 
-  regionMarket: (params: { region_code: string; months?: number; property_type?: string; budget_max?: number }) => {
+  regionMarket: (params: { region_code: string; group_level?: "sigungu" | "eup_myeon_dong"; months?: number; property_type?: string; budget_max?: number }) => {
     const query = new URLSearchParams();
     query.set("region_code", params.region_code);
+    if (params.group_level) query.set("group_level", params.group_level);
     query.set("months", String(params.months ?? 12));
     query.set("property_type", params.property_type ?? "all");
     if (params.budget_max) query.set("budget_max", String(params.budget_max));

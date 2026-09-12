@@ -12,7 +12,7 @@ _PROPERTY_PATTERN = "^(all|apartment|row_house|detached|officetel|non_residentia
 
 @router.get("/market/regions")
 def list_regions(
-    level: str = Query(default="sido", pattern="^(sido|sigungu|eupmyeondong|ri)$"),
+    level: str = Query(default="sido", pattern="^(sido|sigungu|eupmyeondong|eup_myeon_dong|ri)$"),
     parent_code: str | None = Query(default=None, min_length=10, max_length=10),
     user: dict = Depends(get_current_user),
 ):
@@ -23,6 +23,7 @@ def list_regions(
 @router.get("/market/regions/summary")
 def region_market_summary(
     region_code: str = Query(..., min_length=10, max_length=10),
+    group_level: str = Query(default="sigungu", pattern="^(sigungu|eup_myeon_dong)$"),
     months: int = Query(default=12, ge=1, le=60),
     property_type: str = Query(default="all", pattern=_PROPERTY_PATTERN),
     budget_max: int = Query(default=0, ge=0, description="만원 단위"),
@@ -31,6 +32,7 @@ def region_market_summary(
     del user
     return get_region_market_summary(
         region_code=region_code, months=months, property_type=property_type,
+        group_level=group_level,
         budget_max_won=budget_max * 10_000 if budget_max else None,
     )
 

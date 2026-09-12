@@ -39,6 +39,8 @@ def get_llm():
             model=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
             base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             temperature=0.0,
+            # 모델 기본값에 맡기면 내부 추론으로 응답 대기가 길어질 수 있다.
+            reasoning=False,
         )
 
     if LLM_PROVIDER == "openai":
@@ -79,6 +81,7 @@ def get_llm_json():
             base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             temperature=0.0,
             format="json",
+            reasoning=False,
         )
 
     if LLM_PROVIDER == "openai":
@@ -144,7 +147,7 @@ def get_embeddings():
 
 
 def get_chat_llm(*, json_mode=False):
-    """대화 경로만 추론·출력 길이를 제한하고 AVM 모델 설정은 유지한다."""
+    """공통 추론 비활성화에 더해 대화 경로의 출력 길이와 대기 시간을 제한한다."""
     llm = get_llm_json() if json_mode else get_llm()
     from langchain_ollama import ChatOllama
     if isinstance(llm, ChatOllama):

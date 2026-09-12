@@ -159,3 +159,23 @@ def test_apply_time_adjustment_all_fallback_without_key(monkeypatch):
     )
     assert adjusted[0]["time_adj_source"] == "approx"
     assert adjusted[0]["time_adj_factor"] == pytest.approx((1 + rate) ** 4)
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_monthly_factor_lookup_scales_with_months_and_preserves_prices(monkeypatch, available):
+    monkeypatch.setattr(reb_index, "REB_API_KEY", "test-key")
+    calls = []
+    def lookup(category, region, deal_ym, as_of_ym):
+        calls.append((region, deal_ym))
+        return (1.03, "부동산원 지수 202601→202607") if available else None
+    monkeypatch.setattr(reb_index, "get_adj_factor", lookup)
+    samples = [{"price": 100000 + i, "deal_year": "2026", "deal_month": str(1 + i % 2)} for i in range(3000)]
+    adjusted, rate = price_engine._apply_time_adjustment(samples, "주거용", "20260701", "노원구")
+    assert len(calls) == 2
+    for original, result in zip(samples, adjusted):
+        factor = 1.03 if available else price_engine._time_adj_factor(7 - int(original["deal_month"]), rate)
+        assert result["price"] == round(original["price"] * factor)
+        assert "original_price" not in original
+    # 실패한 지수 조회도 현재 요청에만 묶이며 다른 요청/지역에서 다시 확인한다.
+    price_engine._apply_time_adjustment(samples, "주거용", "20260701", "마포구")
+    assert len(calls) == 4 and calls[-1][0] == "마포구"

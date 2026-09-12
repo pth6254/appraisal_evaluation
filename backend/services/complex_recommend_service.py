@@ -164,6 +164,8 @@ def recommend_complexes(
     area_m2: float = 0.0,
     months: int = 6,
     limit: int = 5,
+    *, region_code: str | None = None, area_min_sqm: float = 0,
+    strict_budget: bool = False,
 ) -> dict:
     """
     실거래 기반 단지 추천.
@@ -176,15 +178,35 @@ def recommend_complexes(
     }
     """
     region = (region or "").strip()
-    lawd = get_lawd_code(region)
+    selected_dong = None
+    if region_code:
+        from db.base import session_scope
+        from db.models import LegalRegion
+        from fastapi import HTTPException
+        with session_scope() as session:
+            selected = session.get(LegalRegion, region_code)
+            if not selected or not selected.is_active or selected.level not in {"sigungu", "eup_myeon_dong"}:
+                raise HTTPException(status_code=404, detail="선택한 지역을 찾을 수 없습니다")
+            lawd = selected.lawd_code
+            region = selected.full_name
+            if selected.level == "eup_myeon_dong":
+                selected_dong = (selected.code, selected.name)
+    else:
+        lawd = get_lawd_code(region)
     if not lawd:
         return {"error": f"'{region}' 지역을 찾을 수 없습니다. 시군구 단위로 입력하세요 (예: 춘천시, 해운대구)",
                 "results": []}
 
-    samples = _load_samples(lawd, months)
+    samples = [s for s in _load_samples(lawd, months) if not s.get("is_cancelled")]
+    if selected_dong:
+        code, name = selected_dong
+        samples = [s for s in samples if s.get("bjdong_code") == code or
+                   (not s.get("bjdong_code") and (s.get("dong") or "").strip() == name)]
     if not samples:
         return {"error": f"'{region}' 최근 {months}개월 아파트 실거래 없음", "results": []}
 
+    if area_min_sqm > 0:
+        samples = [s for s in samples if (s.get("area_sqm") or 0) >= area_min_sqm]
     # 면적 필터 (거래 단위) → 시점수정 → 단지 집계
     if area_m2 > 0:
         samples = [s for s in samples
@@ -204,7 +226,7 @@ def recommend_complexes(
     # 예산 필터 (완만: 평균가가 예산 상한 ±10% 이내)
     pool = complexes
     if budget_max > 0:
-        pool = [c for c in complexes if c["avg_price"] <= budget_max * 1.10
+        pool = [c for c in complexes if c["avg_price"] <= budget_max * (1 if strict_budget else 1.10)
                 and (budget_min <= 0 or c["avg_price"] >= budget_min * 0.90)]
         if not pool:
             return {"error": f"예산 {budget_min:,}~{budget_max:,}만원에 맞는 단지 없음"

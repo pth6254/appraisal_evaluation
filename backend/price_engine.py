@@ -122,6 +122,10 @@ def _apply_time_adjustment(
 
     adjusted = []
     reb_hits = 0
+    # 같은 요청의 유형·지역·기준월은 고정이다. 월별 계수를 거래마다 재조회하면
+    # 수천 건의 단지 집계에서 DB 왕복이 폭증해 프록시 응답 시간이 초과된다.
+    # 요청 안에서만 재사용하므로 다음 요청의 지수 갱신·실패 재시도는 유지된다.
+    monthly_adjustments = {}
     for d in samples:
         s = dict(d)
         deal_ym = ""
@@ -136,7 +140,9 @@ def _apply_time_adjustment(
         factor = None
         source = "approx"
         if use_reb and deal_ym and months > 0:
-            r = reb_index.get_adj_factor(category, region, deal_ym, as_of_ym)
+            if deal_ym not in monthly_adjustments:
+                monthly_adjustments[deal_ym] = reb_index.get_adj_factor(category, region, deal_ym, as_of_ym)
+            r = monthly_adjustments[deal_ym]
             if r:
                 factor, desc = r
                 # 지수 공표 시차로 기준시점까지 못 미친 구간은 근사율로 이어서 보정

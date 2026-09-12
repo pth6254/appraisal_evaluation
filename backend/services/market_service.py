@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, or_, case, func, select
 
 from db.base import session_scope
 from db.models import LegalRegion, Transaction
@@ -20,6 +20,7 @@ PROPERTY_ENDPOINTS = {
 
 
 def list_legal_regions(*, level: str, parent_code: str | None) -> list[dict]:
+    level = "eup_myeon_dong" if level == "eupmyeondong" else level
     with session_scope() as session:
         stmt = (
             select(LegalRegion)
@@ -75,6 +76,7 @@ def get_region_market_summary(
     budget_max_won: int | None = None,
     region_code: str | None = None,
     legacy_sido_name: str | None = None,
+    group_level: str = "sigungu",
 ) -> dict:
     if property_type not in PROPERTY_ENDPOINTS:
         raise ValueError(f"지원하지 않는 부동산 유형: {property_type}")
@@ -85,6 +87,18 @@ def get_region_market_summary(
         selected_region = session.get(LegalRegion, region_code) if region_code else None
         if region_code and (not selected_region or not selected_region.is_active):
             raise HTTPException(status_code=404, detail="선택한 행정구역을 찾을 수 없습니다")
+        if selected_region and selected_region.level == "eup_myeon_dong":
+            group_level = "eup_myeon_dong"
+        if group_level not in {"sigungu", "eup_myeon_dong"}:
+            raise HTTPException(status_code=422, detail="지원하지 않는 집계 단위입니다")
+        join_condition = Transaction.lawd_cd == LegalRegion.lawd_code
+        if group_level == "eup_myeon_dong":
+            # 공식 코드가 있는 거래는 이름으로 재매칭하지 않아 잘못된 동에 중복 집계하지 않는다.
+            join_condition = and_(join_condition, or_(
+                Transaction.bjdong_code == LegalRegion.code,
+                and_(or_(Transaction.bjdong_code.is_(None), Transaction.bjdong_code == ""),
+                     func.trim(Transaction.dong) == LegalRegion.name),
+            ))
         max_ym = session.scalar(select(func.max(Transaction.deal_ym)))
         if not max_ym:
             return {"source": "국토교통부 실거래가", "period": None, "items": []}
@@ -106,9 +120,9 @@ def get_region_market_summary(
                 func.count(func.distinct(Transaction.apt_name)).label("asset_count"),
                 func.max(Transaction.deal_ym).label("last_deal_ym"), budget_fit.label("budget_fit_count"),
             )
-            .join(Transaction, Transaction.lawd_cd == LegalRegion.lawd_code)
+            .join(Transaction, join_condition)
             .where(
-                LegalRegion.is_active.is_(True), LegalRegion.level == "sigungu",
+                LegalRegion.is_active.is_(True), LegalRegion.level == group_level,
                 Transaction.deal_ym >= min_ym, Transaction.deal_ym <= max_ym,
                 Transaction.is_cancelled.is_(False),
             )
@@ -119,9 +133,11 @@ def get_region_market_summary(
             if selected_region.level == "sido":
                 stmt = stmt.where(LegalRegion.sido_code == selected_region.sido_code)
             elif selected_region.level == "sigungu":
-                stmt = stmt.where(LegalRegion.full_name.like(f"{selected_region.full_name}%"))
+                stmt = stmt.where(LegalRegion.lawd_code == selected_region.lawd_code)
+            elif selected_region.level == "eup_myeon_dong":
+                stmt = stmt.where(LegalRegion.code == selected_region.code)
             else:
-                raise HTTPException(status_code=422, detail="시장 비교는 시·도 또는 시·군·구 단위만 지원합니다")
+                raise HTTPException(status_code=422, detail="시장 비교는 시·도, 시·군·구, 읍·면·동까지 지원합니다")
         elif legacy_sido_name:
             stmt = stmt.where(LegalRegion.full_name.like(f"{legacy_sido_name} %"))
         if endpoint:
@@ -131,6 +147,7 @@ def get_region_market_summary(
     return {
         "source": "국토교통부 실거래가", "price_unit": "만원",
         "period": {"from": min_ym, "to": max_ym}, "property_type": property_type,
+        "group_level": group_level,
         "scope": ({"code": selected_region.code, "name": selected_region.name,
                    "full_name": selected_region.full_name, "level": selected_region.level}
                   if selected_region else None),

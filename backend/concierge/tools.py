@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+
 from backend.services.market_service import get_region_market_summary, resolve_region_name
 from schemas.concierge import ConciergeCriteria, ConciergeIntent, ConciergeToolResult
 from backend.concierge.decision_tools import compare_properties, simulate_investment
@@ -46,15 +47,61 @@ def find_regions(criteria: ConciergeCriteria, user_id: int, candidate_context: d
     if criteria.transaction_type != "purchase":
         return ConciergeToolResult(tool="find_regions", status="not_available")
     summary = get_region_market_summary(
-        region_code=criteria.region_code,
-        property_type=criteria.property_type,
-        months=12,
-        budget_max_won=criteria.budget_max_won,
+        region_code=criteria.region_code, property_type=criteria.property_type,
+        months=12, budget_max_won=criteria.budget_max_won,
+        group_level="eup_myeon_dong" if criteria.region_code[2:5] != "000" else "sigungu",
     )
     return ConciergeToolResult(
         tool="find_regions", status="completed",
         data={**summary, "items": summary.get("items", [])[:10]},
     )
+
+
+def select_properties(criteria: ConciergeCriteria, user_id: int, candidate_context: dict | None = None) -> ConciergeToolResult:
+    """실거래 단지 추천을 재사용하며 현재 판매 중인 매물로 표현하지 않는다."""
+    from db.base import session_scope
+    from db.models import LegalRegion
+    from backend.services.complex_recommend_service import recommend_complexes
+
+    def reply(answer, status="needs_input", missing=None, **data):
+        return ConciergeToolResult(tool="select_properties", status=status,
+            missing_fields=missing or [], data={"answer": answer, **data})
+
+    if not criteria.region_code and criteria.region_name:
+        resolved = resolve_region_name(criteria.region_name)
+        if resolved["status"] == "resolved":
+            criteria.region_code = resolved["code"]
+        elif resolved["status"] == "ambiguous":
+            names = ", ".join(r["full_name"] for r in resolved["candidates"])
+            return reply(f"같은 이름의 지역이 여러 곳입니다. 구체적인 지역을 알려주세요: {names}", missing=["region_code"])
+    if not criteria.region_code:
+        return reply("단지를 추천할 시·군·구 또는 법정동을 알려주세요. 예: 강남구, 역삼동", missing=["region"])
+    with session_scope() as session:
+        region = session.get(LegalRegion, criteria.region_code)
+        if not region or not region.is_active or region.level not in {"sigungu", "eup_myeon_dong"}:
+            return reply("단지 추천은 시·군·구 또는 법정동을 지정해주세요. 예산 등 기존 조건은 유지됩니다.", missing=["region_code"])
+        region_name = region.full_name
+    missing = [key for key in ("property_type", "transaction_type") if not getattr(criteria, key)]
+    if missing:
+        return reply("추천할 부동산 유형과 거래 유형을 확인해주세요. 현재는 아파트 매매 실거래 기반 단지 추천을 제공합니다.", missing=missing)
+    if criteria.property_type != "apartment" or criteria.transaction_type != "purchase":
+        return reply("현재 단지 추천은 아파트 매매 실거래를 지원합니다. 다른 유형은 동네 탐색에서 지역 통계를 확인해주세요.", status="not_available")
+    if criteria.budget_max_won is not None and criteria.budget_max_won < 10000:
+        return reply("입력한 예산에 맞는 단지 후보가 없습니다. 예산을 조정해주세요.", status="completed", results=[])
+    result = recommend_complexes(region_name, region_code=criteria.region_code,
+        budget_max=(criteria.budget_max_won or 0) // 10000, months=12, limit=5,
+        area_min_sqm=criteria.area_min_sqm or 0, strict_budget=True)
+    if result.get("error"):
+        return reply(result["error"] + "\n지역·예산·면적 조건을 조정해 주세요. 현재 판매 중인 매물 여부는 확인하지 않습니다.",
+                     status="completed", results=[])
+    lines = [f"{region_name}의 최근 12개월 매매 실거래 기반 아파트 단지 후보입니다."]
+    for index, item in enumerate(result["results"], 1):
+        lines.append(f"{index}. {item['complex_name']} ({item['dong']}) — 시점수정 평균 {item['avg_price']:,}만원, "
+                     f"평균 면적 {item['avg_area_m2']}㎡, 거래 {item['deal_count']}건")
+    lines.append("가격은 시점수정한 실거래 평균이며 개별 매물 호가가 아닙니다. 현재 매물 존재 여부는 별도 확인이 필요합니다.")
+    lines.append("후보 저장과 후속 검토는 동네 탐색에서 해당 지역·단지를 선택해 진행할 수 있습니다.")
+    return reply("\n\n".join(lines), status="completed", results=result["results"],
+                 source="국토교통부 실거래가", months=12, region_name=region_name)
 
 
 def appraise_property(criteria: ConciergeCriteria, user_id: int, candidate_context: dict | None = None) -> ConciergeToolResult:
@@ -82,10 +129,10 @@ def general_help(criteria: ConciergeCriteria, user_id: int, candidate_context: d
 TOOL_REGISTRY: dict[ConciergeIntent, ToolDefinition] = {
     ConciergeIntent.FIND_REGION: ToolDefinition(
         name="find_regions", intent=ConciergeIntent.FIND_REGION,
-        description="실거래 기반 시·군·구 비교", enabled=True, handler=find_regions,
+        description="실거래 기반 시·군·구 및 법정동 비교", enabled=True, handler=find_regions,
     ),
     ConciergeIntent.SELECT_PROPERTY: ToolDefinition(
-        "select_properties", ConciergeIntent.SELECT_PROPERTY, "조건에 맞는 매물·단지 후보 선택", False,
+        "select_properties", ConciergeIntent.SELECT_PROPERTY, "실거래 기반 아파트 단지 추천", True, select_properties,
     ),
     ConciergeIntent.APPRAISE: ToolDefinition(
         "appraise_property", ConciergeIntent.APPRAISE, "AVM 기반 가격 추정", True, appraise_property,

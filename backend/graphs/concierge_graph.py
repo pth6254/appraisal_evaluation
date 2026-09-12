@@ -38,6 +38,13 @@ tax_legal, general 중 하나입니다. 반드시 아래 형태의 JSON만 반�
 {"intent":"find_region","criteria":{"property_type":"apartment","transaction_type":"purchase",
 "budget_max_won":1000000000,"region_name":"서울","region_code":null,"area_min_sqm":null,"purpose":null}}
 동네·지역 추천은 find_region, 특정 매물·단지 선택은 select_property, 가격 추정은 appraise,
+구체적인 아파트 단지 추천, '그럼 단지 추천해줘'도 select_property입니다. 기존 지역·예산·매매 조건은 유지하고 새로 명시된 조건만 추출하세요.
+동네·구·읍·면·동의 실거래 비교도 find_region입니다. compare는 저장한 개별 후보 물건 비교에만 사용합니다.
+region_name에는 사용자가 명시한 가장 구체적인 지역을 넣으세요. 강남구를 서울로 축약하지 마세요.
+region_code는 반드시 생략하거나 null로 두세요. 공식 코드는 서버가 지역명으로 조회합니다.
+예: '서울특별시 강남구에서 8억 이하 아파트 매매 동네 비교해줘' →
+{"intent":"find_region","criteria":{"region_name":"서울특별시 강남구","property_type":"apartment","transaction_type":"purchase","budget_max_won":800000000}}
+예: 동네 비교 후 '그럼 역삼동은 어때?' → {"intent":"find_region","criteria":{"region_name":"역삼동"}}
 취득세·양도세·보유세·법률 질문은 tax_legal, 인사·사용법은 general입니다.
 criteria에는 새 메시지에서 확인되는 변경값만 넣으세요. 모르는 값은 생략하거나 null로 두세요.
 transaction_type은 purchase(매매), rent(월세), lease(전세) 중 명시된 값만 넣으세요.
@@ -173,7 +180,7 @@ def explain_node(state: ConciergeState) -> ConciergeState:
     from backend.model_factory import get_llm
 
     result = state["tool_result"]
-    if result.tool in {"simulate_investment", "compare_properties", "funding_validation"}:
+    if result.tool in {"simulate_investment", "compare_properties", "funding_validation", "select_properties"}:
         return {**state, "answer": result.data["answer"], "blocked": []}
     if result.tool == "answer_tax_legal":
         return {**state, "answer": result.data["answer"], "blocked": result.data.get("blocked", [])}
